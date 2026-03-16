@@ -380,17 +380,11 @@ export default function Home() {
             <p className="text-center text-sm text-gray-500 mb-8">{t.planMinCommitment}</p>
             <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
               {pricingPlans.map((plan) => (
-                <div key={plan.name} className={`rounded-xl p-8 relative ${plan.highlight ? "bg-primary text-white ring-4 ring-red-200 scale-105" : plan.disabled ? "bg-gray-50 border border-gray-200 opacity-60" : "bg-white border border-gray-200"}`}>
+                <div key={plan.name} className={`rounded-xl p-8 relative flex flex-col ${plan.highlight ? "bg-primary text-white ring-4 ring-red-200 scale-105" : plan.disabled ? "bg-gray-50 border border-gray-200 opacity-60" : "bg-white border border-gray-200"}`}>
                   {plan.disabled && <span className="absolute top-3 right-3 bg-gray-200 text-gray-500 text-xs font-medium px-2 py-0.5 rounded-full">{t.planComingSoon}</span>}
                   <h3 className={`text-lg font-semibold mb-1 ${plan.highlight ? "text-red-100" : "text-gray-500"}`}>{plan.name}</h3>
-                  <div className="mb-2">
-                    <span className="text-4xl font-bold">{plan.price}</span>
-                    {plan.period && <span className={`text-sm ${plan.highlight ? "text-red-200" : "text-gray-400"}`}>{plan.period}</span>}
-                  </div>
-                  <p className={`text-sm mb-1 ${plan.highlight ? "text-red-200" : "text-gray-400"}`}>{plan.description}</p>
-                  {plan.minCommitment && <p className={`text-sm mb-5 ${plan.highlight ? "text-red-200" : "text-gray-400"}`}>{t.planMinCommitment}</p>}
-                  {!plan.minCommitment && <div className="mb-6" />}
-                  <ul className="space-y-3 mb-8">
+                  <div className="mb-6" />
+                  <ul className="space-y-3 mb-8 flex-1">
                     {plan.features.map((feature) => (
                       <li key={feature} className="flex items-start gap-2 text-sm">
                         <svg className={`w-5 h-5 shrink-0 mt-0.5 ${plan.highlight ? "text-red-200" : plan.disabled ? "text-gray-400" : "text-green-500"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

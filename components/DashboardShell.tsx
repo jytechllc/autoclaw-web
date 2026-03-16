@@ -39,7 +39,8 @@ export default function DashboardShell({ children, user, plan, fullHeight }: Pro
         { href: `/${locale}/dashboard/projects`, label: tc.projects },
         { href: `/${locale}/dashboard/skills`, label: tc.skills },
         { href: `/${locale}/dashboard/knowledge`, label: tc.knowledge },
-        { href: `/${locale}/dashboard/contacts`, label: tc.contacts },
+        { href: `/${locale}/dashboard/contacts`, label: tc.customers },
+        { href: `/${locale}/dashboard/activities`, label: tc.activities },
       ],
     },
     {
@@ -55,6 +56,8 @@ export default function DashboardShell({ children, user, plan, fullHeight }: Pro
       children: [
         { href: `/${locale}/dashboard/tiktok`, label: tc.tiktok },
         { href: `/${locale}/dashboard/x`, label: tc.x },
+        { href: `/${locale}/dashboard/facebook`, label: tc.facebook },
+        { href: `/${locale}/dashboard/instagram`, label: tc.instagram },
       ],
     },
     {

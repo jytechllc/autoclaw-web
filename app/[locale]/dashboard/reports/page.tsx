@@ -198,20 +198,22 @@ function CombinedTrafficChart({ projects, locale, colorMap }: { projects: Projec
   return (
     <div className="bg-white rounded-lg border border-gray-200 p-4 sm:p-5">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-        <h3 className="font-semibold text-sm">{chartTitle}</h3>
-        <div className="flex flex-wrap gap-3">
-          {projectLines.map((pl) => (
-            <div
-              key={pl.name}
-              className="flex items-center gap-1.5 cursor-pointer transition-opacity"
-              style={{ opacity: hoveredProject && hoveredProject !== pl.name ? 0.35 : 1 }}
-              onMouseEnter={() => setHoveredProject(pl.name)}
-              onMouseLeave={() => setHoveredProject(null)}
-            >
-              <span className="inline-block w-3 h-[3px] rounded" style={{ backgroundColor: pl.color }} />
-              <span className="text-xs text-gray-500">{pl.name}</span>
-            </div>
-          ))}
+        <h3 className="font-semibold text-sm shrink-0">{chartTitle}</h3>
+        <div className="overflow-x-auto min-w-0">
+          <div className="flex gap-3 whitespace-nowrap">
+            {projectLines.map((pl) => (
+              <div
+                key={pl.name}
+                className="flex items-center gap-1.5 cursor-pointer transition-opacity shrink-0"
+                style={{ opacity: hoveredProject && hoveredProject !== pl.name ? 0.35 : 1 }}
+                onMouseEnter={() => setHoveredProject(pl.name)}
+                onMouseLeave={() => setHoveredProject(null)}
+              >
+                <span className="inline-block w-3 h-[3px] rounded" style={{ backgroundColor: pl.color }} />
+                <span className="text-xs text-gray-500">{pl.name}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
       <div className="overflow-x-auto relative" onMouseLeave={handleChartLeave}>

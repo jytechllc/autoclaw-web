@@ -98,12 +98,10 @@ export default function XPage() {
   const [imageModel, setImageModel] = useState("bytedance/seedream-v4.5");
   // Recurring tasks state
   const [recurringTasks, setRecurringTasks] = useState<{
-    id: number; name: string; variant_label?: string; content: string; media_url?: string;
-    tone?: string; posts_per_week: number; best_post_times: string[]; status: string;
-    version: number; last_posted_at?: string; next_post_at?: string;
+    id: number; name: string; variant_label?: string;
+    tone?: string; image_prompt?: string; posts_per_week: number; best_post_times: string[]; status: string;
+    version: number; last_posted_at?: string; last_posted_content?: string; next_post_at?: string;
   }[]>([]);
-  const [editingTask, setEditingTask] = useState<number | null>(null);
-  const [editContent, setEditContent] = useState("");
 
   const [generatingImage, setGeneratingImage] = useState(false);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
@@ -296,7 +294,6 @@ export default function XPage() {
       });
       if (res.ok) {
         fetchRecurringTasks();
-        setEditingTask(null);
       }
     } catch { /* ignore */ }
   }
@@ -768,7 +765,9 @@ export default function XPage() {
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
                           <h3 className="text-sm font-semibold text-gray-800">{task.name}</h3>
-                          <span className="text-[10px] text-gray-400">v{task.version}</span>
+                          {task.variant_label && (
+                            <span className="text-[10px] px-1.5 py-0.5 bg-purple-50 text-purple-600 rounded-full font-medium">{task.variant_label}</span>
+                          )}
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${
                             task.status === "active" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"
                           }`}>
@@ -783,12 +782,6 @@ export default function XPage() {
                             {task.status === "active" ? t.recurringPause : t.recurringResume}
                           </button>
                           <button
-                            onClick={() => { setEditingTask(task.id); setEditContent(task.content); }}
-                            className="text-xs text-blue-500 hover:text-blue-700 cursor-pointer"
-                          >
-                            {t.recurringEdit}
-                          </button>
-                          <button
                             onClick={() => deleteRecurringTask(task.id)}
                             className="text-xs text-red-400 hover:text-red-600 cursor-pointer"
                           >
@@ -797,35 +790,9 @@ export default function XPage() {
                         </div>
                       </div>
 
-                      {editingTask === task.id ? (
-                        <div className="space-y-2">
-                          <textarea
-                            value={editContent}
-                            onChange={(e) => setEditContent(e.target.value)}
-                            rows={3}
-                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-200 focus:outline-none resize-none"
-                          />
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => updateRecurringTask(task.id, { content: editContent })}
-                              className="px-3 py-1 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700 cursor-pointer"
-                            >
-                              {t.recurringSave}
-                            </button>
-                            <button
-                              onClick={() => setEditingTask(null)}
-                              className="px-3 py-1 text-xs text-gray-500 hover:text-gray-700 cursor-pointer"
-                            >
-                              {t.recurringCancel}
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="text-sm text-gray-700 whitespace-pre-wrap line-clamp-3">{task.content}</p>
-                      )}
-
-                      <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-gray-400">
-                        {task.tone && <span>{task.tone}</span>}
+                      {/* Variant strategy info */}
+                      <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
+                        {task.tone && <span className="px-1.5 py-0.5 bg-gray-100 rounded">{task.tone}</span>}
                         <span>{task.posts_per_week} {t.postsPerWeek}</span>
                         {task.best_post_times?.length > 0 && (
                           <div className="flex gap-1">
@@ -837,10 +804,19 @@ export default function XPage() {
                         {task.next_post_at && (
                           <span>{t.recurringNext}: {new Date(task.next_post_at).toLocaleString()}</span>
                         )}
-                        {task.last_posted_at && (
-                          <span>{t.recurringLast}: {new Date(task.last_posted_at).toLocaleString()}</span>
-                        )}
                       </div>
+
+                      {/* Last posted content — read-only reference */}
+                      {task.last_posted_content ? (
+                        <div className="mt-2 border-t border-gray-100 pt-2">
+                          <span className="text-[10px] text-gray-400">{t.recurringLast}: {task.last_posted_at ? new Date(task.last_posted_at).toLocaleString() : "—"}</span>
+                          <p className="text-sm text-gray-500 italic whitespace-pre-wrap line-clamp-3 mt-0.5">{task.last_posted_content}</p>
+                        </div>
+                      ) : task.last_posted_at ? (
+                        <div className="mt-2 text-xs text-gray-400">
+                          {t.recurringLast}: {new Date(task.last_posted_at).toLocaleString()}
+                        </div>
+                      ) : null}
                     </div>
                   ))}
                 </div>

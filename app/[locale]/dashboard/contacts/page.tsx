@@ -49,6 +49,7 @@ export default function ContactsPage() {
   const [search, setSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState("");
   const [projectFilter, setProjectFilter] = useState("");
+  const [tierFilter, setTierFilter] = useState("");
   const [projects, setProjects] = useState<Project[]>([]);
   const [importing, setImporting] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -67,6 +68,7 @@ export default function ContactsPage() {
   const [formPhone, setFormPhone] = useState("");
   const [formNotes, setFormNotes] = useState("");
   const [formProjectId, setFormProjectId] = useState("");
+  const [formTier, setFormTier] = useState("");
   const [saving, setSaving] = useState(false);
 
   async function loadContacts(p = page) {
@@ -74,6 +76,7 @@ export default function ContactsPage() {
     if (search) params.set("search", search);
     if (sourceFilter) params.set("source", sourceFilter);
     if (projectFilter) params.set("project_id", projectFilter);
+    if (tierFilter) params.set("tier", tierFilter);
     params.set("page", String(p));
     const res = await fetch(`/api/contacts?${params}`);
     const data = await res.json();
@@ -94,7 +97,7 @@ export default function ContactsPage() {
     setPage(1);
     const timer = setTimeout(() => loadContacts(1), 300);
     return () => clearTimeout(timer);
-  }, [search, sourceFilter, projectFilter]);
+  }, [search, sourceFilter, projectFilter, tierFilter]);
 
   useEffect(() => {
     loadContacts(page);
@@ -111,6 +114,7 @@ export default function ContactsPage() {
       setFormPhone(contact.phone || "");
       setFormNotes(contact.notes || "");
       setFormProjectId(contact.project_id?.toString() || "");
+      setFormTier((contact as Contact & { tier?: string }).tier || "");
     } else {
       setEditing(null);
       setFormEmail("");
@@ -121,6 +125,7 @@ export default function ContactsPage() {
       setFormPhone("");
       setFormNotes("");
       setFormProjectId("");
+      setFormTier("");
     }
     setShowForm(true);
   }
@@ -142,6 +147,7 @@ export default function ContactsPage() {
         phone: formPhone,
         notes: formNotes,
         project_id: formProjectId ? Number(formProjectId) : null,
+        tier: formTier || null,
       }),
     });
     setSaving(false);
@@ -213,6 +219,17 @@ export default function ContactsPage() {
     if (openRate >= 0.2) return { label: t.qualityWarm, color: "bg-yellow-100 text-yellow-700" };
     return { label: t.qualityCold, color: "bg-blue-100 text-blue-600" };
   }
+
+  const tierLabel = (tier: string | null | undefined) => {
+    const map: Record<string, { label: string; color: string }> = {
+      vip: { label: t.tierVIP, color: "bg-amber-100 text-amber-800" },
+      a: { label: t.tierA, color: "bg-red-100 text-red-700" },
+      b: { label: t.tierB, color: "bg-blue-100 text-blue-700" },
+      c: { label: t.tierC, color: "bg-gray-100 text-gray-600" },
+      d: { label: t.tierD, color: "bg-gray-100 text-gray-400" },
+    };
+    return map[tier || ""] || { label: t.tierUnassigned, color: "bg-gray-50 text-gray-400" };
+  };
 
   const sourceLabel = (s: string) => {
     const map: Record<string, string> = { manual: t.manual, brevo: t.brevo, apollo: t.apollo, hunter: t.hunter, snov: t.snov, import: "Import" };
@@ -299,6 +316,19 @@ export default function ContactsPage() {
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
           </select>
+          <select
+            value={tierFilter}
+            onChange={(e) => setTierFilter(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+          >
+            <option value="">{t.allTiers}</option>
+            <option value="vip">{t.tierVIP}</option>
+            <option value="a">{t.tierA}</option>
+            <option value="b">{t.tierB}</option>
+            <option value="c">{t.tierC}</option>
+            <option value="d">{t.tierD}</option>
+            <option value="unassigned">{t.tierUnassigned}</option>
+          </select>
         </div>
 
         {/* Stats bar */}
@@ -323,6 +353,7 @@ export default function ContactsPage() {
                   <th className="text-left px-4 py-3 font-medium text-gray-600">{t.position}</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">{t.source}</th>
                   <th className="text-center px-4 py-3 font-medium text-gray-600">{t.engagement}</th>
+                  <th className="text-center px-4 py-3 font-medium text-gray-600">{t.tier}</th>
                   <th className="text-center px-4 py-3 font-medium text-gray-600">{t.quality}</th>
                   <th className="text-right px-4 py-3 font-medium text-gray-600"></th>
                 </tr>
@@ -354,6 +385,11 @@ export default function ContactsPage() {
                       ) : (
                         <span className="text-xs text-gray-300">—</span>
                       )}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      {(() => { const ti = tierLabel((c as Contact & { tier?: string }).tier); return (
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${ti.color}`}>{ti.label}</span>
+                      ); })()}
                     </td>
                     <td className="px-4 py-3 text-center">
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${q.color}`}>{q.label}</span>
@@ -461,6 +497,17 @@ export default function ContactsPage() {
                     {projects.map((p) => (
                       <option key={p.id} value={p.id}>{p.name}</option>
                     ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">{t.tier}</label>
+                  <select value={formTier} onChange={(e) => setFormTier(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500">
+                    <option value="">{t.tierUnassigned}</option>
+                    <option value="vip">{t.tierVIP}</option>
+                    <option value="a">{t.tierA}</option>
+                    <option value="b">{t.tierB}</option>
+                    <option value="c">{t.tierC}</option>
+                    <option value="d">{t.tierD}</option>
                   </select>
                 </div>
                 <div>

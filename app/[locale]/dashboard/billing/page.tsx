@@ -145,7 +145,7 @@ export default function BillingPage() {
   const [tokenSummary, setTokenSummary] = useState<TokenSummary | null>(null);
   const [tokenByModel, setTokenByModel] = useState<TokenByModel[]>([]);
   const [tokenByDate, setTokenByDate] = useState<TokenByDate[]>([]);
-  const [upgrading, setUpgrading] = useState<string | null>(null);
+  // const [upgrading, setUpgrading] = useState<string | null>(null);
   const [apiKeys, setApiKeys] = useState<{ service: string; masked_key: string }[]>([]);
   const [budgetLimit, setBudgetLimit] = useState<string>("");
   const [totalBudgetLimit, setTotalBudgetLimit] = useState<string>("");
@@ -251,7 +251,7 @@ export default function BillingPage() {
                 },
               ];
               const currentPlan = plans.find((p) => p.key === userPlan) || plans[0];
-              const otherPlans = plans.filter((p) => p.key !== userPlan);
+              // const otherPlans = plans.filter((p) => p.key !== userPlan);
 
               return (
                 <>
@@ -267,9 +267,7 @@ export default function BillingPage() {
                           </div>
                           <p className="text-sm text-gray-500">{currentPlan.desc}</p>
                         </div>
-                        <div className="text-right">
-                          <p className="text-2xl font-bold">{currentPlan.price}{currentPlan.key !== "starter" && currentPlan.key !== "enterprise" ? td.billingCycleMonthly : ""}</p>
-                        </div>
+                        {/* Price hidden */}
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {currentPlan.features.map((feat, i) => (
@@ -303,66 +301,7 @@ export default function BillingPage() {
                     </div>
                   </section>
 
-                  {/* Available Plans */}
-                  <section className="mb-8">
-                    <h2 className="text-lg font-semibold mb-4">{td.availablePlans}</h2>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                      {otherPlans.map((plan) => {
-                        const planOrder = ["starter", "growth", "scale", "enterprise"];
-                        const isUpgrade = planOrder.indexOf(plan.key) > planOrder.indexOf(userPlan);
-                        return (
-                          <div key={plan.key} className={`bg-white rounded-lg border ${plan.color} p-5 flex flex-col`}>
-                            <div className="mb-3">
-                              <h3 className="font-semibold text-lg">{plan.name}</h3>
-                              <p className="text-xl font-bold mt-1">{plan.price}{plan.key !== "starter" && plan.key !== "enterprise" ? td.billingCycleMonthly : ""}</p>
-                              <p className="text-xs text-gray-500 mt-1">{plan.desc}</p>
-                            </div>
-                            <ul className="space-y-1.5 mb-4 flex-1">
-                              {plan.features.map((feat, i) => (
-                                <li key={i} className="flex items-start gap-1.5 text-xs text-gray-600">
-                                  <svg className="w-3.5 h-3.5 text-green-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                                  {feat}
-                                </li>
-                              ))}
-                            </ul>
-                            {isUpgrade && plan.key !== "enterprise" && (
-                              <button
-                                onClick={async () => {
-                                  setUpgrading(plan.key);
-                                  try {
-                                    const res = await fetch("/api/checkout", {
-                                      method: "POST",
-                                      headers: { "Content-Type": "application/json" },
-                                      body: JSON.stringify({ plan: plan.key }),
-                                    });
-                                    const data = await res.json();
-                                    if (data.url) window.location.href = data.url;
-                                  } finally {
-                                    setUpgrading(null);
-                                  }
-                                }}
-                                disabled={upgrading === plan.key}
-                                className="w-full bg-red-800 hover:bg-red-900 text-white py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer disabled:opacity-50"
-                              >
-                                {upgrading === plan.key ? "..." : td.upgradeTo}
-                              </button>
-                            )}
-                            {isUpgrade && plan.key === "enterprise" && (
-                              <a
-                                href={`mailto:support@autoclaw.ai?subject=Enterprise Plan Inquiry`}
-                                className="w-full block text-center bg-gray-900 hover:bg-gray-800 text-white py-2 rounded-lg text-sm font-medium transition-colors"
-                              >
-                                {td.contactSales}
-                              </a>
-                            )}
-                            {!isUpgrade && (
-                              <p className="text-xs text-center text-gray-400 py-2">{plan.name}</p>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </section>
+                  {/* Available Plans — hidden */}
                 </>
               );
             })()}

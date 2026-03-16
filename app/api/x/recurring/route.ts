@@ -12,7 +12,7 @@ async function ensureRecurringTasksTable() {
       user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
       name VARCHAR(255) NOT NULL,
       variant_label VARCHAR(10),
-      content TEXT NOT NULL,
+      content TEXT,
       media_url TEXT,
       image_prompt TEXT,
       tone VARCHAR(100),
@@ -21,10 +21,18 @@ async function ensureRecurringTasksTable() {
       status VARCHAR(50) DEFAULT 'active',
       version INTEGER DEFAULT 1,
       last_posted_at TIMESTAMP,
+      last_posted_content TEXT,
       next_post_at TIMESTAMP,
       created_at TIMESTAMP DEFAULT NOW(),
       updated_at TIMESTAMP DEFAULT NOW()
     )
+  `;
+  // Add last_posted_content column if missing (migration for existing tables)
+  await sql`
+    DO $$ BEGIN
+      ALTER TABLE x_recurring_tasks ADD COLUMN IF NOT EXISTS last_posted_content TEXT;
+    EXCEPTION WHEN others THEN NULL;
+    END $$
   `;
 }
 
@@ -45,7 +53,9 @@ export async function GET() {
   await ensureRecurringTasksTable();
 
   const tasks = await sql`
-    SELECT * FROM x_recurring_tasks
+    SELECT id, name, variant_label, tone, image_prompt, posts_per_week, best_post_times,
+           status, version, last_posted_at, last_posted_content, next_post_at, created_at
+    FROM x_recurring_tasks
     WHERE user_id = ${users[0].id}
     ORDER BY created_at DESC
   `;
@@ -73,9 +83,9 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const { action } = body;
 
-  // Update existing task
+  // Update existing task (only variant settings, not content)
   if (action === "update") {
-    const { id, content, mediaUrl, imagePrompt, tone, postsPerWeek, bestPostTimes, name, status } = body;
+    const { id, imagePrompt, tone, postsPerWeek, bestPostTimes, name, status } = body;
     if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
 
     // Verify ownership
@@ -89,8 +99,6 @@ export async function POST(req: NextRequest) {
     const newVersion = existing[0].version + 1;
     await sql`
       UPDATE x_recurring_tasks SET
-        content = COALESCE(${content || null}, content),
-        media_url = COALESCE(${mediaUrl ?? null}, media_url),
         image_prompt = COALESCE(${imagePrompt ?? null}, image_prompt),
         tone = COALESCE(${tone || null}, tone),
         posts_per_week = COALESCE(${postsPerWeek || null}, posts_per_week),
@@ -106,9 +114,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ task: updated[0] });
   }
 
-  // Create new recurring task
+  // Create new recurring task — stores variant strategy, not content
   const { content, mediaUrl, imagePrompt, tone, postsPerWeek, bestPostTimes, variantLabel, name } = body;
-  if (!content) return NextResponse.json({ error: "content is required" }, { status: 400 });
 
   // Calculate next post time
   const now = new Date();
@@ -137,7 +144,7 @@ export async function POST(req: NextRequest) {
       ${userId},
       ${taskName},
       ${variantLabel || null},
-      ${content},
+      ${content || null},
       ${mediaUrl || null},
       ${imagePrompt || null},
       ${tone || null},
