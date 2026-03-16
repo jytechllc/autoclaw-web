@@ -7,6 +7,7 @@ on:
     - cron: "20 * * * *"
     - cron: "0 3 * * *"
     - cron: "15 3 * * *"
+    - cron: "5,35 * * * *"
   workflow_dispatch:
     inputs:
       task:
@@ -19,6 +20,7 @@ on:
           - process-embeddings
           - audit-retention
           - key-cleanup
+          - post-scheduler
 
 jobs:
   cron:
@@ -83,3 +85,13 @@ jobs:
           curl --fail --show-error --silent \
             -H "Authorization: Bearer ${CRON_SECRET}" \
             "${AUTOCLAW_BASE_URL}/api/cron/key-cleanup"
+
+      - name: Run post-scheduler
+        if: (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'post-scheduler') || (github.event_name == 'schedule' && github.event.schedule == '5,35 * * * *')
+        env:
+          AUTOCLAW_BASE_URL: ${{ vars.AUTOCLAW_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl --fail --show-error --silent \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${AUTOCLAW_BASE_URL}/api/cron/post-scheduler"

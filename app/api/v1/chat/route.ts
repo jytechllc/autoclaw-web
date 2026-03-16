@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
   // Load BYOK keys
   const keyRows = await sql`
     SELECT service, api_key FROM user_api_keys
-    WHERE user_id = ${userId} AND service IN ('openai', 'anthropic', 'google', 'alibaba')
+    WHERE user_id = ${userId} AND service IN ('openai', 'anthropic', 'google', 'alibaba', 'cerebras')
   `;
   const byokKeys: ByokKeys = {};
   for (const row of keyRows) {

@@ -476,6 +476,8 @@ export default function Home() {
           <div className="border-t border-gray-800 mt-8 pt-8 text-center text-xs flex flex-col sm:flex-row items-center justify-center gap-2">
             <p>&copy; {new Date().getFullYear()} {t.footerRights}</p>
             <span className="hidden sm:inline text-gray-600">|</span>
+            <a href={`/${locale}/terms`} className="hover:text-white transition-colors">{t.footerTerms}</a>
+            <span className="hidden sm:inline text-gray-600">|</span>
             <a href={`/${locale}/privacy`} className="hover:text-white transition-colors">{t.footerPrivacy}</a>
             <span className="hidden sm:inline text-gray-600">|</span>
             <a href={`/${locale}/changelog`} className="hover:text-white transition-colors">{t.footerChangelog}</a>

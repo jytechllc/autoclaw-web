@@ -22,7 +22,7 @@ export async function GET() {
   // Check which BYOK keys the user has
   const byokServices = await sql`
     SELECT service FROM user_api_keys
-    WHERE user_id = ${users[0].id} AND service IN ('openai', 'anthropic', 'google', 'alibaba')
+    WHERE user_id = ${users[0].id} AND service IN ('openai', 'anthropic', 'google', 'alibaba', 'cerebras')
   `;
   const hasByok = new Set(byokServices.map((r) => r.service as string));
 

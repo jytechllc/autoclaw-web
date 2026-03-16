@@ -219,7 +219,7 @@ export async function POST(req: NextRequest) {
   // Fetch user BYOK AI keys
   const byokRows = await sql`
     SELECT service, api_key FROM user_api_keys
-    WHERE user_id = ${userId} AND service IN ('openai', 'anthropic', 'google', 'alibaba')
+    WHERE user_id = ${userId} AND service IN ('openai', 'anthropic', 'google', 'alibaba', 'cerebras')
   `;
   const byok: ByokKeys = {};
   for (const row of byokRows) {
@@ -229,6 +229,7 @@ export async function POST(req: NextRequest) {
       else if (row.service === "anthropic") byok.anthropic = key;
       else if (row.service === "google") byok.google = key;
       else if (row.service === "alibaba") byok.alibaba = key;
+      else if (row.service === "cerebras") byok.cerebras = key;
     } catch {
       // Skip keys that fail to decrypt
     }

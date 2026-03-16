@@ -20,6 +20,7 @@ export interface ByokKeys {
   anthropic?: string;
   google?: string;
   alibaba?: string;
+  cerebras?: string;
 }
 
 // ── Model Registry ──
@@ -46,6 +47,10 @@ export const AVAILABLE_MODELS: ModelInfo[] = [
   { id: "google/gemini-2.5-flash", name: "Gemini 2.5 Flash", provider: "google", costPer1MInput: 15, costPer1MOutput: 60, requiresByok: "google" },
   { id: "alibaba/qwen-plus", name: "Alibaba Qwen Plus", provider: "alibaba", costPer1MInput: 11.5, costPer1MOutput: 28.7, requiresByok: "alibaba" },
   { id: "alibaba/qwen-turbo", name: "Alibaba Qwen Turbo", provider: "alibaba", costPer1MInput: 5, costPer1MOutput: 20, requiresByok: "alibaba" },
+  // BYOK Cerebras
+  { id: "cerebras/qwen-3-235b", name: "Cerebras Qwen 3 235B", provider: "cerebras", costPer1MInput: 0, costPer1MOutput: 0, requiresByok: "cerebras" },
+  { id: "cerebras/qwen-3-coder-480b", name: "Cerebras Qwen 3 Coder 480B", provider: "cerebras", costPer1MInput: 0, costPer1MOutput: 0, requiresByok: "cerebras" },
+  { id: "cerebras/llama3.1-8b", name: "Cerebras Llama 3.1 8B", provider: "cerebras", costPer1MInput: 0, costPer1MOutput: 0, requiresByok: "cerebras" },
 ];
 
 export const DEFAULT_MODEL = "cerebras/gpt-oss-120b";
@@ -183,6 +188,9 @@ const MODEL_API_MAP: Record<string, string> = {
   "google/gemini-2.5-flash": "gemini-2.5-flash",
   "alibaba/qwen-plus": "qwen-plus",
   "alibaba/qwen-turbo": "qwen-turbo",
+  "cerebras/qwen-3-235b": "qwen-3-235b-a22b-instruct-2507",
+  "cerebras/qwen-3-coder-480b": "qwen-3-coder-480b",
+  "cerebras/llama3.1-8b": "llama3.1-8b",
 };
 
 export async function chatWithAI(messages: ChatMessage[], maxTokens = 500, byok?: ByokKeys, selectedModel?: string): Promise<AIResponse> {
@@ -193,8 +201,9 @@ export async function chatWithAI(messages: ChatMessage[], maxTokens = 500, byok?
       const apiModel = MODEL_API_MAP[selectedModel] || selectedModel;
       const { provider } = modelInfo;
 
-      if (provider === "cerebras" && CEREBRAS_API_KEY) {
-        return await callOpenAICompatible("https://api.cerebras.ai/v1/chat/completions", CEREBRAS_API_KEY, apiModel, provider, messages, maxTokens);
+      if (provider === "cerebras") {
+        const key = byok?.cerebras || CEREBRAS_API_KEY;
+        if (key) return await callOpenAICompatible("https://api.cerebras.ai/v1/chat/completions", key, apiModel, provider, messages, maxTokens);
       }
       if (provider === "nvidia" && NVIDIA_API_KEY) {
         return await callOpenAICompatible("https://integrate.api.nvidia.com/v1/chat/completions", NVIDIA_API_KEY, apiModel, provider, messages, maxTokens);
@@ -246,6 +255,14 @@ export async function chatWithAI(messages: ChatMessage[], maxTokens = 500, byok?
       return await callOpenAICompatible(`${ALIBABA_AI_BASE_URL}/chat/completions`, byok.alibaba, "qwen-turbo", "alibaba", messages, maxTokens);
     } catch (e) {
       console.error("BYOK Alibaba failed:", e);
+    }
+  }
+
+  if (byok?.cerebras) {
+    try {
+      return await callOpenAICompatible("https://api.cerebras.ai/v1/chat/completions", byok.cerebras, "qwen-3-235b-a22b-instruct-2507", "cerebras", messages, maxTokens);
+    } catch (e) {
+      console.error("BYOK Cerebras failed:", e);
     }
   }
 

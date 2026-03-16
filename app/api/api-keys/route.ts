@@ -145,6 +145,36 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: "API key saved" });
   }
 
+  if (action === "reveal") {
+    const { service } = parsed.data as { service: string; action: string };
+
+    const rows = await sql`
+      SELECT api_key FROM user_api_keys WHERE user_id = ${userId} AND service = ${service} LIMIT 1
+    `;
+    if (rows.length === 0) {
+      return NextResponse.json({ error: "Key not found" }, { status: 404 });
+    }
+
+    let plainKey: string;
+    try {
+      plainKey = decrypt(rows[0].api_key as string);
+    } catch {
+      plainKey = rows[0].api_key as string;
+    }
+
+    logAudit({
+      userId,
+      userEmail: email,
+      action: "apikey.reveal",
+      resourceType: "api_key",
+      resourceId: null as unknown as number,
+      details: { service },
+      ipAddress: ip,
+    });
+
+    return NextResponse.json({ api_key: plainKey });
+  }
+
   if (action === "delete") {
     const { service } = parsed.data as { service: string; action: string };
 

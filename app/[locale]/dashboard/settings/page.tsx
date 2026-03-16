@@ -74,6 +74,8 @@ export default function SettingsPage() {
   const [byokLabelInput, setByokLabelInput] = useState("");
   const [byokSaving, setByokSaving] = useState(false);
   const [byokMsg, setByokMsg] = useState("");
+  const [byokRevealed, setByokRevealed] = useState<Record<string, string>>({});
+  const [byokRevealing, setByokRevealing] = useState<string | null>(null);
   const [platformKeys, setPlatformKeys] = useState<{ id: number; key_prefix: string; name: string | null; scopes: string[]; last_used_at: string | null; expires_at: string | null; created_at: string; revoked_at: string | null }[]>([]);
   const [newKeyName, setNewKeyName] = useState("");
   const [newKeyScopes, setNewKeyScopes] = useState<string[]>(["read", "write"]);
@@ -750,6 +752,7 @@ export default function SettingsPage() {
               { service: "anthropic", name: ts.byokAnthropic, hint: ts.byokAnthropicHint },
               { service: "google", name: ts.byokGoogle, hint: ts.byokGoogleHint },
               { service: "alibaba", name: ts.byokAlibaba, hint: ts.byokAlibabaHint },
+              { service: "cerebras", name: ts.byokCerebras, hint: ts.byokCerebrasHint },
               { service: "vercel", name: ts.byokVercel, hint: ts.byokVercelHint },
               { service: "clawhub", name: ts.byokClawhub, hint: ts.byokClawhubHint },
               { service: "xpilot", name: ts.byokXpilot, hint: ts.byokXpilotHint },
@@ -790,7 +793,33 @@ export default function SettingsPage() {
                   <p className="text-xs text-gray-400 mb-2">{svc.hint}</p>
 
                   {existing && !isEditing && (
-                    <p className="text-sm text-gray-600 font-mono">{existing.masked_key}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm text-gray-600 font-mono">{byokRevealed[svc.service] || existing.masked_key}</p>
+                      <button
+                        onClick={async () => {
+                          if (byokRevealed[svc.service]) {
+                            setByokRevealed((prev) => { const n = { ...prev }; delete n[svc.service]; return n; });
+                            return;
+                          }
+                          setByokRevealing(svc.service);
+                          try {
+                            const res = await fetch("/api/api-keys", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ action: "reveal", service: svc.service }),
+                            });
+                            const data = await res.json();
+                            if (res.ok && data.api_key) {
+                              setByokRevealed((prev) => ({ ...prev, [svc.service]: data.api_key }));
+                            }
+                          } catch { /* ignore */ } finally { setByokRevealing(null); }
+                        }}
+                        disabled={byokRevealing === svc.service}
+                        className="text-xs text-blue-600 hover:text-blue-800 transition-colors cursor-pointer"
+                      >
+                        {byokRevealing === svc.service ? "..." : byokRevealed[svc.service] ? ts.byokHide : ts.byokReveal}
+                      </button>
+                    </div>
                   )}
 
                   {isEditing && (

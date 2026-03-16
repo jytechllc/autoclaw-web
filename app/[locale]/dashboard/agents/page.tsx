@@ -177,13 +177,13 @@ export default function AgentsPage() {
   const tc = dict.common;
 
   const AGENT_OPTIONS = [
-    { type: "email_marketing", label: ta.emailMarketing },
-    { type: "seo_content", label: ta.seoContent },
-    { type: "lead_prospecting", label: ta.leadProspecting },
-    { type: "social_media", label: ta.socialMedia },
-    { type: "product_manager", label: ta.productManager },
-    { type: "sales_followup", label: ta.salesFollowup },
-    { type: "orchestrator", label: ta.orchestrator },
+    { type: "email_marketing", label: ta.emailMarketing, comingSoon: false },
+    { type: "seo_content", label: ta.seoContent, comingSoon: true },
+    { type: "lead_prospecting", label: ta.leadProspecting, comingSoon: false },
+    { type: "social_media", label: ta.socialMedia, comingSoon: true },
+    { type: "product_manager", label: ta.productManager, comingSoon: true },
+    { type: "sales_followup", label: ta.salesFollowup, comingSoon: false },
+    { type: "orchestrator", label: ta.orchestrator, comingSoon: true },
   ];
 
   const { user, isLoading: userLoading } = useUser();
@@ -886,6 +886,59 @@ export default function AgentsPage() {
               </form>
             )}
 
+            {/* AI Employee Role Overview */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+              {AGENT_OPTIONS.map((opt) => {
+                const descriptions: Record<string, string> = {
+                  email_marketing: ta.emailMarketingDesc,
+                  seo_content: ta.seoContentDesc,
+                  lead_prospecting: ta.leadProspectingDesc,
+                  social_media: ta.socialMediaDesc,
+                  product_manager: ta.productManagerDesc,
+                  sales_followup: ta.salesFollowupDesc,
+                  orchestrator: ta.orchestratorDesc,
+                };
+                const icons: Record<string, string> = {
+                  email_marketing: "📧",
+                  seo_content: "🔍",
+                  lead_prospecting: "🎯",
+                  social_media: "📱",
+                  product_manager: "📋",
+                  sales_followup: "🤝",
+                  orchestrator: "🎛️",
+                };
+                const activeCount = agents.filter((a) => a.agent_type === opt.type).length;
+                return (
+                  <div
+                    key={opt.type}
+                    className={`relative rounded-lg border p-4 ${
+                      opt.comingSoon
+                        ? "bg-gray-50 border-gray-200 opacity-75"
+                        : "bg-white border-gray-200"
+                    }`}
+                  >
+                    {opt.comingSoon && (
+                      <span className="absolute top-2 right-2 px-2 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-semibold rounded-full">
+                        {ta.comingSoon}
+                      </span>
+                    )}
+                    {!opt.comingSoon && activeCount > 0 && (
+                      <span className="absolute top-2 right-2 px-2 py-0.5 bg-green-100 text-green-700 text-[10px] font-semibold rounded-full">
+                        {activeCount} {ta.activeLabel}
+                      </span>
+                    )}
+                    <div className="text-2xl mb-2">{icons[opt.type] || "🤖"}</div>
+                    <h3 className={`text-sm font-semibold mb-1 ${opt.comingSoon ? "text-gray-400" : "text-gray-800"}`}>
+                      {opt.label}
+                    </h3>
+                    <p className={`text-xs leading-relaxed ${opt.comingSoon ? "text-gray-400" : "text-gray-500"}`}>
+                      {descriptions[opt.type] || ""}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+
             {projects.length === 0 && agents.length === 0 && (
               <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
                 <p className="text-gray-500 mb-2">{ta.noProjects}</p>
@@ -921,6 +974,11 @@ export default function AgentsPage() {
                           <select
                             onChange={(e) => {
                               if (e.target.value) {
+                                const opt = AGENT_OPTIONS.find((o) => o.type === e.target.value);
+                                if (opt?.comingSoon) {
+                                  e.target.value = "";
+                                  return;
+                                }
                                 activateAgent(project.id, e.target.value);
                                 e.target.value = "";
                               }
@@ -932,8 +990,8 @@ export default function AgentsPage() {
                               {ta.addAgent}
                             </option>
                             {availableToAdd.map((a) => (
-                              <option key={a.type} value={a.type}>
-                                {a.label}
+                              <option key={a.type} value={a.type} disabled={a.comingSoon}>
+                                {a.label}{a.comingSoon ? ` (${ta.comingSoon})` : ""}
                               </option>
                             ))}
                           </select>

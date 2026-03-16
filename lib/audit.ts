@@ -22,6 +22,7 @@ export type AuditAction =
   | "org.delete"
   | "apikey.upsert"
   | "apikey.delete"
+  | "apikey.reveal"
   | "platform_apikey.create"
   | "platform_apikey.revoke";
 

@@ -252,12 +252,12 @@ export default function TikTokPage() {
           <p className="text-gray-500 mt-1">{t.subtitle}</p>
         </div>
 
-        {/* Sandbox Notice */}
-        <div className="bg-orange-500 rounded-lg p-4 flex items-start gap-3">
+        {/* Under Review Notice */}
+        <div className="bg-blue-600 rounded-lg p-4 flex items-start gap-3">
           <svg className="w-5 h-5 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          <span className="text-white text-sm font-semibold">{t.sandboxNotice}</span>
+          <span className="text-white text-sm font-semibold">{t.underReviewNotice}</span>
         </div>
 
         {/* Connection Status */}
@@ -603,6 +603,21 @@ export default function TikTokPage() {
                 {posting ? t.posting : t.postVideo}
               </button>
             </div>
+          </div>
+        )}
+
+        {/* Data Notice */}
+        {!loading && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-2">
+            <svg className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p className="text-xs text-amber-800 leading-relaxed">
+              {t.dataNoticeShort}{" "}
+              <a href={`/${locale}/terms`} className="text-amber-700 font-medium underline hover:text-amber-900">
+                {t.viewTerms}
+              </a>
+            </p>
           </div>
         )}
       </div>

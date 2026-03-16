@@ -150,7 +150,7 @@ export const inviteTeamMemberSchema = z.object({
 });
 
 // ── API Keys (BYOK) ──
-const allowedService = z.enum(["brevo", "sendgrid", "apollo", "apify", "hunter", "snov_api_id", "snov_api_secret", "openai", "anthropic", "google", "alibaba", "vercel", "clawhub", "xpilot", "twitter_api_key", "twitter_api_secret", "twitter_access_token", "twitter_access_token_secret", "tiktok_client_key", "tiktok_client_secret", "blob_token", "worker_url", "worker_secret"]);
+const allowedService = z.enum(["brevo", "sendgrid", "apollo", "apify", "hunter", "snov_api_id", "snov_api_secret", "openai", "anthropic", "google", "alibaba", "cerebras", "vercel", "clawhub", "xpilot", "twitter_api_key", "twitter_api_secret", "twitter_access_token", "twitter_access_token_secret", "tiktok_client_key", "tiktok_client_secret", "blob_token", "worker_url", "worker_secret"]);
 
 export const upsertApiKeySchema = z.object({
   action: z.literal("upsert"),
@@ -161,6 +161,11 @@ export const upsertApiKeySchema = z.object({
 
 export const deleteApiKeySchema = z.object({
   action: z.literal("delete"),
+  service: allowedService,
+});
+
+export const revealApiKeySchema = z.object({
+  action: z.literal("reveal"),
   service: allowedService,
 });
 
@@ -179,6 +184,7 @@ export const revokePlatformKeySchema = z.object({
 export const apiKeyActionSchema = z.discriminatedUnion("action", [
   upsertApiKeySchema,
   deleteApiKeySchema,
+  revealApiKeySchema,
   createPlatformKeySchema,
   revokePlatformKeySchema,
 ]);

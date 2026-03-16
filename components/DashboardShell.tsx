@@ -54,6 +54,7 @@ export default function DashboardShell({ children, user, plan, fullHeight }: Pro
       label: tc.socialMediaMarketing,
       children: [
         { href: `/${locale}/dashboard/tiktok`, label: tc.tiktok },
+        { href: `/${locale}/dashboard/x`, label: tc.x },
       ],
     },
     {
