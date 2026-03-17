@@ -18,18 +18,24 @@ export async function GET(req: NextRequest) {
   const sql = getDb();
   const email = session.user.email as string;
 
-  // Verify user owns this agent
+  // Verify user can access this agent (own project, shared project, or org project)
   const users = await sql`SELECT id FROM users WHERE email = ${email}`;
   if (users.length === 0) {
     return NextResponse.json({ error: "User not found" }, { status: 404 });
   }
   const userId = users[0].id;
+  const emailDomain = email.split("@")[1] || "";
 
   const agents = await sql`
     SELECT aa.id, aa.config, aa.agent_type, aa.status as agent_status
     FROM agent_assignments aa
     JOIN projects p ON aa.project_id = p.id
-    WHERE aa.id = ${agentId} AND p.user_id = ${userId}
+    WHERE aa.id = ${agentId} AND (
+      p.user_id = ${userId}
+      OR p.id IN (SELECT project_id FROM project_members WHERE user_id = ${userId})
+      OR (p.domain IS NOT NULL AND p.domain != '' AND p.domain = ${emailDomain})
+      OR p.org_id IN (SELECT org_id FROM organization_members WHERE user_id = ${userId})
+    )
   `;
   if (agents.length === 0) {
     return NextResponse.json({ error: "Agent not found" }, { status: 404 });

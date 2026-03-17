@@ -1,20 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth0 } from "@/lib/auth0";
 import { getDb } from "@/lib/db";
-import { decrypt } from "@/lib/crypto";
+import { getUserKey } from "@/lib/keys";
 
 export const dynamic = "force-dynamic";
 
 const XPILOT_BASE = "https://xpilot.jytech.us/api/v1";
-
-async function getUserKey(userId: number, service: string): Promise<string | null> {
-  const sql = getDb();
-  const keys = await sql`
-    SELECT api_key FROM user_api_keys WHERE user_id = ${userId} AND service = ${service} LIMIT 1
-  `;
-  if (keys.length === 0) return null;
-  return decrypt(keys[0].api_key);
-}
 
 // POST: Generate an image via xPilot API
 export async function POST(req: NextRequest) {

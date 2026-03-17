@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth0 } from "@/lib/auth0";
 import { getDb } from "@/lib/db";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { decrypt } from "@/lib/crypto";
+import { getUserKey } from "@/lib/keys";
 import { put } from "@vercel/blob";
 
 export const dynamic = "force-dynamic";
@@ -31,15 +31,6 @@ async function ensureGeneratedVideosTable() {
 
 function getIp(req: NextRequest): string {
   return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-}
-
-async function getUserKey(userId: number, service: string): Promise<string | null> {
-  const sql = getDb();
-  const keys = await sql`
-    SELECT api_key FROM user_api_keys WHERE user_id = ${userId} AND service = ${service} LIMIT 1
-  `;
-  if (keys.length === 0) return null;
-  return decrypt(keys[0].api_key);
 }
 
 const TEXT_TO_VIDEO_MODELS = [

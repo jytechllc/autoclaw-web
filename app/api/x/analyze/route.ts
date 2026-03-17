@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth0 } from "@/lib/auth0";
 import { getDb } from "@/lib/db";
 import { decrypt } from "@/lib/crypto";
+import { getUserKey } from "@/lib/keys";
 import { TwitterApi } from "twitter-api-v2";
 import { searchKnowledgeBase, buildRagContext } from "@/lib/rag";
 
@@ -25,15 +26,6 @@ interface PipelineStep {
   detail?: string;
   startedAt?: string;
   completedAt?: string;
-}
-
-async function getUserKey(userId: number, service: string): Promise<string | null> {
-  const sql = getDb();
-  const keys = await sql`
-    SELECT api_key FROM user_api_keys WHERE user_id = ${userId} AND service = ${service} LIMIT 1
-  `;
-  if (keys.length === 0) return null;
-  return decrypt(keys[0].api_key);
 }
 
 async function getUserXCredentials(userId: number): Promise<XCredentials | null> {

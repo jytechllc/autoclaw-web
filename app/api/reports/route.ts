@@ -888,7 +888,7 @@ export async function GET(request: Request) {
   const emailDomain = email.split("@")[1] || "";
   const userProjects = isAdmin
     ? await sql`SELECT id, name, ga_property_id FROM projects`
-    : await sql`SELECT DISTINCT ON (name) id, name, ga_property_id FROM projects WHERE user_id = ${userId} OR id IN (SELECT project_id FROM project_members WHERE user_id = ${userId}) OR (domain IS NOT NULL AND domain != '' AND domain = ${emailDomain}) ORDER BY name`;
+    : await sql`SELECT DISTINCT ON (name) id, name, ga_property_id FROM projects WHERE user_id = ${userId} OR id IN (SELECT project_id FROM project_members WHERE user_id = ${userId}) OR (domain IS NOT NULL AND domain != '' AND domain = ${emailDomain}) OR org_id IN (SELECT org_id FROM organization_members WHERE user_id = ${userId}) ORDER BY name`;
   const userProjectNames = userProjects.map((p) => p.name as string);
   const projectIds = userProjects.map((p) => p.id as number);
 

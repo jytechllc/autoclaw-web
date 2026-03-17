@@ -71,6 +71,15 @@ export async function GET(req: NextRequest) {
   }
 
   const userId = users[0].id;
+
+  // Get all user IDs visible to this user (own + org members)
+  const orgMembers = await sql`
+    SELECT om2.user_id FROM organization_members om1
+    JOIN organization_members om2 ON om1.org_id = om2.org_id
+    WHERE om1.user_id = ${userId}
+  `;
+  const visibleUserIds = [userId, ...orgMembers.map((m) => m.user_id)].filter((v, i, a) => a.indexOf(v) === i);
+
   const search = req.nextUrl.searchParams.get("search") || "";
   const projectId = req.nextUrl.searchParams.get("project_id");
   const source = req.nextUrl.searchParams.get("source");
@@ -83,7 +92,7 @@ export async function GET(req: NextRequest) {
     const like = `%${search}%`;
     contacts = await sql`
       SELECT * FROM contacts
-      WHERE user_id = ${userId}
+      WHERE user_id = ANY(${visibleUserIds}::int[])
         AND (email ILIKE ${like} OR first_name ILIKE ${like} OR last_name ILIKE ${like} OR company ILIKE ${like})
         ${projectId ? sql`AND project_id = ${Number(projectId)}` : sql``}
         ${source ? sql`AND source = ${source}` : sql``}
@@ -93,7 +102,7 @@ export async function GET(req: NextRequest) {
   } else {
     contacts = await sql`
       SELECT * FROM contacts
-      WHERE user_id = ${userId}
+      WHERE user_id = ANY(${visibleUserIds}::int[])
         ${projectId ? sql`AND project_id = ${Number(projectId)}` : sql``}
         ${source ? sql`AND source = ${source}` : sql``}
       ORDER BY updated_at DESC
@@ -104,14 +113,14 @@ export async function GET(req: NextRequest) {
   const totalRows = search
     ? await sql`
         SELECT COUNT(*)::int as count FROM contacts
-        WHERE user_id = ${userId}
+        WHERE user_id = ANY(${visibleUserIds}::int[])
           AND (email ILIKE ${`%${search}%`} OR first_name ILIKE ${`%${search}%`} OR last_name ILIKE ${`%${search}%`} OR company ILIKE ${`%${search}%`})
           ${projectId ? sql`AND project_id = ${Number(projectId)}` : sql``}
           ${source ? sql`AND source = ${source}` : sql``}
       `
     : await sql`
         SELECT COUNT(*)::int as count FROM contacts
-        WHERE user_id = ${userId}
+        WHERE user_id = ANY(${visibleUserIds}::int[])
           ${projectId ? sql`AND project_id = ${Number(projectId)}` : sql``}
           ${source ? sql`AND source = ${source}` : sql``}
       `;
