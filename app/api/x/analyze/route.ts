@@ -36,7 +36,27 @@ async function getUserXCredentials(userId: number): Promise<XCredentials | null>
   `;
   const keyMap: Record<string, string> = {};
   for (const k of keys) {
-    keyMap[k.service] = decrypt(k.api_key);
+    try { keyMap[k.service as string] = decrypt(k.api_key as string); } catch { /* skip */ }
+  }
+  if (keyMap.twitter_api_key && keyMap.twitter_api_secret && keyMap.twitter_access_token && keyMap.twitter_access_token_secret) {
+    return {
+      apiKey: keyMap.twitter_api_key,
+      apiSecret: keyMap.twitter_api_secret,
+      accessToken: keyMap.twitter_access_token,
+      accessTokenSecret: keyMap.twitter_access_token_secret,
+    };
+  }
+
+  // Fallback to org-level keys
+  const orgKeys = await sql`
+    SELECT oak.service, oak.api_key FROM org_api_keys oak
+    JOIN organization_members om ON om.org_id = oak.org_id
+    WHERE om.user_id = ${userId}
+      AND oak.service IN ('twitter_api_key', 'twitter_api_secret', 'twitter_access_token', 'twitter_access_token_secret')
+    LIMIT 4
+  `;
+  for (const k of orgKeys) {
+    try { keyMap[k.service as string] = decrypt(k.api_key as string); } catch { /* skip */ }
   }
   if (!keyMap.twitter_api_key || !keyMap.twitter_api_secret || !keyMap.twitter_access_token || !keyMap.twitter_access_token_secret) {
     return null;
@@ -284,26 +304,52 @@ export async function POST(req: NextRequest) {
     accessSecret: creds.accessTokenSecret,
   });
 
-  // ─── Step 1: Fetch recent tweets ───
+  // ─── Step 1: Fetch recent tweets (v2 → v1 fallback) ───
   stepStart("fetch_tweets");
   let recentTweets: { text: string; createdAt?: string; metrics?: Record<string, number> }[];
   try {
-    const me = await client.v2.me();
-    const timeline = await client.v2.userTimeline(me.data.id, {
-      max_results: 5,
-      "tweet.fields": ["created_at", "public_metrics"],
-    });
-    recentTweets = (timeline.data.data || []).map((t) => ({
-      text: t.text,
-      createdAt: t.created_at,
-      metrics: t.public_metrics as Record<string, number> | undefined,
-    }));
-    if (recentTweets.length === 0) {
-      stepError("fetch_tweets", "No recent tweets");
-      await updateRun({ error: "No recent tweets found to analyze", steps: PIPELINE_STEPS });
-      return NextResponse.json({ error: "No recent tweets found to analyze", runId, steps: PIPELINE_STEPS }, { status: 400 });
+    // Try v2 first (Basic+ tier)
+    let fetched = false;
+    try {
+      const me = await client.v2.me();
+      const timeline = await client.v2.userTimeline(me.data.id, {
+        max_results: 5,
+        "tweet.fields": ["created_at", "public_metrics"],
+      });
+      recentTweets = (timeline.data.data || []).map((t) => ({
+        text: t.text,
+        createdAt: t.created_at,
+        metrics: t.public_metrics as Record<string, number> | undefined,
+      }));
+      fetched = true;
+    } catch {
+      // v2 failed — try v1
+      recentTweets = [];
     }
-    stepDone("fetch_tweets", `${recentTweets.length} tweets`);
+
+    if (!fetched) {
+      try {
+        const v1Timeline = await client.v1.userTimeline({ count: 5, exclude_replies: true, include_rts: false });
+        recentTweets = v1Timeline.tweets.map((t) => ({
+          text: t.full_text || t.text,
+          createdAt: t.created_at,
+          metrics: {
+            like_count: t.favorite_count || 0,
+            retweet_count: t.retweet_count || 0,
+          },
+        }));
+      } catch {
+        // v1 also unavailable — continue with empty (AI will generate without context)
+        recentTweets = [];
+      }
+    }
+
+    if (recentTweets.length === 0) {
+      // No tweets available — skip analysis, proceed to generation
+      stepDone("fetch_tweets", "No tweets available (Free tier or new account)");
+    } else {
+      stepDone("fetch_tweets", `${recentTweets.length} tweets`);
+    }
   } catch (err) {
     console.error("Failed to fetch recent tweets:", err);
     stepError("fetch_tweets", String(err));

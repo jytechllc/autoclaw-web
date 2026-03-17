@@ -26,6 +26,9 @@ CREATE TABLE IF NOT EXISTS organization_members (
   UNIQUE(org_id, user_id)
 );
 
+-- Add locale column (run once on existing DBs):
+-- ALTER TABLE users ADD COLUMN IF NOT EXISTS locale VARCHAR(10) DEFAULT 'en';
+
 CREATE TABLE IF NOT EXISTS projects (
   id SERIAL PRIMARY KEY,
   user_id INTEGER REFERENCES users(id),
@@ -115,6 +118,21 @@ CREATE TABLE IF NOT EXISTS api_keys (
 
 CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);
 CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
+
+-- Organization-level API keys (shared across org members)
+CREATE TABLE IF NOT EXISTS org_api_keys (
+  id SERIAL PRIMARY KEY,
+  org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
+  service VARCHAR(50) NOT NULL,
+  api_key TEXT NOT NULL,
+  label VARCHAR(255),
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(org_id, service)
+);
+
+CREATE INDEX IF NOT EXISTS idx_org_api_keys_org ON org_api_keys(org_id);
 
 CREATE INDEX IF NOT EXISTS idx_audit_logs_user ON audit_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action);
@@ -227,7 +245,8 @@ CREATE TABLE IF NOT EXISTS contacts (
   company VARCHAR(255),
   position VARCHAR(255),
   phone VARCHAR(50),
-  source VARCHAR(50) DEFAULT 'manual', -- 'manual', 'brevo', 'apollo', 'hunter', 'snov', 'import'
+  source VARCHAR(50) DEFAULT 'manual', -- 'manual', 'brevo', 'apollo', 'hunter', 'snov', 'csv', 'import'
+  source_detail VARCHAR(500),          -- e.g. "Project: xxx", "Task: Lead Prospecting", "File: contacts.csv"
   tags TEXT[] DEFAULT '{}',
   notes TEXT,
   brevo_id BIGINT,

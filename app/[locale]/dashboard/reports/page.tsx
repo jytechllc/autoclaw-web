@@ -73,6 +73,16 @@ interface BrevoContactsByProject {
   contacts: number;
 }
 
+interface ContactAnalytics {
+  total: number;
+  enriched: number;
+  byIndustry: { label: string; count: number }[];
+  byCompanySize: { label: string; count: number }[];
+  topCompanies: { label: string; count: number }[];
+  publicVsPrivate: { public: number; private: number; unknown: number };
+  bySource: { label: string; count: number }[];
+}
+
 interface MetricsSummary {
   totalTraffic: number;
   emailsSent: number;
@@ -500,6 +510,7 @@ export default function ReportsPage() {
   const [taskStatusByProject, setTaskStatusByProject] = useState<TaskStatusByProject[]>([]);
   const [dbKpisByProject, setDbKpisByProject] = useState<DbKpisByProject[]>([]);
   const [brevoContactsByProject, setBrevoContactsByProject] = useState<BrevoContactsByProject[]>([]);
+  const [contactAnalytics, setContactAnalytics] = useState<ContactAnalytics | null>(null);
   const [userPlan, setUserPlan] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
@@ -555,6 +566,7 @@ export default function ReportsPage() {
         if (Array.isArray(data.taskStatusByProject)) setTaskStatusByProject(data.taskStatusByProject);
         if (Array.isArray(data.dbKpisByProject)) setDbKpisByProject(data.dbKpisByProject);
         if (Array.isArray(data.brevoContactsByProject)) setBrevoContactsByProject(data.brevoContactsByProject);
+        if (data.contactAnalytics) setContactAnalytics(data.contactAnalytics);
       })
       .finally(() => setLoading(false));
     setAuditLoading(true);
@@ -884,6 +896,85 @@ export default function ReportsPage() {
                   {projectPieCharts.map((chart) => (
                     <ProjectPieChart key={chart.key} title={chart.title} slices={chart.slices} emptyLabel={tr.noDataYet} />
                   ))}
+                </div>
+              </section>
+            )}
+
+            {contactAnalytics && contactAnalytics.total > 0 && (
+              <section className="mb-8">
+                <h2 className="text-lg font-semibold mb-4">{tr.contactAnalytics}</h2>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                  <div className="bg-white rounded-lg border border-gray-200 p-4 text-center">
+                    <div className="text-2xl font-bold text-gray-800">{contactAnalytics.total.toLocaleString()}</div>
+                    <div className="text-xs text-gray-500 mt-1">{tr.totalContacts}</div>
+                  </div>
+                  <div className="bg-white rounded-lg border border-gray-200 p-4 text-center">
+                    <div className="text-2xl font-bold text-blue-600">{contactAnalytics.enriched.toLocaleString()}</div>
+                    <div className="text-xs text-gray-500 mt-1">{tr.enrichedContacts}</div>
+                  </div>
+                  <div className="bg-white rounded-lg border border-gray-200 p-4 text-center">
+                    <div className="text-2xl font-bold text-green-600">{contactAnalytics.publicVsPrivate.public.toLocaleString()}</div>
+                    <div className="text-xs text-gray-500 mt-1">{tr.publicCompany}</div>
+                  </div>
+                  <div className="bg-white rounded-lg border border-gray-200 p-4 text-center">
+                    <div className="text-2xl font-bold text-gray-600">{contactAnalytics.publicVsPrivate.private.toLocaleString()}</div>
+                    <div className="text-xs text-gray-500 mt-1">{tr.privateCompany}</div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {contactAnalytics.topCompanies.length > 0 && (
+                    <div className="bg-white rounded-lg border border-gray-200 p-4">
+                      <h3 className="text-sm font-semibold mb-3">{tr.topCompanies}</h3>
+                      <div className="space-y-2">
+                        {contactAnalytics.topCompanies.map((c) => (
+                          <div key={c.label} className="flex items-center justify-between text-xs">
+                            <span className="text-gray-600 truncate mr-2" title={c.label}>{c.label}</span>
+                            <span className="text-gray-800 font-medium shrink-0">{c.count}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {contactAnalytics.byIndustry.length > 0 && (
+                    <ProjectPieChart
+                      title={tr.byIndustry}
+                      slices={contactAnalytics.byIndustry.map((r, i) => ({
+                        label: r.label,
+                        value: r.count,
+                        color: CHART_COLORS[i % CHART_COLORS.length],
+                      }))}
+                    />
+                  )}
+                  {contactAnalytics.byCompanySize.length > 0 && (
+                    <ProjectPieChart
+                      title={tr.byCompanySize}
+                      slices={contactAnalytics.byCompanySize.map((r, i) => ({
+                        label: r.label,
+                        value: r.count,
+                        color: CHART_COLORS[i % CHART_COLORS.length],
+                      }))}
+                    />
+                  )}
+                  {contactAnalytics.bySource.length > 0 && (
+                    <ProjectPieChart
+                      title={tr.bySource}
+                      slices={contactAnalytics.bySource.map((r, i) => ({
+                        label: r.label,
+                        value: r.count,
+                        color: CHART_COLORS[i % CHART_COLORS.length],
+                      }))}
+                    />
+                  )}
+                  {(contactAnalytics.publicVsPrivate.public > 0 || contactAnalytics.publicVsPrivate.private > 0) && (
+                    <ProjectPieChart
+                      title={tr.publicVsPrivate}
+                      slices={[
+                        { label: tr.publicCompany, value: contactAnalytics.publicVsPrivate.public, color: "#10b981" },
+                        { label: tr.privateCompany, value: contactAnalytics.publicVsPrivate.private, color: "#3b82f6" },
+                        { label: tr.unknown, value: contactAnalytics.publicVsPrivate.unknown, color: "#d1d5db" },
+                      ].filter(s => s.value > 0)}
+                    />
+                  )}
                 </div>
               </section>
             )}

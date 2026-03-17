@@ -3,7 +3,7 @@ import { auth0 } from "@/lib/auth0";
 import { getDb, resolveUserPlan } from "@/lib/db";
 import { chatWithAI, ByokKeys } from "@/lib/ai";
 import { decrypt, encrypt } from "@/lib/crypto";
-import { prospectDomain, prospectMultipleDomains } from "@/lib/leads";
+import { prospectDomain, prospectMultipleDomains, searchCompanies } from "@/lib/leads";
 import { searchKnowledgeBase, buildRagContext } from "@/lib/rag";
 
 export const dynamic = "force-dynamic";
@@ -28,7 +28,7 @@ const AGENT_PLANS: Record<string, { plan: string; tasks: { name: string; status:
       { name: "Set up tracking (opens, clicks, replies)", status: "pending" },
       { name: "Launch first outreach campaign", status: "pending" },
     ],
-    blockers: ["Need SMTP/email service credentials (SendGrid, Mailgun, etc.)", "Need target audience definition or ICP document"],
+    blockers: [],
   },
   seo_content: {
     plan: "Audit existing website SEO, research high-value keywords, create content calendar, and produce optimized blog posts.",
@@ -794,16 +794,156 @@ ${ragContext ? ragContext + "\nUse the knowledge base context above to inform yo
 Keep responses concise and helpful. Use markdown formatting. Always be proactive in suggesting relevant AutoClaw capabilities.`;
 
     try {
-      const aiResult = await chatWithAI([
-        { role: "system", content: systemPrompt },
-        { role: "user", content: message },
-      ], 500, byok, selectedModel);
-      reply = aiResult.content;
+      // === Tool-calling system: two-pass approach ===
+      // Pass 1: Ask AI to decide if a tool should be called
+      const toolSystemPrompt = systemPrompt + `\n
+## Tool Calling
+You have access to tools that can execute real searches and actions. When the user asks a question that requires searching for companies, leads, suppliers, factories, or any business entities, you MUST use a tool instead of giving a generic answer.
 
-      // Record token usage
-      if (aiResult.usage) {
+Available tools:
+1. **search_companies** — Search for companies by keyword, industry, and location using Apollo.io
+   Parameters: { "keywords": "string", "industry": "string", "location": "string", "titles": ["string"], "limit": number }
+   Use when: user asks to find companies, factories, suppliers, installers, distributors, partners in a specific industry/region
+
+2. **prospect_domain** — Find contacts at a specific company domain using Hunter.io, Apollo, Snov.io
+   Parameters: { "domain": "string" }
+   Use when: user provides a specific company domain to search
+
+3. **prospect_multi** — Search contacts across multiple domains
+   Parameters: { "domains": ["string"] }
+   Use when: user provides multiple domains
+
+If you determine a tool should be called, respond with ONLY a JSON block in this exact format (no other text):
+\`\`\`tool_call
+{"tool": "tool_name", "params": {...}, "summary": "brief description of what you're searching for"}
+\`\`\`
+
+If no tool is needed, respond normally with helpful text.
+
+Examples of when to call tools:
+- "欧洲储能工厂和安装商列表" → search_companies with keywords="energy storage", location="Europe"
+- "Find solar panel manufacturers in Germany" → search_companies with keywords="solar panel manufacturer", location="Germany"
+- "EV charging installers in France" → search_companies with keywords="EV charging installer", location="France"
+- "Find contacts at tesla.com" → prospect_domain with domain="tesla.com"
+`;
+
+      const pass1Result = await chatWithAI([
+        { role: "system", content: toolSystemPrompt },
+        { role: "user", content: message },
+      ], 800, byok, selectedModel);
+
+      // Record token usage for pass 1
+      if (pass1Result.usage) {
         sql`INSERT INTO token_usage (project_id, user_id, provider, model, prompt_tokens, completion_tokens, total_tokens, source)
-            VALUES (${project_id || null}, ${userId}, ${aiResult.provider}, ${aiResult.model}, ${aiResult.usage.prompt_tokens}, ${aiResult.usage.completion_tokens}, ${aiResult.usage.total_tokens}, 'chat')`.catch(() => {});
+            VALUES (${project_id || null}, ${userId}, ${pass1Result.provider}, ${pass1Result.model}, ${pass1Result.usage.prompt_tokens}, ${pass1Result.usage.completion_tokens}, ${pass1Result.usage.total_tokens}, 'chat')`.catch(() => {});
+      }
+
+      // Check if AI wants to call a tool
+      const toolCallMatch = pass1Result.content.match(/```tool_call\s*\n?([\s\S]*?)\n?```/);
+
+      if (toolCallMatch) {
+        try {
+          const toolCall = JSON.parse(toolCallMatch[1].trim());
+          const toolName = toolCall.tool as string;
+          const toolParams = toolCall.params || {};
+          const toolSummary = (toolCall.summary as string) || "";
+
+          let toolResult = "";
+
+          if (toolName === "search_companies") {
+            const companies = await searchCompanies({
+              keywords: toolParams.keywords,
+              industry: toolParams.industry,
+              location: toolParams.location,
+              titles: toolParams.titles,
+              limit: Math.min(toolParams.limit || 10, 20),
+            });
+
+            if (companies.length === 0) {
+              toolResult = `No companies found matching the criteria. The search may be too specific, or the Apollo API key may not be configured.\n\nTry:\n- Broadening your search terms\n- Activating the **Lead Prospecting** agent for deeper, automated research`;
+            } else {
+              const isPaid = userPlan !== "starter";
+              const displayCompanies = isPaid ? companies : companies.slice(0, 5);
+              const companyRows = displayCompanies.map((c) => {
+                const contacts = c.contacts.length > 0
+                  ? c.contacts.map((ct) => `${ct.firstName} ${ct.lastName} (${ct.position}) — ${ct.email}`).join("; ")
+                  : "—";
+                return `| ${c.name} | ${c.domain || "—"} | ${c.industry || "—"} | ${c.location || "—"} | ${c.employeeCount || "—"} | ${contacts} |`;
+              }).join("\n");
+
+              toolResult = `**${toolSummary}**\n\nFound **${companies.length}** companies:\n\n| Company | Domain | Industry | Location | Employees | Key Contacts |\n|---------|--------|----------|----------|-----------|---------------|\n${companyRows}`;
+
+              if (!isPaid && companies.length > 5) {
+                toolResult += `\n\n_Showing 5 of ${companies.length} results. Upgrade to **Growth** or **Scale** to see all results._`;
+              }
+
+              // Save leads to project if paid
+              const targetProject = projects.length > 0 ? (project_id ? projects.find((p) => p.id === project_id) || projects[projects.length - 1] : projects[projects.length - 1]) : null;
+              if (isPaid && targetProject) {
+                let savedCount = 0;
+                for (const c of companies) {
+                  for (const lead of c.contacts) {
+                    try {
+                      await sql`INSERT INTO leads (project_id, user_id, email, first_name, last_name, company, position, source, domain, verified)
+                        VALUES (${targetProject.id}, ${userId}, ${lead.email}, ${lead.firstName}, ${lead.lastName}, ${lead.company}, ${lead.position}, ${lead.source}, ${c.domain}, ${lead.verified || false})
+                        ON CONFLICT (project_id, email) DO NOTHING`;
+                      savedCount++;
+                    } catch { /* skip duplicates */ }
+                  }
+                }
+                if (savedCount > 0) {
+                  toolResult += `\n\n**${savedCount}** contacts saved to project **${targetProject.name}**.`;
+                }
+              }
+
+              toolResult += `\n\nWant to dig deeper? Say **"activate lead prospecting"** to set up automated research, or search specific domains like **"find leads for ${displayCompanies[0]?.domain || "example.com"}"**.`;
+            }
+          } else if (toolName === "prospect_domain") {
+            const domain = toolParams.domain as string;
+            if (domain) {
+              const result = await prospectDomain(domain);
+              if (result.leads.length === 0) {
+                toolResult = `**Lead search: ${domain}**\n\nNo public contacts found for this domain.`;
+              } else {
+                const isPaid = userPlan !== "starter";
+                const displayLeads = isPaid ? result.leads : result.leads.slice(0, 10);
+                const leadTable = displayLeads.map((l) => {
+                  const name = [l.firstName, l.lastName].filter(Boolean).join(" ") || "—";
+                  return `| ${l.email} | ${name} | ${l.position || "—"} | ${l.source} |`;
+                }).join("\n");
+                toolResult = `**Lead search: ${domain}**\n\nFound **${result.leads.length}** contacts (Apollo: ${result.apolloCount}, Hunter: ${result.hunterCount}, Snov: ${result.snovCount})\n\n| Email | Name | Position | Source |\n|-------|------|----------|--------|\n${leadTable}`;
+              }
+            }
+          } else if (toolName === "prospect_multi") {
+            const domains = (toolParams.domains as string[]) || [];
+            if (domains.length > 0) {
+              const result = await prospectMultipleDomains(domains.slice(0, 5));
+              const parts: string[] = [`**Lead search across ${result.results.length} domains**\n`];
+              for (const r of result.results) {
+                const leadList = r.leads.slice(0, 5).map((l) => {
+                  const name = [l.firstName, l.lastName].filter(Boolean).join(" ");
+                  return `  - ${l.email}${name ? ` (${name})` : ""}${l.position ? ` — ${l.position}` : ""}`;
+                }).join("\n");
+                parts.push(`**${r.domain}** — ${r.leads.length} contacts\n${leadList}`);
+              }
+              parts.push(`\n**Total: ${result.totalLeads} leads found, ${result.totalImported} imported to CRM.**`);
+              toolResult = parts.join("\n\n");
+            }
+          }
+
+          if (toolResult) {
+            reply = toolResult;
+          } else {
+            // Tool call failed, use the raw AI response (strip the tool_call block)
+            reply = pass1Result.content.replace(/```tool_call[\s\S]*?```/, "").trim() || "I couldn't execute that search. Please try rephrasing your request.";
+          }
+        } catch {
+          // JSON parse failed, treat as normal response
+          reply = pass1Result.content.replace(/```tool_call[\s\S]*?```/, "").trim() || pass1Result.content;
+        }
+      } else {
+        // No tool call — use the AI response directly
+        reply = pass1Result.content;
       }
     } catch {
       reply = `I can help you with:\n\n- **Create a project** — "Create a new project called [name]"\n- **Rename a project** — "Rename demo to autoclaw-marketing"\n- **Delete a project** — "Delete project demo"\n- **Activate agents** — "Activate email marketing and SEO"\n- **Check status** — "Show me agent status"\n- **Pause agents** — "Pause email marketing"\n- **List projects** — "Show my projects"\n\nWhat would you like to do?`;

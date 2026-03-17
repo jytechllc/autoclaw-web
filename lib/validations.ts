@@ -181,12 +181,35 @@ export const revokePlatformKeySchema = z.object({
   key_id: z.number().int().positive(),
 });
 
+export const orgUpsertApiKeySchema = z.object({
+  action: z.literal("org_upsert"),
+  org_id: z.number(),
+  service: allowedService,
+  api_key: z.string().min(8).max(500),
+  label: z.string().max(255).optional().nullable(),
+});
+
+export const orgDeleteApiKeySchema = z.object({
+  action: z.literal("org_delete"),
+  org_id: z.number(),
+  service: allowedService,
+});
+
+export const orgRevealApiKeySchema = z.object({
+  action: z.literal("org_reveal"),
+  org_id: z.number(),
+  service: allowedService,
+});
+
 export const apiKeyActionSchema = z.discriminatedUnion("action", [
   upsertApiKeySchema,
   deleteApiKeySchema,
   revealApiKeySchema,
   createPlatformKeySchema,
   revokePlatformKeySchema,
+  orgUpsertApiKeySchema,
+  orgDeleteApiKeySchema,
+  orgRevealApiKeySchema,
 ]);
 
 // ── Business Partners ──

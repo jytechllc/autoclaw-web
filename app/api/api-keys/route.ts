@@ -82,7 +82,39 @@ export async function GET(req: NextRequest) {
     ORDER BY created_at DESC
   `;
 
-  return NextResponse.json({ keys, platformKeys });
+  // Org-level keys: ensure table exists, then fetch for orgs user is admin/operator of
+  await sql`
+    CREATE TABLE IF NOT EXISTS org_api_keys (
+      id SERIAL PRIMARY KEY,
+      org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
+      service VARCHAR(50) NOT NULL,
+      api_key TEXT NOT NULL,
+      label VARCHAR(255),
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE(org_id, service)
+    )
+  `;
+  const orgKeys = await sql`
+    SELECT ok.id, ok.org_id, ok.service, ok.label, ok.api_key, ok.updated_at, o.name as org_name
+    FROM org_api_keys ok
+    JOIN organizations o ON ok.org_id = o.id
+    JOIN organization_members om ON om.org_id = o.id AND om.user_id = ${userId}
+    WHERE om.role IN ('admin', 'operator')
+    ORDER BY o.name, ok.service
+  `;
+  const orgKeysFormatted = orgKeys.map((k) => {
+    let masked_key = "****";
+    try {
+      masked_key = maskKey(decrypt(k.api_key as string));
+    } catch {
+      masked_key = maskKey(k.api_key as string);
+    }
+    return { id: k.id, org_id: k.org_id, org_name: k.org_name, service: k.service, label: k.label, masked_key, updated_at: k.updated_at };
+  });
+
+  return NextResponse.json({ keys, platformKeys, orgKeys: orgKeysFormatted });
 }
 
 export async function POST(req: NextRequest) {
@@ -256,6 +288,92 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json({ message: "API key revoked" });
+  }
+
+  // --- Org-level API key actions ---
+
+  async function ensureOrgApiKeysTable() {
+    await sql`
+      CREATE TABLE IF NOT EXISTS org_api_keys (
+        id SERIAL PRIMARY KEY,
+        org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
+        service VARCHAR(50) NOT NULL,
+        api_key TEXT NOT NULL,
+        label VARCHAR(255),
+        created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(org_id, service)
+      )
+    `;
+    await sql`CREATE INDEX IF NOT EXISTS idx_org_api_keys_org ON org_api_keys(org_id)`;
+  }
+
+  if (action === "org_upsert") {
+    await ensureOrgApiKeysTable();
+    const { org_id, service, api_key, label } = body;
+    if (!org_id || !service || !api_key) {
+      return NextResponse.json({ error: "org_id, service, and api_key required" }, { status: 400 });
+    }
+
+    // Verify user is admin/operator of this org
+    const membership = await sql`SELECT role FROM organization_members WHERE org_id = ${org_id} AND user_id = ${userId}`;
+    if (membership.length === 0 || !["admin", "operator"].includes(membership[0].role as string)) {
+      return NextResponse.json({ error: "Only org admins or operators can manage org API keys" }, { status: 403 });
+    }
+
+    const encryptedKey = encrypt(api_key.trim());
+    await sql`
+      INSERT INTO org_api_keys (org_id, service, api_key, label, created_by, updated_at)
+      VALUES (${org_id}, ${service}, ${encryptedKey}, ${label || null}, ${userId}, NOW())
+      ON CONFLICT (org_id, service)
+      DO UPDATE SET api_key = ${encryptedKey}, label = ${label || null}, updated_at = NOW()
+    `;
+
+    logAudit({ userId, userEmail: email, action: "org_apikey.upsert", resourceType: "org_api_key", resourceId: org_id, details: { service }, ipAddress: ip });
+    return NextResponse.json({ message: "Org API key saved" });
+  }
+
+  if (action === "org_reveal") {
+    await ensureOrgApiKeysTable();
+    const { org_id, service } = body;
+    if (!org_id || !service) {
+      return NextResponse.json({ error: "org_id and service required" }, { status: 400 });
+    }
+
+    const membership = await sql`SELECT role FROM organization_members WHERE org_id = ${org_id} AND user_id = ${userId}`;
+    if (membership.length === 0 || !["admin", "operator"].includes(membership[0].role as string)) {
+      return NextResponse.json({ error: "Only org admins or operators can reveal org API keys" }, { status: 403 });
+    }
+
+    const rows = await sql`SELECT api_key FROM org_api_keys WHERE org_id = ${org_id} AND service = ${service} LIMIT 1`;
+    if (rows.length === 0) {
+      return NextResponse.json({ error: "Key not found" }, { status: 404 });
+    }
+
+    let plainKey: string;
+    try { plainKey = decrypt(rows[0].api_key as string); } catch { plainKey = rows[0].api_key as string; }
+
+    logAudit({ userId, userEmail: email, action: "org_apikey.reveal", resourceType: "org_api_key", resourceId: org_id, details: { service }, ipAddress: ip });
+    return NextResponse.json({ api_key: plainKey });
+  }
+
+  if (action === "org_delete") {
+    await ensureOrgApiKeysTable();
+    const { org_id, service } = body;
+    if (!org_id || !service) {
+      return NextResponse.json({ error: "org_id and service required" }, { status: 400 });
+    }
+
+    const membership = await sql`SELECT role FROM organization_members WHERE org_id = ${org_id} AND user_id = ${userId}`;
+    if (membership.length === 0 || !["admin", "operator"].includes(membership[0].role as string)) {
+      return NextResponse.json({ error: "Only org admins or operators can delete org API keys" }, { status: 403 });
+    }
+
+    await sql`DELETE FROM org_api_keys WHERE org_id = ${org_id} AND service = ${service}`;
+
+    logAudit({ userId, userEmail: email, action: "org_apikey.delete", resourceType: "org_api_key", resourceId: org_id, details: { service }, ipAddress: ip });
+    return NextResponse.json({ message: "Org API key deleted" });
   }
 
   return NextResponse.json({ error: "Unknown action" }, { status: 400 });

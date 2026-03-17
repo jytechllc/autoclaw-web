@@ -8,6 +8,7 @@ on:
     - cron: "0 3 * * *"
     - cron: "15 3 * * *"
     - cron: "5,35 * * * *"
+    - cron: "0 4 * * *"
   workflow_dispatch:
     inputs:
       task:
@@ -21,6 +22,7 @@ on:
           - audit-retention
           - key-cleanup
           - post-scheduler
+          - enrich-contacts
 
 jobs:
   cron:
@@ -95,3 +97,13 @@ jobs:
           curl --fail --show-error --silent \
             -H "Authorization: Bearer ${CRON_SECRET}" \
             "${AUTOCLAW_BASE_URL}/api/cron/post-scheduler"
+
+      - name: Run enrich-contacts
+        if: (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'enrich-contacts') || (github.event_name == 'schedule' && github.event.schedule == '0 4 * * *')
+        env:
+          AUTOCLAW_BASE_URL: ${{ vars.AUTOCLAW_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl --fail --show-error --silent \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${AUTOCLAW_BASE_URL}/api/cron/enrich-contacts"

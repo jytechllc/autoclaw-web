@@ -1,7 +1,7 @@
 "use client";
 
 import { useUser } from "@auth0/nextjs-auth0/client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -215,6 +215,7 @@ export default function AgentsPage() {
     taskIndex: number;
     startedAt: number;
   } | null>(null);
+  const batchAbortRef = useRef<AbortController | null>(null);
   const [taskResult, setTaskResult] = useState<
     Record<number, { result?: unknown; message?: string; error?: string }>
   >({});
@@ -526,7 +527,7 @@ export default function AgentsPage() {
       const res = await fetch("/api/execute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agent_id: agentId, task_index: taskIndex }),
+        body: JSON.stringify({ agent_id: agentId, task_index: taskIndex, locale }),
         signal: controller.signal,
       });
       const data = await res.json();
@@ -555,7 +556,16 @@ export default function AgentsPage() {
     }
   }
 
+  function stopRunning() {
+    if (batchAbortRef.current) {
+      batchAbortRef.current.abort();
+      batchAbortRef.current = null;
+    }
+  }
+
   async function executeTaskBatch(agentId: number, taskIndexes: number[]) {
+    const batchAbort = new AbortController();
+    batchAbortRef.current = batchAbort;
     setActionLoading(true);
     setRunningTask({ agentId, taskIndex: -1, startedAt: Date.now() });
     setTaskResult((prev) => ({ ...prev, [agentId]: {} }));
@@ -572,14 +582,34 @@ export default function AgentsPage() {
       const tasks = agent?.config?.tasks || [];
 
       for (const taskIndex of taskIndexes) {
+        // Check if user requested stop
+        if (batchAbort.signal.aborted) {
+          setTaskResult((prev) => ({
+            ...prev,
+            [agentId]: {
+              error: ta.runAllStopped,
+              message: ta.executedTasks?.replace("{count}", String(results.length)),
+              result: { tasks_run: results.length, results },
+            },
+          }));
+          await loadData();
+          return;
+        }
+
+        // Update UI to show which task is running
+        setRunningTask({ agentId, taskIndex, startedAt: Date.now() });
+
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 120000);
+        // Link batch abort to per-task abort
+        const onBatchAbort = () => controller.abort();
+        batchAbort.signal.addEventListener("abort", onBatchAbort);
 
         try {
           const res = await fetch("/api/execute", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ agent_id: agentId, task_index: taskIndex }),
+            body: JSON.stringify({ agent_id: agentId, task_index: taskIndex, locale }),
             signal: controller.signal,
           });
           const data = await res.json();
@@ -591,6 +621,9 @@ export default function AgentsPage() {
             error: !res.ok ? data.error || ta.taskFailed : undefined,
           });
 
+          // Refresh data after each task so UI updates in real time
+          await loadData();
+
           if (!res.ok) {
             setTaskResult((prev) => ({
               ...prev,
@@ -599,13 +632,15 @@ export default function AgentsPage() {
                 result: { tasks_run: results.length, results },
               },
             }));
-            await loadData();
             return;
           }
         } catch (e) {
-          const msg =
-            e instanceof DOMException && e.name === "AbortError"
-              ? "Task timed out (2 min). It may still be running on the server."
+          const isAbort = e instanceof DOMException && e.name === "AbortError";
+          const isStopped = batchAbort.signal.aborted;
+          const msg = isStopped
+            ? (ta.forceStoppedMsg || "Stopped by user")
+            : isAbort
+              ? ta.taskTimeout
               : ta.taskFailed;
           results.push({
             task_index: taskIndex,
@@ -616,7 +651,7 @@ export default function AgentsPage() {
           setTaskResult((prev) => ({
             ...prev,
             [agentId]: {
-              error: "Run-all stopped on task failure",
+              error: isStopped ? (ta.forceStoppedMsg || "Stopped by user") : ta.runAllStopped,
               result: { tasks_run: results.length, results },
             },
           }));
@@ -624,6 +659,7 @@ export default function AgentsPage() {
           return;
         } finally {
           clearTimeout(timeout);
+          batchAbort.signal.removeEventListener("abort", onBatchAbort);
         }
       }
 
@@ -636,6 +672,7 @@ export default function AgentsPage() {
       }));
       await loadData();
     } finally {
+      batchAbortRef.current = null;
       setActionLoading(false);
       setRunningTask(null);
     }
@@ -661,60 +698,46 @@ export default function AgentsPage() {
     return executeTask(agentId, nextTaskIndex);
   }
 
-  async function runAllTasks(agentId: number) {
+  async function runAllTasks(agentId: number, mode: "continue" | "restart" = "continue") {
     const agent = agents.find((item) => item.id === agentId);
-    const tasks = agent?.config?.tasks || [];
+    if (!agent) return;
+    const tasks = agent.config?.tasks || [];
+    if (tasks.length === 0) return;
+
+    // Restart mode: reset all tasks first
+    if (mode === "restart") {
+      try {
+        await fetch("/api/execute", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ agent_id: agentId, action: "reset" }),
+        });
+        await loadData();
+      } catch { /* continue anyway */ }
+      // Run all tasks from 0
+      return executeTaskBatch(agentId, tasks.map((_, i) => i));
+    }
+
+    // Continue mode: find remaining tasks and run them sequentially
     const runnableIndexes = tasks
       .map((task, index) => ({ task, index }))
-      .filter(
-        ({ task }) =>
-          task.status === "in_progress" || task.status === "pending",
-      )
+      .filter(({ task }) => task.status === "in_progress" || task.status === "pending")
       .map(({ index }) => index);
 
-    if (tasks.length > 0 && runnableIndexes.length === 0) {
-      return executeTaskBatch(
-        agentId,
-        tasks.map((_, index) => index),
-      );
+    if (runnableIndexes.length === 0) {
+      // All completed — restart all
+      try {
+        await fetch("/api/execute", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ agent_id: agentId, action: "reset" }),
+        });
+        await loadData();
+      } catch { /* continue anyway */ }
+      return executeTaskBatch(agentId, tasks.map((_, i) => i));
     }
 
-    setActionLoading(true);
-    setRunningTask({ agentId, taskIndex: -1, startedAt: Date.now() });
-    setTaskResult((prev) => ({ ...prev, [agentId]: {} }));
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120000);
-    try {
-      const res = await fetch("/api/execute", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agent_id: agentId, action: "run-all" }),
-        signal: controller.signal,
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setTaskResult((prev) => ({
-          ...prev,
-          [agentId]: { error: data.error || ta.taskFailed },
-        }));
-      } else {
-        setTaskResult((prev) => ({
-          ...prev,
-          [agentId]: { result: data.result, message: data.message },
-        }));
-      }
-      await loadData();
-    } catch (e) {
-      const msg =
-        e instanceof DOMException && e.name === "AbortError"
-          ? ta.taskTimeout
-          : ta.taskFailed;
-      setTaskResult((prev) => ({ ...prev, [agentId]: { error: msg } }));
-    } finally {
-      clearTimeout(timeout);
-      setActionLoading(false);
-      setRunningTask(null);
-    }
+    return executeTaskBatch(agentId, runnableIndexes);
   }
 
   function toggleTaskDetail(agentId: number, taskIndex: number) {
@@ -1050,24 +1073,72 @@ export default function AgentsPage() {
                                 </p>
                               </div>
                               <div className="flex items-center gap-2">
-                                {tasks.length > 0 && (
-                                  <>
-                                    <button
-                                      onClick={() => runNextTask(agent.id)}
-                                      disabled={actionLoading}
-                                      className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 text-white px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer"
-                                    >
-                                      {ta.runNext}
-                                    </button>
-                                    <button
-                                      onClick={() => runAllTasks(agent.id)}
-                                      disabled={actionLoading}
-                                      className="bg-green-500 hover:bg-green-600 disabled:bg-gray-300 text-white px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer"
-                                    >
-                                      {ta.runAll || "Run All"}
-                                    </button>
-                                  </>
-                                )}
+                                {tasks.length > 0 && (() => {
+                                  const hasPending = tasks.some((t: { status: string }) => t.status === "pending" || t.status === "in_progress");
+                                  const allCompleted = completedTasks === tasks.length;
+                                  const hasPartialProgress = completedTasks > 0 && hasPending;
+                                  const isThisAgentRunning = actionLoading && runningTask?.agentId === agent.id;
+                                  return (
+                                    <>
+                                      {/* Stop button — only when this agent is running */}
+                                      {isThisAgentRunning && (
+                                        <button
+                                          onClick={stopRunning}
+                                          className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer flex items-center gap-1"
+                                        >
+                                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1" /></svg>
+                                          {ta.forceStop || "Stop"}
+                                        </button>
+                                      )}
+                                      <button
+                                        onClick={() => runNextTask(agent.id)}
+                                        disabled={actionLoading}
+                                        className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 text-white px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer"
+                                      >
+                                        {ta.runNext}
+                                      </button>
+                                      {/* Fresh agent (no completed): Run All */}
+                                      {!allCompleted && !hasPartialProgress && (
+                                        <button
+                                          onClick={() => runAllTasks(agent.id, "continue")}
+                                          disabled={actionLoading}
+                                          className="bg-green-500 hover:bg-green-600 disabled:bg-gray-300 text-white px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer"
+                                        >
+                                          {ta.runAll || "Run All"}
+                                        </button>
+                                      )}
+                                      {/* Partial progress: Continue + Restart */}
+                                      {hasPartialProgress && (
+                                        <>
+                                          <button
+                                            onClick={() => runAllTasks(agent.id, "continue")}
+                                            disabled={actionLoading}
+                                            className="bg-green-500 hover:bg-green-600 disabled:bg-gray-300 text-white px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer"
+                                          >
+                                            {ta.continueRun || "Continue"}
+                                          </button>
+                                          <button
+                                            onClick={() => runAllTasks(agent.id, "restart")}
+                                            disabled={actionLoading}
+                                            className="bg-orange-500 hover:bg-orange-600 disabled:bg-gray-300 text-white px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer"
+                                          >
+                                            {ta.restartRun || "Restart"}
+                                          </button>
+                                        </>
+                                      )}
+                                      {/* All completed: Restart only */}
+                                      {allCompleted && (
+                                        <button
+                                          onClick={() => runAllTasks(agent.id, "restart")}
+                                          disabled={actionLoading}
+                                          className="bg-orange-500 hover:bg-orange-600 disabled:bg-gray-300 text-white px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer"
+                                        >
+                                          {ta.restartRun || "Restart"}
+                                        </button>
+                                      )}
+                                    </>
+                                  );
+                                })()}
                                 {statusBadge(agent.status, locale)}
                                 <button
                                   onClick={() => deactivateAgent(agent.id)}
@@ -1125,6 +1196,48 @@ export default function AgentsPage() {
                                 ))}
                               </select>
                             </div>
+
+                            {/* Sender config for email/sales agents */}
+                            {(agent.agent_type === "email_marketing" || agent.agent_type === "sales_followup") && (
+                              <div className="mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                                <p className="text-xs font-medium text-gray-500 mb-2">{ta.senderConfig || "Sender Configuration"}</p>
+                                <div className="flex flex-col sm:flex-row gap-2">
+                                  <input
+                                    type="email"
+                                    placeholder={ta.senderEmailPlaceholder || "Sender email (e.g. hello@company.com)"}
+                                    defaultValue={(config.sender_email as string) || ""}
+                                    onBlur={(e) => {
+                                      const val = e.target.value.trim();
+                                      if (val !== ((config.sender_email as string) || "")) {
+                                        fetch("/api/projects", {
+                                          method: "POST",
+                                          headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({ action: "update_agent_config", agent_id: agent.id, config: { sender_email: val || null } }),
+                                        }).then(() => loadData());
+                                      }
+                                    }}
+                                    className="flex-1 border border-gray-300 rounded-md px-3 py-1.5 text-xs"
+                                  />
+                                  <input
+                                    type="text"
+                                    placeholder={ta.senderNamePlaceholder || "Sender name (e.g. Marketing Team)"}
+                                    defaultValue={(config.sender_name as string) || ""}
+                                    onBlur={(e) => {
+                                      const val = e.target.value.trim();
+                                      if (val !== ((config.sender_name as string) || "")) {
+                                        fetch("/api/projects", {
+                                          method: "POST",
+                                          headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({ action: "update_agent_config", agent_id: agent.id, config: { sender_name: val || null } }),
+                                        }).then(() => loadData());
+                                      }
+                                    }}
+                                    className="flex-1 border border-gray-300 rounded-md px-3 py-1.5 text-xs"
+                                  />
+                                </div>
+                                <p className="text-[10px] text-gray-400 mt-1">{ta.senderConfigHint || "Must be a verified sender in your email provider (Brevo/SendGrid). Leave empty to use project owner email."}</p>
+                              </div>
+                            )}
 
                             {tasks.length > 0 && (
                               <div className="mb-3">
@@ -1249,26 +1362,43 @@ export default function AgentsPage() {
                                         </div>
                                         {isExpanded && (
                                           <div className="ml-6 mt-1 mb-2 bg-gray-50 border border-gray-100 rounded-md p-2">
-                                            <div className="flex items-center gap-2 mb-2 text-xs">
-                                              <span className="text-gray-400">{ta.modelUsedLabel}</span>
-                                              <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-600 font-medium">
-                                                {(() => {
-                                                  const m = task.model_used || String(matchedReport?.metrics?.model_used || "");
-                                                  return m === "none" ? ta.noModel : (m || config.model || "auto");
-                                                })()}
-                                              </span>
-                                              <span className="text-gray-400">{ta.useModeLabel}</span>
-                                              <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 font-medium">
-                                                {task.use_mode || String(matchedReport?.metrics?.preferred_model || config.model || "auto")}
-                                              </span>
+                                            <div className="flex items-center justify-between mb-2">
+                                              <div className="flex items-center gap-2 text-xs">
+                                                <span className="text-gray-400">{ta.modelUsedLabel}</span>
+                                                <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-600 font-medium">
+                                                  {(() => {
+                                                    const m = task.model_used || String(matchedReport?.metrics?.model_used || "");
+                                                    return m === "none" ? ta.noModel : (m || config.model || "auto");
+                                                  })()}
+                                                </span>
+                                                <span className="text-gray-400">{ta.useModeLabel}</span>
+                                                <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 font-medium">
+                                                  {task.use_mode || String(matchedReport?.metrics?.preferred_model || config.model || "auto")}
+                                                </span>
+                                              </div>
+                                              <button
+                                                onClick={() => {
+                                                  const text = [
+                                                    task.result ? String(task.result) : "",
+                                                    matchedReport ? stringifyResult(matchedReport.metrics) : "",
+                                                  ].filter(Boolean).join("\n\n");
+                                                  navigator.clipboard.writeText(text);
+                                                }}
+                                                className="text-xs text-gray-400 hover:text-gray-600 cursor-pointer px-1.5 py-0.5 rounded hover:bg-gray-200 transition-colors"
+                                                title="Copy"
+                                              >
+                                                {dict.settings.copy}
+                                              </button>
                                             </div>
                                             {task.result && (
-                                              <MarkdownResult
-                                                content={String(task.result)}
-                                              />
+                                              <div className="select-text">
+                                                <MarkdownResult
+                                                  content={String(task.result)}
+                                                />
+                                              </div>
                                             )}
                                             {matchedReport && (
-                                              <div className="text-xs text-gray-600 max-h-60 overflow-y-auto bg-white rounded p-2 mt-1">
+                                              <div className="text-xs text-gray-600 max-h-60 overflow-y-auto bg-white rounded p-2 mt-1 select-text">
                                                 <div className="mb-1 font-medium">
                                                   {ta.metricsLabel}
                                                 </div>
@@ -1532,9 +1662,139 @@ export default function AgentsPage() {
                 </div>
               )}
             </section>
+
+            {/* Recent Activity Log */}
+            <ActivityLog locale={locale} ta={ta} />
           </>
         )}
       </div>
     </DashboardShell>
+  );
+}
+
+interface ActivityItem {
+  task_name: string;
+  summary: string;
+  agent_type: string;
+  project: string;
+  metrics: Record<string, string | number>;
+  created_at: string;
+}
+
+const AGENT_TYPE_ICONS: Record<string, string> = {
+  email_marketing: "📧",
+  seo_content: "📝",
+  lead_prospecting: "👥",
+  social_media: "📱",
+  product_manager: "📊",
+  sales_followup: "🤝",
+  orchestrator: "🎯",
+};
+
+function timeAgo(dateStr: string, ta: Record<string, string>): string {
+  const now = Date.now();
+  const then = new Date(dateStr).getTime();
+  const diffMs = now - then;
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return `<1 ${ta.minutesAgo}`;
+  if (diffMin < 60) return `${diffMin} ${ta.minutesAgo}`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr} ${ta.hoursAgo}`;
+  const diffDays = Math.floor(diffHr / 24);
+  return `${diffDays} ${ta.daysAgo}`;
+}
+
+function ActivityLog({ locale, ta }: { locale: string; ta: Record<string, string> }) {
+  const [activities, setActivities] = useState<ActivityItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/agent-reports?mode=activities&limit=30")
+      .then((r) => r.json())
+      .then((data) => setActivities(data.activities || []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const agentLabel = (type: string) => {
+    const map: Record<string, string> = {
+      email_marketing: ta.emailMarketing || "Email Marketing",
+      seo_content: ta.seoContent || "SEO & Content",
+      lead_prospecting: ta.leadProspecting || "Lead Prospecting",
+      social_media: ta.socialMedia || "Social Media",
+      product_manager: ta.productManager || "Product Manager",
+      sales_followup: ta.salesFollowup || "Sales Follow-up",
+      orchestrator: ta.orchestrator || "Orchestrator",
+    };
+    return map[type] || type;
+  };
+
+  return (
+    <section className="mb-8">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <h2 className="text-lg font-semibold">{ta.recentActivity}</h2>
+          <p className="text-xs text-gray-500">{ta.recentActivityDesc}</p>
+        </div>
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="text-xs text-blue-600 hover:underline"
+        >
+          {expanded ? ta.logHide : ta.logShow}
+        </button>
+      </div>
+
+      {expanded && (
+        <>
+          {loading ? (
+            <div className="text-sm text-gray-400 py-4">{ta.loadingActivity}</div>
+          ) : activities.length === 0 ? (
+            <div className="bg-white rounded-lg border border-gray-200 p-6 text-center">
+              <p className="text-sm text-gray-500">{ta.noActivity}</p>
+              <p className="text-xs text-gray-400 mt-1">{ta.noActivityDesc}</p>
+            </div>
+          ) : (
+            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+              <div className="overflow-x-auto max-h-[480px] overflow-y-auto">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0">
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      <th className="text-left px-4 py-2.5 font-medium text-gray-600 w-[140px]">{ta.lastRunAt || "Time"}</th>
+                      <th className="text-left px-3 py-2.5 font-medium text-gray-600 w-[130px]">Agent</th>
+                      <th className="text-left px-3 py-2.5 font-medium text-gray-600 w-[100px]">{ta.tasksLabel || "Task"}</th>
+                      <th className="text-left px-3 py-2.5 font-medium text-gray-600 w-[90px]">{locale === "zh" ? "项目" : "Project"}</th>
+                      <th className="text-left px-4 py-2.5 font-medium text-gray-600">{locale === "zh" ? "摘要" : "Summary"}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activities.map((a, i) => (
+                      <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
+                        <td className="px-4 py-2 text-xs text-gray-400 whitespace-nowrap">
+                          {timeAgo(a.created_at, ta)}
+                        </td>
+                        <td className="px-3 py-2 text-xs whitespace-nowrap">
+                          <span className="mr-1">{AGENT_TYPE_ICONS[a.agent_type] || "🤖"}</span>
+                          {agentLabel(a.agent_type)}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-gray-600 whitespace-nowrap">
+                          {a.task_name}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap">
+                          {a.project}
+                        </td>
+                        <td className="px-4 py-2 text-xs text-gray-700 max-w-[400px] truncate" title={a.summary}>
+                          {a.summary}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </section>
   );
 }

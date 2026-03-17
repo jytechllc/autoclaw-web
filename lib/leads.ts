@@ -100,6 +100,106 @@ async function searchApollo(domain: string): Promise<Lead[]> {
   }
 }
 
+/**
+ * Search Apollo for companies/people by keyword, industry, location, etc.
+ * This is different from searchApollo() which searches by domain.
+ * Used by chat tool-calling for open-ended business research queries.
+ */
+export interface CompanyResult {
+  name: string;
+  domain: string;
+  industry: string;
+  location: string;
+  employeeCount: number;
+  description: string;
+  contacts: Lead[];
+}
+
+export async function searchCompanies(opts: {
+  keywords?: string;
+  industry?: string;
+  location?: string;
+  titles?: string[];
+  limit?: number;
+}): Promise<CompanyResult[]> {
+  if (!APOLLO_API_KEY) return [];
+  const limit = opts.limit || 10;
+
+  try {
+    // Step 1: Search organizations
+    const orgBody: Record<string, unknown> = {
+      per_page: limit,
+      page: 1,
+    };
+    if (opts.keywords) orgBody.q_organization_keyword_tags = [opts.keywords];
+    if (opts.industry) orgBody.organization_industry_tag_ids = [opts.industry];
+    if (opts.location) orgBody.organization_locations = [opts.location];
+
+    const orgRes = await fetch("https://api.apollo.io/v1/mixed_companies/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Api-Key": APOLLO_API_KEY },
+      body: JSON.stringify(orgBody),
+    });
+
+    if (!orgRes.ok) return [];
+    const orgData = await orgRes.json();
+    const organizations = orgData.organizations || orgData.accounts || [];
+
+    const results: CompanyResult[] = [];
+    for (const org of organizations.slice(0, limit)) {
+      const company: CompanyResult = {
+        name: (org.name as string) || "",
+        domain: (org.primary_domain as string) || (org.domain as string) || "",
+        industry: (org.industry as string) || "",
+        location: [org.city, org.state, org.country].filter(Boolean).join(", ") || "",
+        employeeCount: (org.estimated_num_employees as number) || 0,
+        description: ((org.short_description || org.seo_description || "") as string).slice(0, 200),
+        contacts: [],
+      };
+
+      // Step 2: Get key contacts for each company
+      if (company.domain) {
+        try {
+          const peopleBody: Record<string, unknown> = {
+            q_organization_domains: company.domain,
+            per_page: 3,
+          };
+          if (opts.titles && opts.titles.length > 0) {
+            peopleBody.person_titles = opts.titles;
+          }
+
+          const peopleRes = await fetch("https://api.apollo.io/v1/mixed_people/search", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Api-Key": APOLLO_API_KEY },
+            body: JSON.stringify(peopleBody),
+          });
+
+          if (peopleRes.ok) {
+            const peopleData = await peopleRes.json();
+            company.contacts = (peopleData.people || []).map((p: Record<string, unknown>) => ({
+              email: (p.email as string) || "",
+              firstName: (p.first_name as string) || "",
+              lastName: (p.last_name as string) || "",
+              company: company.name,
+              position: (p.title as string) || "",
+              source: "apollo" as const,
+              verified: Boolean(p.email),
+            })).filter((l: Lead) => l.email);
+          }
+        } catch {
+          // Skip contact lookup failures
+        }
+      }
+
+      results.push(company);
+    }
+
+    return results;
+  } catch {
+    return [];
+  }
+}
+
 function dedupeLeads(...leadSources: Lead[][]): Lead[] {
   const seen = new Set<string>();
   const result: Lead[] = [];

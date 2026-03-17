@@ -37,8 +37,23 @@ export async function GET(req: NextRequest) {
   `;
   const orgIds = orgs.map((o) => o.id as number);
 
-  // Get user's project IDs
-  const projects = await sql`SELECT id, name FROM projects WHERE user_id = ${userId}`;
+  // Get user's accessible projects (owned, org-level, or member)
+  const projects = orgIds.length > 0
+    ? await sql`
+        SELECT DISTINCT p.id, p.name FROM projects p
+        LEFT JOIN project_members pm ON pm.project_id = p.id AND pm.user_id = ${userId}
+        WHERE p.user_id = ${userId}
+          OR p.org_id = ANY(${orgIds})
+          OR pm.user_id = ${userId}
+        ORDER BY p.name
+      `
+    : await sql`
+        SELECT DISTINCT p.id, p.name FROM projects p
+        LEFT JOIN project_members pm ON pm.project_id = p.id AND pm.user_id = ${userId}
+        WHERE p.user_id = ${userId}
+          OR pm.user_id = ${userId}
+        ORDER BY p.name
+      `;
   const projectIds = projects.map((p) => p.id as number);
 
   const scope = req.nextUrl.searchParams.get("scope"); // 'all', 'org', 'personal', 'project'
@@ -141,6 +156,8 @@ export async function POST(req: NextRequest) {
       return handleEditUrl(body, sql, userId, plan, limits);
     case "edit_chunk":
       return handleEditChunk(body, sql, userId, plan);
+    case "assign_project":
+      return handleAssignProject(body, sql, userId);
     default:
       return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   }
@@ -626,4 +643,62 @@ async function handleEditChunk(
   }
 
   return NextResponse.json({ updated: true });
+}
+
+async function handleAssignProject(
+  body: { document_id?: number; project_id?: number | null },
+  sql: ReturnType<typeof getDb>,
+  userId: number,
+) {
+  const { document_id, project_id } = body;
+  if (!document_id) {
+    return NextResponse.json({ error: "document_id required" }, { status: 400 });
+  }
+
+  // Verify document ownership
+  const docs = await sql`SELECT id, user_id, org_id FROM kb_documents WHERE id = ${document_id}`;
+  if (docs.length === 0) {
+    return NextResponse.json({ error: "Document not found" }, { status: 404 });
+  }
+  if (docs[0].user_id !== userId) {
+    if (docs[0].org_id) {
+      const membership = await sql`
+        SELECT role FROM organization_members
+        WHERE org_id = ${docs[0].org_id} AND user_id = ${userId} AND role = 'admin'
+      `;
+      if (membership.length === 0) {
+        return NextResponse.json({ error: "Not authorized" }, { status: 403 });
+      }
+    } else {
+      return NextResponse.json({ error: "Not authorized" }, { status: 403 });
+    }
+  }
+
+  // Validate project access if assigning
+  if (project_id !== null && project_id !== undefined) {
+    const projects = await sql`
+      SELECT DISTINCT p.id FROM projects p
+      LEFT JOIN project_members pm ON pm.project_id = p.id AND pm.user_id = ${userId}
+      LEFT JOIN organization_members om ON p.org_id = om.org_id AND om.user_id = ${userId}
+      WHERE p.id = ${project_id} AND (p.user_id = ${userId} OR om.user_id = ${userId} OR pm.user_id = ${userId})
+    `;
+    if (projects.length === 0) {
+      return NextResponse.json({ error: "Project not found or not accessible" }, { status: 404 });
+    }
+    await sql`
+      UPDATE kb_documents
+      SET project_id = ${project_id}, scope = 'project', updated_at = NOW()
+      WHERE id = ${document_id}
+    `;
+  } else {
+    // Remove project assignment
+    await sql`
+      UPDATE kb_documents
+      SET project_id = NULL, scope = 'personal', updated_at = NOW()
+      WHERE id = ${document_id}
+    `;
+  }
+
+  const updated = await sql`SELECT * FROM kb_documents WHERE id = ${document_id}`;
+  return NextResponse.json({ updated: true, document: updated[0] });
 }

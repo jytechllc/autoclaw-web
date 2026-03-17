@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
 
   const sql = getDb();
   const email = session.user.email as string;
-  const { agent_id, task_index, action } = await req.json();
+  const { agent_id, task_index, action, mode, locale } = await req.json();
 
   // Verify user owns this agent
   const users = await sql`SELECT id FROM users WHERE email = ${email}`;
@@ -25,10 +25,16 @@ export async function POST(req: NextRequest) {
   }
   const userId = users[0].id;
 
+  const emailDomain = email.split("@")[1] || "";
   const agents = await sql`
     SELECT aa.id, aa.project_id FROM agent_assignments aa
     JOIN projects p ON aa.project_id = p.id
-    WHERE aa.id = ${agent_id} AND p.user_id = ${userId}
+    WHERE aa.id = ${agent_id} AND (
+      p.user_id = ${userId}
+      OR p.id IN (SELECT project_id FROM project_members WHERE user_id = ${userId})
+      OR (p.domain IS NOT NULL AND p.domain != '' AND p.domain = ${emailDomain})
+      OR p.org_id IN (SELECT org_id FROM organization_members WHERE user_id = ${userId})
+    )
   `;
   if (agents.length === 0) {
     return NextResponse.json({ error: "Agent not found" }, { status: 404 });
@@ -56,10 +62,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Worker not configured. Add your Cloudflare Worker URL and Secret in Settings → API Keys." }, { status: 500 });
   }
 
+  // Reset action: reset all tasks to pending (for restart mode), no worker call needed
+  if (action === "reset") {
+    const agentRows = await sql`SELECT config FROM agent_assignments WHERE id = ${agent_id}`;
+    if (agentRows.length > 0) {
+      const resetConfig = (agentRows[0].config as Record<string, unknown>) || {};
+      const resetTasks = (resetConfig.tasks as { name: string; status: string; result?: string; model_used?: string; use_mode?: string }[]) || [];
+      for (let j = 0; j < resetTasks.length; j++) {
+        resetTasks[j].status = j === 0 ? "in_progress" : "pending";
+        delete resetTasks[j].result;
+        delete resetTasks[j].model_used;
+        delete resetTasks[j].use_mode;
+      }
+      await sql`UPDATE agent_assignments SET config = ${JSON.stringify({ ...resetConfig, tasks: resetTasks })} WHERE id = ${agent_id}`;
+    }
+    return NextResponse.json({ success: true, message: "Tasks reset" });
+  }
+
   const endpoint = action === "run-all" ? "/run-all" : "/execute";
   const body = action === "run-all"
-    ? { agent_id }
-    : { agent_id, task_index, project_id: agents[0].project_id, user_id: userId };
+    ? { agent_id, mode: mode || "continue", locale: locale || "en" }
+    : { agent_id, task_index, project_id: agents[0].project_id, user_id: userId, locale: locale || "en" };
 
   try {
     const workerRes = await fetch(`${workerUrl}${endpoint}`, {

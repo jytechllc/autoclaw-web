@@ -20,6 +20,8 @@ interface XCredentials {
 
 async function getUserXCredentials(userId: number): Promise<XCredentials | null> {
   const sql = getDb();
+
+  // 1. Try personal keys first
   const keys = await sql`
     SELECT service, api_key FROM user_api_keys
     WHERE user_id = ${userId} AND service IN ('twitter_api_key', 'twitter_api_secret', 'twitter_access_token', 'twitter_access_token_secret')
@@ -27,18 +29,49 @@ async function getUserXCredentials(userId: number): Promise<XCredentials | null>
 
   const keyMap: Record<string, string> = {};
   for (const k of keys) {
-    keyMap[k.service] = decrypt(k.api_key);
+    try {
+      keyMap[k.service as string] = decrypt(k.api_key as string);
+    } catch {
+      // Decryption failed — skip this key
+    }
   }
 
-  if (!keyMap.twitter_api_key || !keyMap.twitter_api_secret || !keyMap.twitter_access_token || !keyMap.twitter_access_token_secret) {
+  if (keyMap.twitter_api_key && keyMap.twitter_api_secret && keyMap.twitter_access_token && keyMap.twitter_access_token_secret) {
+    return {
+      apiKey: keyMap.twitter_api_key,
+      apiSecret: keyMap.twitter_api_secret,
+      accessToken: keyMap.twitter_access_token,
+      accessTokenSecret: keyMap.twitter_access_token_secret,
+    };
+  }
+
+  // 2. Fallback to org-level keys
+  const orgKeys = await sql`
+    SELECT oak.service, oak.api_key FROM org_api_keys oak
+    JOIN organization_members om ON om.org_id = oak.org_id
+    WHERE om.user_id = ${userId}
+      AND oak.service IN ('twitter_api_key', 'twitter_api_secret', 'twitter_access_token', 'twitter_access_token_secret')
+    LIMIT 4
+  `;
+
+  const orgKeyMap: Record<string, string> = {};
+  for (const k of orgKeys) {
+    try {
+      orgKeyMap[k.service as string] = decrypt(k.api_key as string);
+    } catch {
+      // Decryption failed — skip this key
+    }
+  }
+
+  if (!orgKeyMap.twitter_api_key || !orgKeyMap.twitter_api_secret || !orgKeyMap.twitter_access_token || !orgKeyMap.twitter_access_token_secret) {
     return null;
   }
 
   return {
-    apiKey: keyMap.twitter_api_key,
-    apiSecret: keyMap.twitter_api_secret,
-    accessToken: keyMap.twitter_access_token,
-    accessTokenSecret: keyMap.twitter_access_token_secret,
+    apiKey: orgKeyMap.twitter_api_key,
+    apiSecret: orgKeyMap.twitter_api_secret,
+    accessToken: orgKeyMap.twitter_access_token,
+    accessTokenSecret: orgKeyMap.twitter_access_token_secret,
   };
 }
 
@@ -205,28 +238,52 @@ export async function GET(req: NextRequest) {
     }
     try {
       const client = createXClient(creds);
-      const me = await client.v2.me();
-      const timeline = await client.v2.userTimeline(me.data.id, {
-        max_results: 10,
-        "tweet.fields": ["created_at", "public_metrics", "entities"],
-        "media.fields": ["url", "preview_image_url"],
-        expansions: ["attachments.media_keys"],
-      });
 
-      const tweets = (timeline.data.data || []).map((tweet) => {
-        const media = timeline.includes?.media?.filter((m) =>
-          tweet.attachments?.media_keys?.includes(m.media_key)
-        );
-        return {
-          id: tweet.id,
-          text: tweet.text,
-          createdAt: tweet.created_at,
-          metrics: tweet.public_metrics,
-          mediaUrl: media?.[0]?.url || media?.[0]?.preview_image_url || null,
-        };
-      });
+      // Try v2 first (requires Basic+ tier), fall back to v1
+      try {
+        const me = await client.v2.me();
+        const timeline = await client.v2.userTimeline(me.data.id, {
+          max_results: 10,
+          "tweet.fields": ["created_at", "public_metrics", "entities"],
+          "media.fields": ["url", "preview_image_url"],
+          expansions: ["attachments.media_keys"],
+        });
 
-      return NextResponse.json({ tweets });
+        const tweets = (timeline.data.data || []).map((tweet) => {
+          const media = timeline.includes?.media?.filter((m) =>
+            tweet.attachments?.media_keys?.includes(m.media_key)
+          );
+          return {
+            id: tweet.id,
+            text: tweet.text,
+            createdAt: tweet.created_at,
+            metrics: tweet.public_metrics,
+            mediaUrl: media?.[0]?.url || media?.[0]?.preview_image_url || null,
+          };
+        });
+        return NextResponse.json({ tweets });
+      } catch {
+        // v2 failed (Free tier) — try v1 user timeline
+        try {
+          const v1Timeline = await client.v1.userTimeline({ count: 10, exclude_replies: true, include_rts: false });
+          const tweets = v1Timeline.tweets.map((tweet) => ({
+            id: tweet.id_str,
+            text: tweet.full_text || tweet.text,
+            createdAt: tweet.created_at,
+            metrics: {
+              like_count: tweet.favorite_count,
+              retweet_count: tweet.retweet_count,
+              reply_count: 0,
+              impression_count: 0,
+            },
+            mediaUrl: tweet.entities?.media?.[0]?.media_url_https || null,
+          }));
+          return NextResponse.json({ tweets });
+        } catch {
+          // v1 also unavailable — return empty
+          return NextResponse.json({ tweets: [] });
+        }
+      }
     } catch (err) {
       console.error("X recent tweets error:", err);
       return NextResponse.json({ error: "Failed to fetch recent tweets" }, { status: 502 });
@@ -242,16 +299,40 @@ export async function GET(req: NextRequest) {
 
     try {
       const client = createXClient(creds);
-      const me = await client.v2.me();
-      return NextResponse.json({
-        connected: true,
-        username: me.data.username,
-        name: me.data.name,
-        id: me.data.id,
-      });
+
+      // Try v2.me() first (requires Basic+ tier)
+      try {
+        const me = await client.v2.me();
+        return NextResponse.json({
+          connected: true,
+          username: me.data.username,
+          name: me.data.name,
+          id: me.data.id,
+        });
+      } catch {
+        // v2.me() failed (Free tier 403) — verify via v1 account credentials instead
+        try {
+          const v1User = await client.v1.verifyCredentials();
+          return NextResponse.json({
+            connected: true,
+            username: v1User.screen_name,
+            name: v1User.name,
+            id: String(v1User.id),
+          });
+        } catch {
+          // v1 also failed — credentials are set, treat as connected (can still post)
+          return NextResponse.json({
+            connected: true,
+            username: undefined,
+            name: undefined,
+            id: undefined,
+          });
+        }
+      }
     } catch (err) {
-      console.error("X credential check error:", err);
-      return NextResponse.json({ connected: false, error: "Invalid credentials" });
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error("X credential check error:", errMsg);
+      return NextResponse.json({ connected: false, error: `Credential verification failed: ${errMsg}` });
     }
   }
 

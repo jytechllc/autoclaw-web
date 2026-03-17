@@ -51,7 +51,51 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (docs.length === 0 || docs[0].user_id !== userId) return apiError("Document not found", 404);
 
   const body = await req.json();
-  const { title, url } = body;
+  const { title, url, project_id, scope } = body;
+
+  // Update project assignment and/or scope if requested
+  if (project_id !== undefined || scope !== undefined) {
+    const updates: Record<string, unknown> = {};
+    if (project_id !== undefined) {
+      // Validate project ownership if assigning to a project
+      if (project_id !== null) {
+        const projects = await sql`
+          SELECT DISTINCT p.id FROM projects p
+          LEFT JOIN project_members pm ON pm.project_id = p.id AND pm.user_id = ${userId}
+          LEFT JOIN organization_members om ON p.org_id = om.org_id AND om.user_id = ${userId}
+          WHERE p.id = ${project_id} AND (p.user_id = ${userId} OR om.user_id = ${userId} OR pm.user_id = ${userId})
+        `;
+        if (projects.length === 0) return apiError("Project not found or not accessible", 404);
+        updates.project_id = project_id;
+        // Auto-set scope to 'project' when assigning a project
+        if (!scope) updates.scope = "project";
+      } else {
+        updates.project_id = null;
+        // Reset scope to 'personal' when removing project
+        if (!scope) updates.scope = "personal";
+      }
+    }
+    if (scope !== undefined) {
+      if (!["personal", "org", "project"].includes(scope)) {
+        return apiError("scope must be 'personal', 'org', or 'project'", 400);
+      }
+      updates.scope = scope;
+    }
+
+    await sql`
+      UPDATE kb_documents SET
+        project_id = ${(updates.project_id !== undefined ? updates.project_id : null) as number | null},
+        scope = ${(updates.scope as string) || "personal"},
+        updated_at = NOW()
+      WHERE id = ${docId}
+    `;
+
+    // If only project/scope update (no title/url change), return early
+    if (!title?.trim() && !url?.trim()) {
+      const updated = await sql`SELECT * FROM kb_documents WHERE id = ${docId}`;
+      return apiSuccess({ document: updated[0] });
+    }
+  }
 
   const isUrl = docs[0].doc_type === "url";
   const newUrl = isUrl ? url?.trim() || (docs[0].source_url as string) : undefined;

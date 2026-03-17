@@ -1,9 +1,19 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { getDictionary, type Locale } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+
+interface StorageUsage {
+  plan: string;
+  database: { totalSize: string; tableCount: number; tables: { name: string; rows: number; size: string }[] };
+  knowledgeBase: { docCount: number; chunkCount: number; totalTokens: number };
+  embeddings: { period: string; requestCount: number; tokenCount: number; budget: number };
+  blob: { configured: boolean; totalFiles: number; totalBytes: number; totalSizeMB: string };
+  data: { contacts: number; leads: number; projects: number; agents: number };
+}
 
 export default function DocsPage() {
   const params = useParams();
@@ -11,6 +21,11 @@ export default function DocsPage() {
   const dict = getDictionary(locale);
   const td = dict.docsPage;
   const tc = dict.common;
+  const [storage, setStorage] = useState<StorageUsage | null>(null);
+
+  useEffect(() => {
+    fetch("/api/storage-usage").then((r) => r.json()).then(setStorage).catch(() => {});
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -159,6 +174,96 @@ export default function DocsPage() {
             ))}
           </div>
         </div>
+
+        {/* Storage Usage */}
+        {storage && (
+        <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
+          <h2 className="text-lg font-semibold mb-1">{td.storageTitle || "Storage & Usage"}</h2>
+          <p className="text-sm text-gray-500 mb-4">{td.storageDesc || "Current resource usage across your workspace."}</p>
+
+          {/* Summary cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+            <div className="bg-gray-50 rounded-lg border border-gray-200 p-3">
+              <p className="text-xs text-gray-400">{td.storageDb || "Database"}</p>
+              <p className="text-lg font-bold text-gray-900">{storage.database.totalSize}</p>
+              <p className="text-xs text-gray-400">{storage.database.tableCount} tables</p>
+            </div>
+            <div className="bg-gray-50 rounded-lg border border-gray-200 p-3">
+              <p className="text-xs text-gray-400">{td.storageKb || "Knowledge Base"}</p>
+              <p className="text-lg font-bold text-gray-900">{storage.knowledgeBase.docCount} <span className="text-sm font-normal text-gray-400">docs</span></p>
+              <p className="text-xs text-gray-400">{storage.knowledgeBase.chunkCount} chunks / ~{Math.round(storage.knowledgeBase.totalTokens / 1000)}K tokens</p>
+            </div>
+            <div className="bg-gray-50 rounded-lg border border-gray-200 p-3">
+              <p className="text-xs text-gray-400">{td.storageBlob || "Blob Storage"}</p>
+              {storage.blob.configured ? (
+                <>
+                  <p className="text-lg font-bold text-gray-900">{storage.blob.totalSizeMB} <span className="text-sm font-normal text-gray-400">MB</span></p>
+                  <p className="text-xs text-gray-400">{storage.blob.totalFiles} files</p>
+                </>
+              ) : (
+                <p className="text-sm text-gray-400">{td.storageNotConfigured || "Not configured"}</p>
+              )}
+            </div>
+            <div className="bg-gray-50 rounded-lg border border-gray-200 p-3">
+              <p className="text-xs text-gray-400">{td.storageEmbeddings || "Embeddings"}</p>
+              <p className="text-lg font-bold text-gray-900">{(storage.embeddings.requestCount / 1000).toFixed(1)}K</p>
+              <p className="text-xs text-gray-400">/ {(storage.embeddings.budget / 1000).toFixed(0)}K {td.storageMonthly || "monthly"}</p>
+              {storage.embeddings.budget > 0 && (
+                <div className="mt-1.5 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full ${storage.embeddings.requestCount / storage.embeddings.budget > 0.8 ? "bg-red-500" : "bg-green-500"}`}
+                    style={{ width: `${Math.min(100, (storage.embeddings.requestCount / storage.embeddings.budget) * 100)}%` }}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Data counts */}
+          <div className="grid grid-cols-4 gap-3 mb-5">
+            {[
+              { label: td.storageProjects || "Projects", value: storage.data.projects },
+              { label: td.storageAgents || "AI Employees", value: storage.data.agents },
+              { label: td.storageContacts || "Contacts", value: storage.data.contacts },
+              { label: td.storageLeads || "Leads", value: storage.data.leads },
+            ].map((item) => (
+              <div key={item.label} className="text-center p-2 bg-gray-50 rounded-lg border border-gray-100">
+                <p className="text-lg font-bold text-gray-900">{item.value.toLocaleString()}</p>
+                <p className="text-xs text-gray-400">{item.label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Database tables detail */}
+          {storage.database.tables.length > 0 && (
+            <details className="text-sm">
+              <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">{td.storageDbDetail || "Database table details"}</summary>
+              <div className="mt-2 overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-left text-gray-400 border-b border-gray-100">
+                      <th className="py-1.5 pr-4">Table</th>
+                      <th className="py-1.5 pr-4 text-right">Rows</th>
+                      <th className="py-1.5 text-right">Size</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {storage.database.tables.map((t) => (
+                      <tr key={t.name} className="border-b border-gray-50">
+                        <td className="py-1.5 pr-4 font-mono text-gray-600">{t.name}</td>
+                        <td className="py-1.5 pr-4 text-right text-gray-500">{t.rows.toLocaleString()}</td>
+                        <td className="py-1.5 text-right text-gray-500">{t.size}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          )}
+
+          <p className="text-xs text-gray-300 mt-3">Plan: {storage.plan} | {td.storageUpdated || "Updated"}: {new Date().toLocaleDateString(locale)}</p>
+        </div>
+        )}
 
         {/* Contact */}
         <div className="bg-white rounded-lg border border-gray-200 p-6">

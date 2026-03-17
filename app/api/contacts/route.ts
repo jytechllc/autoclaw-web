@@ -47,6 +47,7 @@ async function ensureContactsTable() {
   await sql`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS soft_bounces INTEGER DEFAULT 0`;
   await sql`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS last_opened_at TIMESTAMP`;
   await sql`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS stats_synced_at TIMESTAMP`;
+  await sql`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS source_detail VARCHAR(500)`;
 }
 
 // GET: list contacts
@@ -161,7 +162,7 @@ export async function POST(req: NextRequest) {
   const { action } = body;
 
   if (action === "create" || action === "update") {
-    const { id, email: contactEmail, first_name, last_name, company, position, phone, source, tags, notes, project_id } = body;
+    const { id, email: contactEmail, first_name, last_name, company, position, phone, source, source_detail, tags, notes, project_id } = body;
 
     if (!contactEmail) {
       return NextResponse.json({ error: "Email is required" }, { status: 400 });
@@ -177,6 +178,7 @@ export async function POST(req: NextRequest) {
           position = ${position || null},
           phone = ${phone || null},
           source = ${source || "manual"},
+          source_detail = ${source_detail || null},
           tags = ${tags || []},
           notes = ${notes || null},
           project_id = ${project_id || null},
@@ -188,8 +190,8 @@ export async function POST(req: NextRequest) {
 
     // Create (upsert)
     await sql`
-      INSERT INTO contacts (user_id, email, first_name, last_name, company, position, phone, source, tags, notes, project_id)
-      VALUES (${userId}, ${contactEmail}, ${first_name || null}, ${last_name || null}, ${company || null}, ${position || null}, ${phone || null}, ${source || "manual"}, ${tags || []}, ${notes || null}, ${project_id || null})
+      INSERT INTO contacts (user_id, email, first_name, last_name, company, position, phone, source, source_detail, tags, notes, project_id)
+      VALUES (${userId}, ${contactEmail}, ${first_name || null}, ${last_name || null}, ${company || null}, ${position || null}, ${phone || null}, ${source || "manual"}, ${source_detail || null}, ${tags || []}, ${notes || null}, ${project_id || null})
       ON CONFLICT (user_id, email) DO UPDATE SET
         first_name = COALESCE(NULLIF(${first_name || null}, ''), contacts.first_name),
         last_name = COALESCE(NULLIF(${last_name || null}, ''), contacts.last_name),
@@ -198,6 +200,7 @@ export async function POST(req: NextRequest) {
         phone = COALESCE(NULLIF(${phone || null}, ''), contacts.phone),
         notes = COALESCE(NULLIF(${notes || null}, ''), contacts.notes),
         project_id = COALESCE(${project_id || null}, contacts.project_id),
+        source_detail = COALESCE(NULLIF(${source_detail || null}, ''), contacts.source_detail),
         updated_at = NOW()
     `;
     return NextResponse.json({ success: true });
@@ -254,7 +257,7 @@ export async function POST(req: NextRequest) {
               ${c.email as string},
               ${attrs.FIRSTNAME || attrs.PRENOM || null},
               ${attrs.LASTNAME || attrs.NOM || null},
-              ${attrs.COMPANY || attrs.SMS || null},
+              ${attrs.COMPANY || null},
               ${attrs.JOB_TITLE || null},
               ${attrs.PHONE || attrs.SMS || null},
               'brevo',
@@ -365,6 +368,49 @@ export async function POST(req: NextRequest) {
       console.error("Stats sync error:", err);
       return NextResponse.json({ error: "Failed to sync stats" }, { status: 500 });
     }
+  }
+
+  // CSV import: receives parsed rows as JSON array
+  if (action === "import_csv") {
+    const { rows, filename, project_id: csvProjectId } = body;
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return NextResponse.json({ error: "No rows to import" }, { status: 400 });
+    }
+
+    let imported = 0;
+    const sourceDetail = `CSV: ${filename || "upload.csv"}`;
+    for (const row of rows.slice(0, 5000)) {
+      const email = (row.email || row.Email || row.EMAIL || "").toString().trim();
+      if (!email || !email.includes("@")) continue;
+      try {
+        await sql`
+          INSERT INTO contacts (user_id, email, first_name, last_name, company, position, phone, source, source_detail, project_id, notes)
+          VALUES (
+            ${userId},
+            ${email},
+            ${(row.first_name || row.FirstName || row.firstName || row["First Name"] || "").toString().trim() || null},
+            ${(row.last_name || row.LastName || row.lastName || row["Last Name"] || "").toString().trim() || null},
+            ${(row.company || row.Company || row.COMPANY || row.organization || "").toString().trim() || null},
+            ${(row.position || row.Position || row.title || row.Title || row["Job Title"] || "").toString().trim() || null},
+            ${(row.phone || row.Phone || row.PHONE || "").toString().trim() || null},
+            'csv',
+            ${sourceDetail},
+            ${csvProjectId ? Number(csvProjectId) : null},
+            ${(row.notes || row.Notes || "").toString().trim() || null}
+          )
+          ON CONFLICT (user_id, email) DO UPDATE SET
+            first_name = COALESCE(NULLIF(${(row.first_name || row.FirstName || row.firstName || row["First Name"] || "").toString().trim()}, ''), contacts.first_name),
+            last_name = COALESCE(NULLIF(${(row.last_name || row.LastName || row.lastName || row["Last Name"] || "").toString().trim()}, ''), contacts.last_name),
+            company = COALESCE(NULLIF(${(row.company || row.Company || row.COMPANY || row.organization || "").toString().trim()}, ''), contacts.company),
+            position = COALESCE(NULLIF(${(row.position || row.Position || row.title || row.Title || row["Job Title"] || "").toString().trim()}, ''), contacts.position),
+            source_detail = ${sourceDetail},
+            updated_at = NOW()
+        `;
+        imported++;
+      } catch { /* skip duplicate or invalid */ }
+    }
+
+    return NextResponse.json({ success: true, imported, total: rows.length });
   }
 
   return NextResponse.json({ error: "Unknown action" }, { status: 400 });

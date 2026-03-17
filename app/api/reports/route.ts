@@ -752,6 +752,81 @@ async function fetchDbKpisByProject(
   }
 }
 
+interface ContactAnalytics {
+  total: number;
+  enriched: number;
+  byIndustry: { label: string; count: number }[];
+  byCompanySize: { label: string; count: number }[];
+  topCompanies: { label: string; count: number }[];
+  publicVsPrivate: { public: number; private: number; unknown: number };
+  bySource: { label: string; count: number }[];
+}
+
+async function fetchContactAnalytics(
+  sql: ReturnType<typeof getDb>,
+  projectIds: number[],
+  isAdmin: boolean,
+): Promise<ContactAnalytics> {
+  const empty: ContactAnalytics = {
+    total: 0, enriched: 0,
+    byIndustry: [], byCompanySize: [], topCompanies: [],
+    publicVsPrivate: { public: 0, private: 0, unknown: 0 },
+    bySource: [],
+  };
+  try {
+    const whereClause = isAdmin ? sql`` : sql`WHERE c.project_id = ANY(${projectIds}) OR c.user_id IN (SELECT id FROM users WHERE id = ANY(${projectIds}))`;
+
+    const [totalRow, enrichedRow, industryRows, sizeRows, companyRows, publicRows, sourceRows] = await Promise.all([
+      isAdmin
+        ? sql`SELECT COUNT(*)::int AS cnt FROM contacts`
+        : sql`SELECT COUNT(*)::int AS cnt FROM contacts c ${whereClause}`,
+      isAdmin
+        ? sql`SELECT COUNT(*)::int AS cnt FROM contacts WHERE industry IS NOT NULL AND industry != ''`
+        : sql`SELECT COUNT(*)::int AS cnt FROM contacts c WHERE (industry IS NOT NULL AND industry != '') ${isAdmin ? sql`` : sql`AND (c.project_id = ANY(${projectIds}))`}`,
+      isAdmin
+        ? sql`SELECT industry AS label, COUNT(*)::int AS count FROM contacts WHERE industry IS NOT NULL AND industry != '' GROUP BY industry ORDER BY count DESC LIMIT 10`
+        : sql`SELECT industry AS label, COUNT(*)::int AS count FROM contacts WHERE industry IS NOT NULL AND industry != '' AND project_id = ANY(${projectIds}) GROUP BY industry ORDER BY count DESC LIMIT 10`,
+      isAdmin
+        ? sql`SELECT company_size AS label, COUNT(*)::int AS count FROM contacts WHERE company_size IS NOT NULL AND company_size != '' GROUP BY company_size ORDER BY count DESC`
+        : sql`SELECT company_size AS label, COUNT(*)::int AS count FROM contacts WHERE company_size IS NOT NULL AND company_size != '' AND project_id = ANY(${projectIds}) GROUP BY company_size ORDER BY count DESC`,
+      isAdmin
+        ? sql`SELECT company AS label, COUNT(*)::int AS count FROM contacts WHERE company IS NOT NULL AND company != '' GROUP BY company ORDER BY count DESC LIMIT 15`
+        : sql`SELECT company AS label, COUNT(*)::int AS count FROM contacts WHERE company IS NOT NULL AND company != '' AND project_id = ANY(${projectIds}) GROUP BY company ORDER BY count DESC LIMIT 15`,
+      isAdmin
+        ? sql`SELECT
+            SUM(CASE WHEN is_public = true THEN 1 ELSE 0 END)::int AS public,
+            SUM(CASE WHEN is_public = false THEN 1 ELSE 0 END)::int AS private,
+            SUM(CASE WHEN is_public IS NULL THEN 1 ELSE 0 END)::int AS unknown
+          FROM contacts`
+        : sql`SELECT
+            SUM(CASE WHEN is_public = true THEN 1 ELSE 0 END)::int AS public,
+            SUM(CASE WHEN is_public = false THEN 1 ELSE 0 END)::int AS private,
+            SUM(CASE WHEN is_public IS NULL THEN 1 ELSE 0 END)::int AS unknown
+          FROM contacts WHERE project_id = ANY(${projectIds})`,
+      isAdmin
+        ? sql`SELECT source AS label, COUNT(*)::int AS count FROM contacts WHERE source IS NOT NULL GROUP BY source ORDER BY count DESC`
+        : sql`SELECT source AS label, COUNT(*)::int AS count FROM contacts WHERE source IS NOT NULL AND project_id = ANY(${projectIds}) GROUP BY source ORDER BY count DESC`,
+    ]);
+
+    return {
+      total: (totalRow[0]?.cnt as number) || 0,
+      enriched: (enrichedRow[0]?.cnt as number) || 0,
+      byIndustry: industryRows.map(r => ({ label: r.label as string, count: r.count as number })),
+      byCompanySize: sizeRows.map(r => ({ label: r.label as string, count: r.count as number })),
+      topCompanies: companyRows.map(r => ({ label: r.label as string, count: r.count as number })),
+      publicVsPrivate: {
+        public: (publicRows[0]?.public as number) || 0,
+        private: (publicRows[0]?.private as number) || 0,
+        unknown: (publicRows[0]?.unknown as number) || 0,
+      },
+      bySource: sourceRows.map(r => ({ label: r.label as string, count: r.count as number })),
+    };
+  } catch (err) {
+    console.error("Contact analytics error:", err);
+    return empty;
+  }
+}
+
 async function fetchTokenUsage(
   sql: ReturnType<typeof getDb>,
   userId: number,
@@ -911,6 +986,7 @@ export async function GET(request: Request) {
     taskStatusCounts,
     taskStatusByProject,
     dbKpisByProject,
+    contactAnalytics,
   ] = await Promise.all([
     readOpenClawData(),
     fetchBrevoData(),
@@ -920,6 +996,7 @@ export async function GET(request: Request) {
     fetchTaskStatusCounts(sql, projectIds, isAdmin),
     fetchTaskStatusByProject(sql, projectIds, isAdmin),
     fetchDbKpisByProject(sql, projectIds, isAdmin),
+    fetchContactAnalytics(sql, projectIds, isAdmin),
   ]);
 
   const { jobs, summaries } = openClawData;
@@ -1176,5 +1253,6 @@ export async function GET(request: Request) {
     dbKpisByProject,
     brevoContactsByProject,
     tasksCompleted: taskStatusCounts.total,
+    contactAnalytics,
   });
 }

@@ -15,6 +15,7 @@ interface Contact {
   position: string | null;
   phone: string | null;
   source: string;
+  source_detail: string | null;
   tags: string[];
   notes: string | null;
   project_id: number | null;
@@ -52,6 +53,7 @@ export default function ContactsPage() {
   const [tierFilter, setTierFilter] = useState("");
   const [projects, setProjects] = useState<Project[]>([]);
   const [importing, setImporting] = useState(false);
+  const [importingCSV, setImportingCSV] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [msg, setMsg] = useState("");
   const [editing, setEditing] = useState<Contact | null>(null);
@@ -192,6 +194,39 @@ export default function ContactsPage() {
     setTimeout(() => setMsg(""), 5000);
   }
 
+  async function importCSV(file: File) {
+    setImportingCSV(true);
+    setMsg("");
+    try {
+      const text = await file.text();
+      const lines = text.split(/\r?\n/).filter((l) => l.trim());
+      if (lines.length < 2) { setMsg(t.csvImportError); setImportingCSV(false); return; }
+      const headers = lines[0].split(",").map((h) => h.trim().replace(/^"|"$/g, ""));
+      const rows = lines.slice(1).map((line) => {
+        const values = line.match(/(".*?"|[^,]*),?/g)?.map((v) => v.replace(/,?$/, "").replace(/^"|"$/g, "").trim()) || [];
+        const row: Record<string, string> = {};
+        headers.forEach((h, i) => { row[h] = values[i] || ""; });
+        return row;
+      });
+      const res = await fetch("/api/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "import_csv", rows, filename: file.name, project_id: projectFilter || null }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMsg(t.csvImportSuccess.replace("{count}", String(data.imported)));
+        loadContacts();
+      } else {
+        setMsg(data.error || t.csvImportError);
+      }
+    } catch {
+      setMsg(t.csvImportError);
+    }
+    setImportingCSV(false);
+    setTimeout(() => setMsg(""), 5000);
+  }
+
   async function syncStats() {
     setSyncing(true);
     setMsg("");
@@ -232,7 +267,7 @@ export default function ContactsPage() {
   };
 
   const sourceLabel = (s: string) => {
-    const map: Record<string, string> = { manual: t.manual, brevo: t.brevo, apollo: t.apollo, hunter: t.hunter, snov: t.snov, import: "Import" };
+    const map: Record<string, string> = { manual: t.manual, brevo: t.brevo, apollo: t.apollo, hunter: t.hunter, snov: t.snov, csv: t.csv || "CSV", import: "Import" };
     return map[s] || s;
   };
 
@@ -243,13 +278,19 @@ export default function ContactsPage() {
       apollo: "bg-purple-100 text-purple-700",
       hunter: "bg-orange-100 text-orange-700",
       snov: "bg-green-100 text-green-700",
+      csv: "bg-teal-100 text-teal-700",
     };
     return map[s] || "bg-gray-100 text-gray-600";
   };
 
+  const projectName = (pid: number | null) => {
+    if (!pid) return null;
+    return projects.find((p) => p.id === pid)?.name || null;
+  };
+
   return (
     <DashboardShell user={user || {}}>
-      <div className="max-w-6xl mx-auto p-4 sm:p-6">
+      <div className="max-w-[1600px] mx-auto p-4 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
           <div>
             <h1 className="text-2xl font-bold">{t.title}</h1>
@@ -266,10 +307,15 @@ export default function ContactsPage() {
             <button
               onClick={importFromBrevo}
               disabled={importing}
-              className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer"
+              className="border border-gray-300 hover:bg-gray-50 disabled:bg-gray-100 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer"
             >
               {importing ? t.importingBrevo : t.importBrevo}
             </button>
+            <label className={`border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer inline-flex items-center gap-1.5 ${importingCSV ? "opacity-50 pointer-events-none" : ""}`}>
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
+              {importingCSV ? t.importingCSV : t.importCSV}
+              <input type="file" accept=".csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) importCSV(f); e.target.value = ""; }} />
+            </label>
             <button
               onClick={() => openForm()}
               className="bg-red-700 hover:bg-red-800 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer"
@@ -285,6 +331,38 @@ export default function ContactsPage() {
           </div>
         )}
 
+        {/* Stats cards */}
+        {!loading && contacts.length > 0 && (() => {
+          const hotCount = contacts.filter((c) => { const q = contactQuality(c); return q.label === t.qualityHot; }).length;
+          const warmCount = contacts.filter((c) => { const q = contactQuality(c); return q.label === t.qualityWarm; }).length;
+          const vipCount = contacts.filter((c) => (c as Contact & { tier?: string }).tier === "vip").length;
+          const syncedCount = contacts.filter((c) => c.stats_synced_at).length;
+          return (
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-5">
+              <div className="bg-white border border-gray-200 rounded-xl p-4">
+                <p className="text-xs text-gray-400 mb-1">{t.total}</p>
+                <p className="text-2xl font-bold text-gray-900">{total}</p>
+              </div>
+              <div className="bg-white border border-gray-200 rounded-xl p-4">
+                <p className="text-xs text-gray-400 mb-1">{t.qualityHot}</p>
+                <p className="text-2xl font-bold text-red-600">{hotCount}</p>
+              </div>
+              <div className="bg-white border border-gray-200 rounded-xl p-4">
+                <p className="text-xs text-gray-400 mb-1">{t.qualityWarm}</p>
+                <p className="text-2xl font-bold text-yellow-600">{warmCount}</p>
+              </div>
+              <div className="bg-white border border-gray-200 rounded-xl p-4">
+                <p className="text-xs text-gray-400 mb-1">{t.tierVIP}</p>
+                <p className="text-2xl font-bold text-amber-600">{vipCount}</p>
+              </div>
+              <div className="bg-white border border-gray-200 rounded-xl p-4">
+                <p className="text-xs text-gray-400 mb-1">{t.syncStats}</p>
+                <p className="text-2xl font-bold text-blue-600">{syncedCount}<span className="text-sm font-normal text-gray-400">/{contacts.length}</span></p>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Filters */}
         <div className="flex flex-col sm:flex-row gap-3 mb-4">
           <input
@@ -292,7 +370,7 @@ export default function ContactsPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t.search}
-            className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+            className="flex-1 min-w-0 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
           />
           <select
             value={sourceFilter}
@@ -305,6 +383,7 @@ export default function ContactsPage() {
             <option value="apollo">{t.apollo}</option>
             <option value="hunter">{t.hunter}</option>
             <option value="snov">{t.snov}</option>
+            <option value="csv">{t.csv || "CSV"}</option>
           </select>
           <select
             value={projectFilter}
@@ -331,70 +410,87 @@ export default function ContactsPage() {
           </select>
         </div>
 
-        {/* Stats bar */}
-        <div className="text-xs text-gray-400 mb-3">
-          {t.total}: {total}
-        </div>
-
         {/* Contacts table */}
         {loading ? (
           <div className="text-center py-12 text-gray-400">{tc.loading}</div>
         ) : contacts.length === 0 ? (
           <div className="text-center py-12 text-gray-400">{t.noContacts}</div>
         ) : (
-          <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto shadow-sm">
+            <table className="w-full text-sm table-fixed">
               <thead>
-                <tr className="border-b border-gray-200 bg-gray-50">
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">{t.email}</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">{t.firstName}</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">{t.lastName}</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">{t.company}</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">{t.position}</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">{t.source}</th>
-                  <th className="text-center px-4 py-3 font-medium text-gray-600">{t.engagement}</th>
-                  <th className="text-center px-4 py-3 font-medium text-gray-600">{t.tier}</th>
-                  <th className="text-center px-4 py-3 font-medium text-gray-600">{t.quality}</th>
-                  <th className="text-right px-4 py-3 font-medium text-gray-600"></th>
+                <tr className="border-b border-gray-200 bg-gray-50/80">
+                  <th className="text-left px-4 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wider w-[18%]">{t.email}</th>
+                  <th className="text-left px-4 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wider w-[8%]">{t.firstName}</th>
+                  <th className="text-left px-4 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wider w-[8%]">{t.lastName}</th>
+                  <th className="text-left px-4 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wider w-[12%]">{t.company}</th>
+                  <th className="text-left px-4 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wider w-[12%]">{t.position}</th>
+                  <th className="text-left px-4 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wider w-[13%]">{t.source}</th>
+                  <th className="text-center px-4 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wider w-[12%]">{t.engagement}</th>
+                  <th className="text-center px-4 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wider w-[6%]">{t.tier}</th>
+                  <th className="text-center px-4 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wider w-[6%]">{t.quality}</th>
+                  <th className="text-right px-4 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wider w-[9%]"></th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-gray-100">
                 {contacts.map((c) => {
                   const q = contactQuality(c);
                   const openRate = c.emails_sent > 0 ? Math.round((c.emails_opened / c.emails_sent) * 100) : 0;
                   return (
-                  <tr key={c.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3 font-mono text-xs">{c.email}</td>
-                    <td className="px-4 py-3">{c.first_name || "—"}</td>
-                    <td className="px-4 py-3">{c.last_name || "—"}</td>
-                    <td className="px-4 py-3">{c.company || "—"}</td>
-                    <td className="px-4 py-3">{c.position || "—"}</td>
-                    <td className="px-4 py-3">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${sourceBadgeColor(c.source)}`}>
-                        {sourceLabel(c.source)}
-                      </span>
+                  <tr key={c.id} className="hover:bg-gray-50/50 transition-colors">
+                    <td className="px-4 py-3.5">
+                      <span className="font-mono text-xs text-gray-700 truncate block">{c.email}</span>
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-4 py-3.5 text-gray-700 truncate">{c.first_name || "—"}</td>
+                    <td className="px-4 py-3.5 text-gray-700 truncate">{c.last_name || "—"}</td>
+                    <td className="px-4 py-3.5 text-gray-700 truncate font-medium">{c.company || "—"}</td>
+                    <td className="px-4 py-3.5 text-gray-500 truncate">{c.position || "—"}</td>
+                    <td className="px-4 py-3.5">
+                      <div className="flex flex-col gap-0.5">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap inline-block w-fit ${sourceBadgeColor(c.source)}`}>
+                          {sourceLabel(c.source)}
+                        </span>
+                        {(c.source_detail || projectName(c.project_id)) && (
+                          <span className="text-[10px] text-gray-400 truncate block max-w-[140px]" title={[projectName(c.project_id), c.source_detail].filter(Boolean).join(" · ")}>
+                            {[projectName(c.project_id), c.source_detail].filter(Boolean).join(" · ")}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3.5 text-center">
                       {c.stats_synced_at ? (
-                        <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
-                          <span title={t.sent}>📤{c.emails_sent}</span>
-                          <span title={t.opened}>👁{c.emails_opened}</span>
-                          <span title={t.clicked}>🖱{c.emails_clicked}</span>
-                          {c.emails_sent > 0 && <span className="text-gray-400">({openRate}%)</span>}
+                        <div className="flex items-center justify-center gap-3 text-xs">
+                          <div className="flex items-center gap-1 text-gray-500" title={t.sent}>
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" /></svg>
+                            <span>{c.emails_sent}</span>
+                          </div>
+                          <div className="flex items-center gap-1 text-blue-500" title={t.opened}>
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                            <span>{c.emails_opened}</span>
+                          </div>
+                          <div className="flex items-center gap-1 text-green-500" title={t.clicked}>
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15.042 21.672L13.684 16.6m0 0l-2.51 2.225.569-9.47 5.227 7.917-3.286-.672zM12 2.25V4.5m5.834.166l-1.591 1.591M20.25 10.5H18M7.757 14.743l-1.59 1.59M6 10.5H3.75m4.007-4.243l-1.59-1.59" /></svg>
+                            <span>{c.emails_clicked}</span>
+                          </div>
+                          {c.emails_sent > 0 && (
+                            <span className={`font-medium ${openRate >= 50 ? "text-green-600" : openRate >= 20 ? "text-yellow-600" : "text-gray-400"}`}>
+                              {openRate}%
+                            </span>
+                          )}
                         </div>
                       ) : (
                         <span className="text-xs text-gray-300">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-4 py-3.5 text-center">
                       {(() => { const ti = tierLabel((c as Contact & { tier?: string }).tier); return (
                         <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${ti.color}`}>{ti.label}</span>
                       ); })()}
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-4 py-3.5 text-center">
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${q.color}`}>{q.label}</span>
                     </td>
-                    <td className="px-4 py-3 text-right">
+                    <td className="px-4 py-3.5 text-right whitespace-nowrap">
                       <button onClick={() => openForm(c)} className="text-xs text-red-600 hover:text-red-800 mr-3 cursor-pointer">{t.editContact}</button>
                       <button onClick={() => deleteContact(c.id)} className="text-xs text-gray-400 hover:text-red-600 cursor-pointer">{tc.delete}</button>
                     </td>

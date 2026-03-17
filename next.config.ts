@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Keep pdf-parse and pdfjs-dist out of the serverless bundle so they can
+  // load native canvas bindings at runtime (needed for PDF text extraction).
+  serverExternalPackages: ["pdf-parse", "pdfjs-dist", "@napi-rs/canvas"],
   async headers() {
     return [
       {

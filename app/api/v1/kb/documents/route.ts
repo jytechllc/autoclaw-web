@@ -34,7 +34,17 @@ export async function GET(req: NextRequest) {
     WHERE om.user_id = ${userId}
   `;
   const orgIds = orgs.map((o) => o.id as number);
-  const projects = await sql`SELECT id FROM projects WHERE user_id = ${userId}`;
+  const projects = orgIds.length > 0
+    ? await sql`
+        SELECT DISTINCT p.id FROM projects p
+        LEFT JOIN project_members pm ON pm.project_id = p.id AND pm.user_id = ${userId}
+        WHERE p.user_id = ${userId} OR p.org_id = ANY(${orgIds}) OR pm.user_id = ${userId}
+      `
+    : await sql`
+        SELECT DISTINCT p.id FROM projects p
+        LEFT JOIN project_members pm ON pm.project_id = p.id AND pm.user_id = ${userId}
+        WHERE p.user_id = ${userId} OR pm.user_id = ${userId}
+      `;
   const projectIds = projects.map((p) => p.id as number);
 
   let documents;

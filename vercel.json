@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/process-embeddings",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/product-docs-rag",
+      "schedule": "0 4 * * *"
+    }
+  ]
+}

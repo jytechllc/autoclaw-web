@@ -47,6 +47,7 @@ export async function searchKnowledgeBase(
         (d.scope = 'personal' AND d.user_id = ${opts.userId})
         ${opts.orgId ? sql`OR (d.scope = 'org' AND d.org_id = ${opts.orgId})` : sql``}
         ${opts.projectId ? sql`OR (d.scope = 'project' AND d.project_id = ${opts.projectId})` : sql``}
+        OR (d.source_url = 'system:product-docs-rag')
       )
     ORDER BY c.embedding <=> ${embeddingStr}::vector
     LIMIT ${topK}

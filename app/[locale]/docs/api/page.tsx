@@ -219,6 +219,154 @@ const ENDPOINTS: { section: string; endpoints: Endpoint[] }[] = [
       },
     ],
   },
+  {
+    section: "Contacts",
+    endpoints: [
+      {
+        method: "GET",
+        path: "/api/contacts",
+        scope: "read",
+        description: "List customers/contacts. Org members can see contacts from all org users.",
+        params: [
+          { name: "search", type: "string", description: "Search by email, name, or company" },
+          { name: "source", type: "string", description: "Filter by source: manual, brevo, apollo, hunter, snov" },
+          { name: "project_id", type: "number", description: "Filter by project ID" },
+          { name: "tier", type: "string", description: "Filter by tier: vip, a, b, c, d, unassigned" },
+          { name: "page", type: "number", description: "Page number (default 1, 30 per page)" },
+        ],
+        response: `{ "contacts": [...], "total": 411, "page": 1, "pageSize": 30, "totalPages": 14 }`,
+      },
+      {
+        method: "POST",
+        path: "/api/contacts",
+        scope: "write",
+        description: "Create, update, or delete a contact. Also supports Brevo import and stats sync.",
+        body: [
+          { name: "action", type: "string", required: true, description: "'create', 'update', 'delete', 'import_brevo', or 'sync_stats'" },
+          { name: "email", type: "string", description: "Contact email (required for create/update)" },
+          { name: "first_name", type: "string", description: "First name" },
+          { name: "last_name", type: "string", description: "Last name" },
+          { name: "company", type: "string", description: "Company name" },
+          { name: "position", type: "string", description: "Job position" },
+          { name: "phone", type: "string", description: "Phone number" },
+          { name: "tier", type: "string", description: "Customer tier: vip, a, b, c, d" },
+          { name: "project_id", type: "number", description: "Associated project ID" },
+          { name: "notes", type: "string", description: "Notes" },
+          { name: "id", type: "number", description: "Contact ID (required for update/delete)" },
+        ],
+        response: `{ "success": true }`,
+      },
+    ],
+  },
+  {
+    section: "Agents & Reports",
+    endpoints: [
+      {
+        method: "GET",
+        path: "/api/agent-reports",
+        scope: "read",
+        description: "Get reports and task status for a specific AI agent assignment.",
+        params: [
+          { name: "agent_id", type: "number", required: true, description: "Agent assignment ID" },
+        ],
+        response: `{
+  "agent_type": "email_marketing",
+  "agent_status": "active",
+  "tasks": [{ "index": 0, "name": "...", "status": "completed", "result": "..." }],
+  "reports": [{ "task_name": "...", "summary": "...", "metrics": {}, "created_at": "..." }]
+}`,
+      },
+      {
+        method: "POST",
+        path: "/api/projects",
+        scope: "write",
+        description: "Run an agent task, add/remove agents, resolve blockers, and manage projects.",
+        body: [
+          { name: "action", type: "string", required: true, description: "'run_task', 'add_agent', 'remove_agent', 'resolve_blocker', 'create_project', 'update_project', 'delete_project'" },
+          { name: "agent_id", type: "number", description: "Agent assignment ID (for run_task, remove_agent)" },
+          { name: "task_index", type: "number", description: "Task index to run (for run_task)" },
+          { name: "project_id", type: "number", description: "Project ID" },
+          { name: "agent_type", type: "string", description: "Agent type (for add_agent): email_marketing, seo_content, lead_prospecting, social_media, product_manager, sales_followup" },
+        ],
+        response: `{ "success": true, "result": "..." }`,
+      },
+    ],
+  },
+  {
+    section: "Reports & Analytics",
+    endpoints: [
+      {
+        method: "GET",
+        path: "/api/reports",
+        scope: "read",
+        description: "Get aggregated reports: agent activity, email campaigns, website traffic (GA4), and token usage.",
+        params: [
+          { name: "period", type: "string", description: "Time period: 7d, 30d, all (default: all)" },
+        ],
+        response: `{
+  "projects": [{ "name": "...", "traffic": 1234, "emailsSent": 50, ... }],
+  "agentReports": [...],
+  "campaigns": [...],
+  "traffic": { "dates": [...], "projects": { "ProjectName": [...] } },
+  "tokenUsage": { "dates": [...], "prompt": [...], "completion": [...] }
+}`,
+      },
+    ],
+  },
+  {
+    section: "BYOK (API Keys)",
+    endpoints: [
+      {
+        method: "POST",
+        path: "/api/api-keys",
+        scope: "write",
+        description: "Create a platform API key for programmatic access.",
+        body: [
+          { name: "action", type: "string", required: true, description: "'create' or 'revoke'" },
+          { name: "name", type: "string", description: "Key name (for create)" },
+          { name: "scopes", type: "string[]", description: "Permissions: ['read'], ['read','write'], or ['admin']" },
+          { name: "id", type: "number", description: "Key ID (for revoke)" },
+        ],
+        response: `{ "key": { "id": 1, "name": "...", "key": "ac_live_..." } }`,
+      },
+    ],
+  },
+  {
+    section: "Social Media",
+    endpoints: [
+      {
+        method: "POST",
+        path: "/api/x/post",
+        scope: "write",
+        description: "Post a tweet to X/Twitter, or schedule for later.",
+        body: [
+          { name: "content", type: "string", required: true, description: "Tweet text (max 280 chars)" },
+          { name: "mediaUrl", type: "string", description: "Media URL to attach" },
+          { name: "postImmediately", type: "boolean", description: "Post now (default true) or schedule" },
+          { name: "scheduledAt", type: "string", description: "ISO date for scheduled posting" },
+        ],
+        response: `{ "success": true, "tweetId": "..." }`,
+      },
+      {
+        method: "POST",
+        path: "/api/x/analyze",
+        scope: "write",
+        description: "Analyze recent tweets, compare with industry trends, and generate AI-powered variant strategies.",
+        body: [
+          { name: "topic", type: "string", description: "Post topic hint" },
+          { name: "industryKeyword", type: "string", description: "Industry search keyword override" },
+          { name: "contentLocale", type: "string", description: "Language for generated tweet content (default: en)" },
+          { name: "generateImage", type: "boolean", description: "Also generate images for variants" },
+        ],
+        response: `{
+  "analysis": { "bestPerforming": "...", "patterns": [...], "bestTime": "..." },
+  "industryInsights": { "topTrends": [...], "gapAnalysis": "..." },
+  "variants": [{ "label": "A", "text": "...", "tone": "...", "bestPostTimes": [...] }],
+  "strategy": "..."
+}`,
+      },
+    ],
+  },
 ];
 
 const DEFAULT_BASE_URL = "https://autoclaw.jytech.us";
