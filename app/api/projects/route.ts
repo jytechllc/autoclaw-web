@@ -299,7 +299,7 @@ export async function POST(req: NextRequest) {
     // Verify project ownership (admin can access all)
     const proj = isAdmin
       ? await sql`SELECT id FROM projects WHERE id = ${project_id}`
-      : await sql`SELECT id FROM projects WHERE id = ${project_id} AND (user_id = ${userId} OR id IN (SELECT project_id FROM project_members WHERE user_id = ${userId}) OR (domain IS NOT NULL AND domain != '' AND domain = ${emailDomain}))`;
+      : await sql`SELECT id FROM projects WHERE id = ${project_id} AND (user_id = ${userId} OR id IN (SELECT project_id FROM project_members WHERE user_id = ${userId}) OR (domain IS NOT NULL AND domain != '' AND domain = ${emailDomain}) OR org_id IN (SELECT org_id FROM organization_members WHERE user_id = ${userId}))`;
     if (proj.length === 0) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
@@ -386,7 +386,7 @@ export async function POST(req: NextRequest) {
     // Verify ownership (admin can access all)
     const agent = isAdmin
       ? await sql`SELECT aa.id FROM agent_assignments aa WHERE aa.id = ${agent_id}`
-      : await sql`SELECT aa.id FROM agent_assignments aa JOIN projects p ON aa.project_id = p.id WHERE aa.id = ${agent_id} AND (p.user_id = ${userId} OR p.id IN (SELECT project_id FROM project_members WHERE user_id = ${userId}) OR (p.domain IS NOT NULL AND p.domain != '' AND p.domain = ${emailDomain}))`;
+      : await sql`SELECT aa.id FROM agent_assignments aa JOIN projects p ON aa.project_id = p.id WHERE aa.id = ${agent_id} AND (p.user_id = ${userId} OR p.id IN (SELECT project_id FROM project_members WHERE user_id = ${userId}) OR (p.domain IS NOT NULL AND p.domain != '' AND p.domain = ${emailDomain}) OR p.org_id IN (SELECT org_id FROM organization_members WHERE user_id = ${userId}))`;
     if (agent.length === 0) {
       return NextResponse.json({ error: "Agent not found" }, { status: 404 });
     }
@@ -400,7 +400,7 @@ export async function POST(req: NextRequest) {
     const { agent_id, blocker_index, value } = body;
     const agent = isAdmin
       ? await sql`SELECT aa.id, aa.config FROM agent_assignments aa WHERE aa.id = ${agent_id}`
-      : await sql`SELECT aa.id, aa.config FROM agent_assignments aa JOIN projects p ON aa.project_id = p.id WHERE aa.id = ${agent_id} AND (p.user_id = ${userId} OR p.id IN (SELECT project_id FROM project_members WHERE user_id = ${userId}) OR (p.domain IS NOT NULL AND p.domain != '' AND p.domain = ${emailDomain}))`;
+      : await sql`SELECT aa.id, aa.config FROM agent_assignments aa JOIN projects p ON aa.project_id = p.id WHERE aa.id = ${agent_id} AND (p.user_id = ${userId} OR p.id IN (SELECT project_id FROM project_members WHERE user_id = ${userId}) OR (p.domain IS NOT NULL AND p.domain != '' AND p.domain = ${emailDomain}) OR p.org_id IN (SELECT org_id FROM organization_members WHERE user_id = ${userId}))`;
     if (agent.length === 0) {
       return NextResponse.json({ error: "Agent not found" }, { status: 404 });
     }
@@ -434,7 +434,7 @@ export async function POST(req: NextRequest) {
     const { agent_id, config: newConfig } = body;
     const agent = isAdmin
       ? await sql`SELECT aa.id, aa.config FROM agent_assignments aa WHERE aa.id = ${agent_id}`
-      : await sql`SELECT aa.id, aa.config FROM agent_assignments aa JOIN projects p ON aa.project_id = p.id WHERE aa.id = ${agent_id} AND (p.user_id = ${userId} OR p.id IN (SELECT project_id FROM project_members WHERE user_id = ${userId}) OR (p.domain IS NOT NULL AND p.domain != '' AND p.domain = ${emailDomain}))`;
+      : await sql`SELECT aa.id, aa.config FROM agent_assignments aa JOIN projects p ON aa.project_id = p.id WHERE aa.id = ${agent_id} AND (p.user_id = ${userId} OR p.id IN (SELECT project_id FROM project_members WHERE user_id = ${userId}) OR (p.domain IS NOT NULL AND p.domain != '' AND p.domain = ${emailDomain}) OR p.org_id IN (SELECT org_id FROM organization_members WHERE user_id = ${userId}))`;
     if (agent.length === 0) {
       return NextResponse.json({ error: "Agent not found" }, { status: 404 });
     }
@@ -450,7 +450,7 @@ export async function POST(req: NextRequest) {
     const { project_id, name, website, ga_property_id, description, domain } = body;
     const proj = isAdmin
       ? await sql`SELECT id FROM projects WHERE id = ${project_id}`
-      : await sql`SELECT id FROM projects WHERE id = ${project_id} AND (user_id = ${userId} OR id IN (SELECT project_id FROM project_members WHERE user_id = ${userId}) OR (domain IS NOT NULL AND domain != '' AND domain = ${emailDomain}))`;
+      : await sql`SELECT id FROM projects WHERE id = ${project_id} AND (user_id = ${userId} OR id IN (SELECT project_id FROM project_members WHERE user_id = ${userId}) OR (domain IS NOT NULL AND domain != '' AND domain = ${emailDomain}) OR org_id IN (SELECT org_id FROM organization_members WHERE user_id = ${userId}))`;
     if (proj.length === 0) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
@@ -464,7 +464,7 @@ export async function POST(req: NextRequest) {
     const { project_id } = body;
     const proj = isAdmin
       ? await sql`SELECT id FROM projects WHERE id = ${project_id}`
-      : await sql`SELECT id FROM projects WHERE id = ${project_id} AND (user_id = ${userId} OR id IN (SELECT project_id FROM project_members WHERE user_id = ${userId}) OR (domain IS NOT NULL AND domain != '' AND domain = ${emailDomain}))`;
+      : await sql`SELECT id FROM projects WHERE id = ${project_id} AND (user_id = ${userId} OR id IN (SELECT project_id FROM project_members WHERE user_id = ${userId}) OR (domain IS NOT NULL AND domain != '' AND domain = ${emailDomain}) OR org_id IN (SELECT org_id FROM organization_members WHERE user_id = ${userId}))`;
     if (proj.length === 0) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
