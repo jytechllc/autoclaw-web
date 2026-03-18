@@ -234,7 +234,7 @@ export async function chatWithAI(messages: ChatMessage[], maxTokens = 500, byok?
     if (!(e instanceof Error)) return String(e);
     // Parse structured errors (e.g. "Google error 429: {...json...}")
     const msg = e.message;
-    const statusMatch = msg.match(/error (\d+):\s*(.*)/s);
+    const statusMatch = msg.match(/error (\d+):\s*([\s\S]*)/);
     if (statusMatch) {
       const status = statusMatch[1];
       const body = statusMatch[2];
