@@ -50,7 +50,7 @@ const AGENT_PLANS: Record<string, Record<string, object>> = {
       tasks: [
         { name: "Define ICP and qualification criteria", status: "in_progress" },
         { name: "Verify available data sources", status: "pending" },
-        { name: "Build initial lead list (200+ leads)", status: "pending" },
+        { name: "Build initial lead list", status: "pending" },
         { name: "Enrich leads with company & contact data", status: "pending" },
         { name: "Score and prioritize leads", status: "pending" },
         { name: "Deliver qualified lead report", status: "pending" },
@@ -110,7 +110,7 @@ const AGENT_PLANS: Record<string, Record<string, object>> = {
       plan: "\u8bbe\u7f6e\u4e2a\u6027\u5316\u6a21\u677f\u7684\u51b7\u90ae\u4ef6\u8425\u9500\u6d3b\u52a8\uff0c\u6784\u5efa\u6f5c\u5ba2\u90ae\u4ef6\u5217\u8868\uff0c\u914d\u7f6e\u8ddf\u8fdb\u5e8f\u5217\uff0c\u5e76\u53d1\u5e03\u901a\u8baf\u3002",
       tasks: [
         { name: "\u7814\u7a76\u76ee\u6807\u53d7\u4f17\u548c\u7406\u60f3\u5ba2\u6237\u753b\u50cf", status: "in_progress" },
-        { name: "\u6784\u5efa\u6f5c\u5ba2\u90ae\u4ef6\u5217\u8868\uff08500+ \u8054\u7cfb\u4eba\uff09", status: "pending" },
+        { name: "构建潜在客户邮件列表", status: "pending" },
         { name: "\u521b\u5efa\u90ae\u4ef6\u6a21\u677f\uff08\u51b7\u90ae\u4ef6\u3001\u8ddf\u8fdb\u3001\u901a\u8baf\uff09", status: "pending" },
         { name: "\u914d\u7f6e\u53d1\u9001\u8ba1\u5212\u548c\u9650\u5236", status: "pending" },
         { name: "\u8bbe\u7f6e\u8ddf\u8e2a\uff08\u6253\u5f00\u7387\u3001\u70b9\u51fb\u7387\u3001\u56de\u590d\u7387\uff09", status: "pending" },
@@ -135,10 +135,10 @@ const AGENT_PLANS: Record<string, Record<string, object>> = {
       tasks: [
         { name: "\u5b9a\u4e49\u7406\u60f3\u5ba2\u6237\u753b\u50cf\u548c\u7b5b\u9009\u6807\u51c6", status: "in_progress" },
         { name: "\u8bbe\u7f6e\u6570\u636e\u6e90\uff08LinkedIn\u3001Apollo \u7b49\uff09", status: "pending" },
-        { name: "\u6784\u5efa\u521d\u59cb\u6f5c\u5ba2\u5217\u8868\uff08200+ \u6f5c\u5ba2\uff09", status: "pending" },
-        { name: "\u4e30\u5bcc\u6f5c\u5ba2\u516c\u53f8\u548c\u8054\u7cfb\u4eba\u6570\u636e", status: "pending" },
-        { name: "\u8bc4\u5206\u548c\u4f18\u5148\u6392\u5e8f\u6f5c\u5ba2", status: "pending" },
-        { name: "\u4ea4\u4ed8\u5408\u683c\u6f5c\u5ba2\u62a5\u544a", status: "pending" },
+        { name: "构建初始潜在客户列表", status: "pending" },
+        { name: "丰富潜在客户公司和联系人数据", status: "pending" },
+        { name: "评分和优先排序潜在客户", status: "pending" },
+        { name: "交付合格潜在客户报告", status: "pending" },
       ],
       blockers: ["\u9700\u8981\u7406\u60f3\u5ba2\u6237\u753b\u50cf\uff08\u884c\u4e1a\u3001\u516c\u53f8\u89c4\u6a21\u3001\u804c\u4f4d\uff09", "\u9700\u8981 LinkedIn Sales Navigator \u6216 Apollo.io \u8bbf\u95ee\u6743\u9650"],
     },
@@ -170,7 +170,7 @@ const AGENT_PLANS: Record<string, Record<string, object>> = {
       plan: "集成 CRM，设置客户跟进邮件序列，自动化跟进提醒，并跟踪交易管道。",
       tasks: [
         { name: "\u8fde\u63a5 CRM\uff08HubSpot\u3001Salesforce \u7b49\uff09", status: "pending" },
-        { name: "\u5bfc\u5165\u73b0\u6709\u6f5c\u5ba2\u548c\u4ea4\u6613", status: "pending" },
+        { name: "导入现有潜在客户和交易", status: "pending" },
         { name: "\u521b\u5efa\u8ddf\u8fdb\u90ae\u4ef6\u5e8f\u5217", status: "pending" },
         { name: "\u8bbe\u7f6e\u81ea\u52a8\u63d0\u9192", status: "pending" },
         { name: "\u914d\u7f6e\u4ea4\u6613\u9636\u6bb5\u8ddf\u8e2a", status: "pending" },

@@ -47,7 +47,7 @@ const AGENT_PLANS: Record<string, { plan: string; tasks: { name: string; status:
     tasks: [
       { name: "Define ICP and qualification criteria", status: "in_progress" },
       { name: "Verify available data sources", status: "pending" },
-      { name: "Build initial lead list (200+ leads)", status: "pending" },
+      { name: "Build initial lead list", status: "pending" },
       { name: "Enrich leads with company & contact data", status: "pending" },
       { name: "Score and prioritize leads", status: "pending" },
       { name: "Deliver qualified lead report", status: "pending" },
