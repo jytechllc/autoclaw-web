@@ -533,6 +533,9 @@ const fr: typeof en = {
     service: "Service",
     quantity: "Utilisation",
     vercelOverage: "Depassement Vercel",
+    totalTokens: "Total Tokens",
+    platformLoading: "Chargement de la facturation...",
+    platformNoData: "Pas encore de donnees. Lancez sync-billing d'abord.",
   },
   dashboard: {
     title: "Tableau de bord",
