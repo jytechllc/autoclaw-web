@@ -3,7 +3,7 @@ import { getDb } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-const WORKER_URL = process.env.WORKER_URL || "https://autoclaw-worker.dotku.workers.dev";
+const WORKER_URL = process.env.WORKER_URL || "https://autoclaw-worker.jytech.workers.dev";
 const WORKER_AUTH_SECRET = process.env.WORKER_AUTH_SECRET;
 const CRON_SECRET = process.env.CRON_SECRET;
 const WORKER_BATCH_SIZE = Math.max(1, Math.min(10, Number(process.env.WORKER_CRON_BATCH_SIZE || "1")));

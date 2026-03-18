@@ -5,7 +5,7 @@ import { decrypt } from "@/lib/crypto";
 
 export const dynamic = "force-dynamic";
 
-const SYSTEM_WORKER_URL = process.env.WORKER_URL || "https://autoclaw-worker.dotku.workers.dev";
+const SYSTEM_WORKER_URL = process.env.WORKER_URL || "https://autoclaw-worker.jytech.workers.dev";
 const SYSTEM_WORKER_SECRET = process.env.WORKER_AUTH_SECRET;
 
 export async function POST(req: NextRequest) {
