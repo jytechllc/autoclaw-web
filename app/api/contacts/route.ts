@@ -92,35 +92,35 @@ export async function GET(req: NextRequest) {
   if (search) {
     const like = `%${search}%`;
     contacts = await sql`
-      SELECT * FROM contacts
+      SELECT DISTINCT ON (email) * FROM contacts
       WHERE user_id = ANY(${visibleUserIds}::int[])
         AND (email ILIKE ${like} OR first_name ILIKE ${like} OR last_name ILIKE ${like} OR company ILIKE ${like})
         ${projectId ? sql`AND project_id = ${Number(projectId)}` : sql``}
         ${source ? sql`AND source = ${source}` : sql``}
-      ORDER BY updated_at DESC
+      ORDER BY email, updated_at DESC
       LIMIT ${pageSize} OFFSET ${offset}
     `;
   } else {
     contacts = await sql`
-      SELECT * FROM contacts
+      SELECT DISTINCT ON (email) * FROM contacts
       WHERE user_id = ANY(${visibleUserIds}::int[])
         ${projectId ? sql`AND project_id = ${Number(projectId)}` : sql``}
         ${source ? sql`AND source = ${source}` : sql``}
-      ORDER BY updated_at DESC
+      ORDER BY email, updated_at DESC
       LIMIT ${pageSize} OFFSET ${offset}
     `;
   }
 
   const totalRows = search
     ? await sql`
-        SELECT COUNT(*)::int as count FROM contacts
+        SELECT COUNT(DISTINCT email)::int as count FROM contacts
         WHERE user_id = ANY(${visibleUserIds}::int[])
           AND (email ILIKE ${`%${search}%`} OR first_name ILIKE ${`%${search}%`} OR last_name ILIKE ${`%${search}%`} OR company ILIKE ${`%${search}%`})
           ${projectId ? sql`AND project_id = ${Number(projectId)}` : sql``}
           ${source ? sql`AND source = ${source}` : sql``}
       `
     : await sql`
-        SELECT COUNT(*)::int as count FROM contacts
+        SELECT COUNT(DISTINCT email)::int as count FROM contacts
         WHERE user_id = ANY(${visibleUserIds}::int[])
           ${projectId ? sql`AND project_id = ${Number(projectId)}` : sql``}
           ${source ? sql`AND source = ${source}` : sql``}
