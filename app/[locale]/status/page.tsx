@@ -24,15 +24,57 @@ interface EmbeddingUsage {
   budget: number;
 }
 
+interface Usage30d {
+  activeUsers: number;
+  activeDays: number;
+  totalTokens: number;
+  totalRequests: number;
+  totalCostCents: number;
+  avgDailyTokens: number;
+  avgDailyCostCents: number;
+  avgPerUser: number;
+  avgDailyPerUser: number;
+  avgCostPerUser: number;
+}
+
+interface BySource { source: string; totalTokens: number; requests: number; costCents: number }
+interface ByPlan { plan: string; users: number; totalTokens: number; requests: number; costCents: number; avgPerUser: number; avgCostPerUser: number; avgDailyPerUser: number }
+interface ByokStats { totalTokens: number; requests: number; users: number; costCents: number }
+
 interface StatusData {
   allTime: { prompt_tokens: number; completion_tokens: number; total_tokens: number; request_count: number };
   today: { prompt_tokens: number; completion_tokens: number; total_tokens: number; request_count: number };
-  byProvider: { provider: string; total_tokens: number; request_count: number }[];
+  byProvider: { provider: string; total_tokens: number; prompt_tokens: number; completion_tokens: number; request_count: number; costCents: number }[];
+  totalCostCents: number;
   last7Days: { date: string; total_tokens: number; request_count: number }[];
   users: number;
   nextResetUtc: string;
   user?: UserQuota;
   embedding?: EmbeddingUsage;
+  usage30d?: Usage30d;
+  bySource?: BySource[];
+  byPlan?: ByPlan[];
+  byok?: ByokStats;
+  apiUsage?: { service: string; action: string; totalCount: number; users: number; lastUsed: string }[];
+}
+
+interface PlatformData {
+  platform: string;
+  services: { name: string; cost: number; quantity: number; unit: string }[];
+  totalGross: number;
+}
+
+interface PlatformBilling {
+  platforms: PlatformData[];
+  monthStart?: string;
+  syncedAt?: string;
+}
+
+function formatCost(cents: number): string {
+  if (cents === 0) return "$0";
+  if (cents < 1) return `$${(cents / 100).toFixed(4)}`;
+  if (cents < 100) return `$${(cents / 100).toFixed(2)}`;
+  return `$${(cents / 100).toFixed(2)}`;
 }
 
 function formatTokens(n: number): string {
@@ -69,6 +111,7 @@ export default function StatusPage() {
   const ts = dict.status;
 
   const [data, setData] = useState<StatusData | null>(null);
+  const [platformBilling, setPlatformBilling] = useState<PlatformBilling | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -76,6 +119,11 @@ export default function StatusPage() {
       .then((r) => r.json())
       .then((d) => { setData(d); setLoading(false); })
       .catch(() => setLoading(false));
+    // Fetch platform billing separately (may be slow on first load without cache)
+    fetch("/api/status/vercel")
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d && !d.error) setPlatformBilling(d); })
+      .catch(() => {});
   }, []);
 
   const maxDayTokens = data ? Math.max(...data.last7Days.map((d) => Number(d.total_tokens)), 1) : 1;
@@ -109,6 +157,75 @@ export default function StatusPage() {
                 <span className="text-lg font-semibold text-green-700">{ts.operational}</span>
               </div>
             </div>
+
+            {/* Monthly Cost Overview */}
+            {(() => {
+              const aiCost = data.usage30d?.totalCostCents ? data.usage30d.totalCostCents / 100 : 0;
+              const byokAiCost = data.byok?.costCents ? data.byok.costCents / 100 : 0;
+              const vercelGross = platformBilling?.platforms.find((p) => p.platform === "vercel")?.totalGross || 0;
+              const githubGross = platformBilling?.platforms.find((p) => p.platform === "github")?.totalGross || 0;
+              const fixedCosts = [
+                { name: "Claude Max", cost: 100 },
+                { name: "Vercel Pro", cost: 20 },
+                { name: "ChatGPT Go", cost: 8 },
+                { name: "Neon DB (Free)", cost: 0 },
+                { name: "Auth0 (Free)", cost: 0 },
+                { name: "Cloudflare Worker (Free)", cost: 0 },
+                { name: "Brevo (Free 300/day)", cost: 0 },
+              ];
+              const fixedTotal = fixedCosts.reduce((s, c) => s + c.cost, 0);
+              const platformTotal = vercelGross + githubGross;
+              const totalAI = aiCost + byokAiCost;
+              const totalMonthly = fixedTotal + totalAI + platformTotal;
+
+              return (
+                <div className="bg-white rounded-lg border border-red-200 p-6">
+                  <h2 className="text-sm font-semibold mb-4">{ts.monthlyCostOverview || "Monthly Cost Overview"}</h2>
+                  {/* Grand total */}
+                  <div className="text-center mb-4 pb-4 border-b border-gray-100">
+                    <p className="text-4xl font-bold text-red-600">${totalMonthly.toFixed(2)}</p>
+                    <p className="text-xs text-gray-500 mt-1">{ts.estTotal || "Estimated Total Cost / Month"}</p>
+                  </div>
+                  {/* Breakdown */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center mb-4">
+                    <div>
+                      <p className="text-lg font-bold">${fixedTotal}</p>
+                      <p className="text-xs text-gray-500">{ts.fixedCosts || "Subscriptions"}</p>
+                    </div>
+                    <div>
+                      <p className="text-lg font-bold">{formatCost(totalAI * 100)}</p>
+                      <p className="text-xs text-gray-500">{ts.aiApiCost || "AI API (all users)"}</p>
+                    </div>
+                    <div>
+                      <p className="text-lg font-bold">{formatCost(vercelGross * 100)}</p>
+                      <p className="text-xs text-gray-500">{ts.vercelUsage || "Vercel (gross)"}</p>
+                    </div>
+                    <div>
+                      <p className="text-lg font-bold">{formatCost(githubGross * 100)}</p>
+                      <p className="text-xs text-gray-500">{ts.githubUsage || "GitHub (gross)"}</p>
+                    </div>
+                  </div>
+                  {/* AI cost detail */}
+                  {totalAI > 0 && (
+                    <div className="bg-gray-50 rounded-lg p-3 mb-3">
+                      <p className="text-xs text-gray-500 mb-1">{ts.aiBreakdown || "AI API Breakdown"}</p>
+                      <div className="flex gap-4 text-xs">
+                        <span>{ts.platformAI || "Platform API"}: <strong>{formatCost(aiCost * 100)}</strong></span>
+                        <span>{ts.byokAI || "BYOK (user keys)"}: <strong>{formatCost(byokAiCost * 100)}</strong></span>
+                      </div>
+                    </div>
+                  )}
+                  {/* Fixed cost tags */}
+                  <div className="flex flex-wrap gap-2">
+                    {fixedCosts.map((c) => (
+                      <span key={c.name} className={`text-xs px-2 py-1 rounded-full ${c.cost > 0 ? "bg-gray-100 text-gray-600" : "bg-green-50 text-green-600"}`}>
+                        {c.name}: {c.cost > 0 ? `$${c.cost}/mo` : "Free"}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* User Quota (if logged in) */}
             {data.user && (
@@ -197,7 +314,10 @@ export default function StatusPage() {
 
             {/* By provider */}
             <div className="bg-white rounded-lg border border-gray-200 p-6">
-              <h2 className="text-sm font-semibold mb-4">{ts.byProvider}</h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-sm font-semibold">{ts.byProvider}</h2>
+                <span className="text-sm font-bold text-red-600">{ts.totalCost || "Total Cost"}: {formatCost(data.totalCostCents)}</span>
+              </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
@@ -205,6 +325,7 @@ export default function StatusPage() {
                       <th className="py-2 font-medium">{ts.provider}</th>
                       <th className="py-2 font-medium text-right">{ts.totalTokens}</th>
                       <th className="py-2 font-medium text-right">{ts.requests}</th>
+                      <th className="py-2 font-medium text-right">{ts.cost || "Cost"}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -213,12 +334,137 @@ export default function StatusPage() {
                         <td className="py-2 font-medium capitalize">{p.provider}</td>
                         <td className="py-2 text-right font-mono">{formatTokens(Number(p.total_tokens))}</td>
                         <td className="py-2 text-right font-mono">{Number(p.request_count).toLocaleString()}</td>
+                        <td className="py-2 text-right font-mono">{p.costCents === 0 ? <span className="text-green-600">Free</span> : formatCost(p.costCents)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             </div>
+            {/* 30-Day Usage Summary */}
+            {data.usage30d && (
+              <div className="bg-white rounded-lg border border-gray-200 p-6">
+                <h2 className="text-sm font-semibold mb-4">{ts.usage30d || "30-Day Usage Summary"}</h2>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-center mb-4">
+                  <div>
+                    <p className="text-2xl font-bold">{formatTokens(data.usage30d.totalTokens)}</p>
+                    <p className="text-xs text-gray-500">{ts.totalTokens || "Total Tokens"}</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-red-600">{formatCost(data.usage30d.totalCostCents)}</p>
+                    <p className="text-xs text-gray-500">{ts.totalCost || "Total Cost"}</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold">{data.usage30d.activeUsers}</p>
+                    <p className="text-xs text-gray-500">{ts.activeUsers || "Active Users"}</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center border-t border-gray-100 pt-4">
+                  <div>
+                    <p className="text-lg font-bold">{formatTokens(data.usage30d.avgDailyTokens)}</p>
+                    <p className="text-xs text-gray-500">{ts.avgDaily || "Avg Daily"}</p>
+                  </div>
+                  <div>
+                    <p className="text-lg font-bold">{formatCost(data.usage30d.avgDailyCostCents)}</p>
+                    <p className="text-xs text-gray-500">{ts.avgDailyCost || "Avg Daily Cost"}</p>
+                  </div>
+                  <div>
+                    <p className="text-lg font-bold">{formatTokens(data.usage30d.avgDailyPerUser)}</p>
+                    <p className="text-xs text-gray-500">{ts.avgDailyPerUser || "Avg / User / Day"}</p>
+                  </div>
+                  <div>
+                    <p className="text-lg font-bold">{formatCost(data.usage30d.avgCostPerUser)}</p>
+                    <p className="text-xs text-gray-500">{ts.avgCostPerUser || "Avg Cost / User"}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* By Source + BYOK */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {data.bySource && data.bySource.length > 0 && (
+                <div className="bg-white rounded-lg border border-gray-200 p-6">
+                  <h2 className="text-sm font-semibold mb-4">{ts.bySource || "By Source"}</h2>
+                  <div className="space-y-2">
+                    {data.bySource.map((s) => {
+                      const pct = data.usage30d ? Math.round((s.totalTokens / Math.max(data.usage30d.totalTokens, 1)) * 100) : 0;
+                      const label: Record<string, string> = { chat: "Chat", cron: "Agent (Cron)", chat_enrich: "Chat Enrich", unknown: "Other" };
+                      return (
+                        <div key={s.source} className="flex items-center gap-3">
+                          <span className="text-xs text-gray-600 w-28 shrink-0">{label[s.source] || s.source}</span>
+                          <div className="flex-1 bg-gray-100 rounded-full h-4 overflow-hidden">
+                            <div className="bg-red-400 h-full rounded-full" style={{ width: `${pct}%` }} />
+                          </div>
+                          <span className="text-xs font-mono text-gray-500 w-16 text-right">{formatTokens(s.totalTokens)}</span>
+                          <span className="text-xs font-mono text-gray-500 w-16 text-right">{formatCost(s.costCents)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {data.byok && (
+                <div className="bg-white rounded-lg border border-gray-200 p-6">
+                  <h2 className="text-sm font-semibold mb-4">{ts.byokUsage || "BYOK Usage (Agent/Worker)"}</h2>
+                  <p className="text-xs text-gray-400 mb-4">{ts.byokDesc || "Requests using user/org-provided API keys via cron agents"}</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+                    <div>
+                      <p className="text-2xl font-bold">{formatTokens(data.byok.totalTokens)}</p>
+                      <p className="text-xs text-gray-500">{ts.totalTokens || "Tokens"}</p>
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold">{formatCost(data.byok.costCents)}</p>
+                      <p className="text-xs text-gray-500">{ts.cost || "Cost"}</p>
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold">{data.byok.requests.toLocaleString()}</p>
+                      <p className="text-xs text-gray-500">{ts.requests || "Requests"}</p>
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold">{data.byok.users}</p>
+                      <p className="text-xs text-gray-500">{ts.byokUsers || "Users with BYOK"}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Avg Consumption by Plan */}
+            {data.byPlan && data.byPlan.length > 0 && (
+              <div className="bg-white rounded-lg border border-gray-200 p-6">
+                <h2 className="text-sm font-semibold mb-4">{ts.byPlan || "Avg Consumption by Plan (30 days)"}</h2>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs text-gray-500 border-b border-gray-100">
+                        <th className="py-2 font-medium">{ts.plan || "Plan"}</th>
+                        <th className="py-2 font-medium text-right">{ts.usersLabel || "Users"}</th>
+                        <th className="py-2 font-medium text-right">{ts.totalTokens || "Total"}</th>
+                        <th className="py-2 font-medium text-right">{ts.cost || "Cost"}</th>
+                        <th className="py-2 font-medium text-right">{ts.avgPerUser || "Avg / User"}</th>
+                        <th className="py-2 font-medium text-right">{ts.avgCostPerUser || "Avg Cost / User"}</th>
+                        <th className="py-2 font-medium text-right">{ts.requests || "Requests"}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.byPlan.map((p) => (
+                        <tr key={p.plan} className="border-b border-gray-50">
+                          <td className="py-2"><span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 capitalize font-medium">{p.plan}</span></td>
+                          <td className="py-2 text-right font-mono">{p.users}</td>
+                          <td className="py-2 text-right font-mono">{formatTokens(p.totalTokens)}</td>
+                          <td className="py-2 text-right font-mono">{formatCost(p.costCents)}</td>
+                          <td className="py-2 text-right font-mono">{formatTokens(p.avgPerUser)}</td>
+                          <td className="py-2 text-right font-mono">{formatCost(p.avgCostPerUser)}</td>
+                          <td className="py-2 text-right font-mono">{p.requests.toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
             {/* Embedding Usage */}
             {data.embedding && (
               <div className="bg-white rounded-lg border border-gray-200 p-6">
@@ -256,6 +502,95 @@ export default function StatusPage() {
                 </div>
               </div>
             )}
+
+            {/* External API Usage (BYOK) */}
+            {data.apiUsage && data.apiUsage.length > 0 && (
+              <div className="bg-white rounded-lg border border-gray-200 p-6">
+                <h2 className="text-sm font-semibold mb-4">{ts.externalApiUsage || "External API Usage (30 days)"}</h2>
+                <p className="text-xs text-gray-400 mb-3">{ts.externalApiDesc || "API calls via user/org BYOK keys (Apollo, Hunter, Brevo, Apify, etc.)"}</p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs text-gray-500 border-b border-gray-100">
+                        <th className="py-2 font-medium">{ts.service || "Service"}</th>
+                        <th className="py-2 font-medium">{ts.actionLabel || "Action"}</th>
+                        <th className="py-2 font-medium text-right">{ts.callCount || "Calls"}</th>
+                        <th className="py-2 font-medium text-right">{ts.usersLabel || "Users"}</th>
+                        <th className="py-2 font-medium text-right">{ts.lastUsedLabel || "Last Used"}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.apiUsage.map((a, i) => (
+                        <tr key={i} className="border-b border-gray-50">
+                          <td className="py-2 text-xs font-medium capitalize">{a.service}</td>
+                          <td className="py-2 text-xs text-gray-500">{a.action.replace(/_/g, " ")}</td>
+                          <td className="py-2 text-right font-mono text-xs">{a.totalCount.toLocaleString()}</td>
+                          <td className="py-2 text-right font-mono text-xs">{a.users}</td>
+                          <td className="py-2 text-right text-xs text-gray-400">{new Date(a.lastUsed).toLocaleDateString(locale)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Platform Billing (Vercel + GitHub) */}
+            <div className="bg-white rounded-lg border border-gray-200 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-sm font-semibold">{ts.platformBilling || "Platform Usage (This Month)"}</h2>
+                {platformBilling?.syncedAt ? (
+                  <span className="text-xs text-gray-400">Synced: {new Date(platformBilling.syncedAt).toLocaleDateString(locale)}</span>
+                ) : !platformBilling ? (
+                  <span className="text-xs text-gray-400 animate-pulse">{dict.common.loading}</span>
+                ) : null}
+              </div>
+              {platformBilling?.platforms && platformBilling.platforms.length > 0 ? (
+                <div className="space-y-4">
+                  {platformBilling.platforms.map((p) => {
+                    const platformLabels: Record<string, string> = { vercel: "Vercel", github: "GitHub" };
+                    return (
+                      <div key={p.platform}>
+                        <div className="flex items-center justify-between mb-2">
+                          <h3 className="text-xs font-semibold text-gray-600">{platformLabels[p.platform] || p.platform}</h3>
+                          <span className="text-xs font-mono">{ts.grossUsage || "Gross"}: {formatCost(p.totalGross * 100)}</span>
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="text-left text-gray-400 border-b border-gray-100">
+                                <th className="py-1.5 font-medium">{ts.service || "Service"}</th>
+                                <th className="py-1.5 font-medium text-right">{ts.quantity || "Usage"}</th>
+                                <th className="py-1.5 font-medium text-right">{ts.cost || "Gross Cost"}</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {p.services.map((s) => {
+                                const isFree = s.unit.includes("free tier");
+                                return (
+                                  <tr key={s.name} className="border-b border-gray-50">
+                                    <td className="py-1.5 text-gray-700">{s.name}</td>
+                                    <td className="py-1.5 text-right font-mono">{s.quantity > 0 ? `${s.quantity.toLocaleString()} ${s.unit.split(" (")[0]}` : "-"}</td>
+                                    <td className="py-1.5 text-right font-mono">
+                                      {formatCost(s.cost * 100)}
+                                      {isFree && <span className="ml-1 text-green-600 font-normal">(free)</span>}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : !platformBilling ? (
+                <p className="text-sm text-gray-400 text-center py-4 animate-pulse">{ts.platformLoading || "Loading platform billing..."}</p>
+              ) : (
+                <p className="text-sm text-gray-400 text-center py-4">{ts.platformNoData || "No billing data yet. Run sync-billing cron first."}</p>
+              )}
+            </div>
           </div>
         ) : (
           <div className="text-center py-12 text-gray-400">{ts.unavailable}</div>

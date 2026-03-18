@@ -405,9 +405,9 @@ const en = {
     footerPrivacy: "Privacy Policy",
     footerChangelog: "Changelog",
     // Case study data
-    caseSienovo: "B2B lead outreach, product marketing, website management",
-    caseMedTravel: "Cold email, clinic outreach, SEO content, X/Twitter, lead prospecting",
-    caseGpuLaw: "Market research, product management, dev quality, CPO strategy",
+    caseDkWholesale: "4 AI employees with orchestrator, 43 automated tasks, weekly strategy digests — full marketing ops with zero human staff",
+    caseUsProglove: "3 AI employees found 20 qualified B2B contacts and launched cold email campaigns — from zero leads to active pipeline autonomously",
+    caseGpuLaw: "Dev agent running automated health checks, build monitoring, and deployment reports — 24/7 DevOps without a DevOps team",
   },
   onboarding: {
     welcomeTitle: "Welcome to AutoClaw",

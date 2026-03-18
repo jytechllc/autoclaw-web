@@ -3,7 +3,7 @@ import { auth0 } from "@/lib/auth0";
 import { getDb, resolveUserPlan } from "@/lib/db";
 import { chatWithAI, ByokKeys } from "@/lib/ai";
 import { decrypt, encrypt } from "@/lib/crypto";
-import { prospectDomain, prospectMultipleDomains, searchCompanies } from "@/lib/leads";
+import { prospectDomain, prospectMultipleDomains, searchCompanies, searchGoogleApify, crawlWebsiteApify, searchLeadsApify, searchGoogleMaps, searchLeadFinder, enrichCompanyDomains, type Lead } from "@/lib/leads";
 import { searchKnowledgeBase, buildRagContext } from "@/lib/rag";
 
 export const dynamic = "force-dynamic";
@@ -212,7 +212,8 @@ export async function POST(req: NextRequest) {
 
   const sql = getDb();
   const email = session.user.email as string;
-  const { message, project_id, model: selectedModel } = await req.json();
+  const { message, project_id, model: selectedModel, locale: reqLocale } = await req.json();
+  const locale = (reqLocale as string) || "en";
 
   if (!message) {
     return NextResponse.json({ error: "Message required" }, { status: 400 });
@@ -227,12 +228,15 @@ export async function POST(req: NextRequest) {
   const userPlan = await resolveUserPlan(sql, userId, (users[0].plan as string) || "starter", email);
   const agentLimit = getAgentLimit(userPlan);
 
-  // Fetch user BYOK AI keys
+  // Fetch user BYOK AI keys + service keys (apify, brevo, sendgrid)
   const byokRows = await sql`
     SELECT service, api_key FROM user_api_keys
-    WHERE user_id = ${userId} AND service IN ('openai', 'anthropic', 'google', 'alibaba', 'cerebras')
+    WHERE user_id = ${userId} AND service IN ('openai', 'anthropic', 'google', 'alibaba', 'cerebras', 'apify', 'brevo', 'sendgrid')
   `;
   const byok: ByokKeys = {};
+  let apifyToken = process.env.APIFY_API_TOKEN || "";
+  let brevoApiKey = process.env.BREVO_API_KEY || "";
+  let sendgridApiKey = process.env.SENDGRID_API_KEY || "";
   for (const row of byokRows) {
     try {
       const key = decrypt(row.api_key as string);
@@ -241,6 +245,9 @@ export async function POST(req: NextRequest) {
       else if (row.service === "google") byok.google = key;
       else if (row.service === "alibaba") byok.alibaba = key;
       else if (row.service === "cerebras") byok.cerebras = key;
+      else if (row.service === "apify") apifyToken = key;
+      else if (row.service === "brevo") brevoApiKey = key;
+      else if (row.service === "sendgrid") sendgridApiKey = key;
     } catch {
       // Skip keys that fail to decrypt
     }
@@ -297,14 +304,44 @@ export async function POST(req: NextRequest) {
   );
   await sql`INSERT INTO chat_messages (user_id, project_id, role, content) VALUES (${userId}, ${project_id || null}, 'user', ${redactedMessage})`;
 
-  // Load context
-  const projects = await sql`SELECT id, name, website, description FROM projects WHERE user_id = ${userId}`;
-  const agents = await sql`
-    SELECT aa.id, aa.agent_type, aa.status, aa.config, aa.project_id, p.name as project_name
-    FROM agent_assignments aa
-    JOIN projects p ON aa.project_id = p.id
+  // Load context — include own projects + org projects + project_members projects
+  const emailDomain = email.split("@")[1] || "";
+  const projects = await sql`
+    SELECT DISTINCT p.id, p.name, p.website, p.description,
+      CASE
+        WHEN p.user_id = ${userId} THEN 'owner'
+        WHEN pm.role IS NOT NULL THEN pm.role
+        ELSE 'editor'
+      END as access_role
+    FROM projects p
+    LEFT JOIN project_members pm ON pm.project_id = p.id AND pm.user_id = ${userId}
     WHERE p.user_id = ${userId}
+      OR p.id IN (SELECT project_id FROM project_members WHERE user_id = ${userId})
+      OR (p.domain IS NOT NULL AND p.domain != '' AND p.domain = ${emailDomain})
+      OR p.org_id IN (SELECT org_id FROM organization_members WHERE user_id = ${userId})
+    ORDER BY p.created_at DESC
   `;
+  const projectIds = projects.map((p) => p.id);
+  const agents = projectIds.length > 0
+    ? await sql`
+      SELECT aa.id, aa.agent_type, aa.status, aa.config, aa.project_id, p.name as project_name
+      FROM agent_assignments aa
+      JOIN projects p ON aa.project_id = p.id
+      WHERE aa.project_id = ANY(${projectIds})
+    `
+    : [];
+
+  // Next steps prompt helper — show projects with access roles
+  const nextStepsHint = () => {
+    const writableProjects = projects.filter((p) => p.access_role !== "reader");
+    const projectList = writableProjects.map((p) => `**${p.name}**`).join(", ");
+    const readOnlyProjects = projects.filter((p) => p.access_role === "reader");
+    let hint = `\n\n---\n**Next steps:**\n- Save these contacts: **"save contacts to project [name]"**`;
+    if (projectList) hint += `\n- Available projects: ${projectList}`;
+    if (readOnlyProjects.length > 0) hint += `\n- Read-only: ${readOnlyProjects.map(p => p.name).join(", ")}`;
+    hint += `\n- Enrich data: **"enrich contacts"**`;
+    return hint;
+  };
 
   // Get last assistant message for context
   const lastAssistantMsg = await sql`SELECT content FROM chat_messages WHERE user_id = ${userId} AND role = 'assistant' ORDER BY created_at DESC LIMIT 1`;
@@ -593,18 +630,6 @@ export async function POST(req: NextRequest) {
     const isPaid = userPlan !== "starter";
     const targetProject = projects.length > 0 ? (project_id ? projects.find((p) => p.id === project_id) || projects[projects.length - 1] : projects[projects.length - 1]) : null;
 
-    // Save leads to paid user's project database
-    async function saveLeadsToProject(leads: { email: string; firstName: string; lastName: string; company: string; position: string; source: string; confidence?: number; verified?: boolean }[], domain: string) {
-      if (!isPaid || !targetProject) return;
-      for (const l of leads) {
-        try {
-          await sql`INSERT INTO contacts (user_id, project_id, email, first_name, last_name, company, position, source, source_detail)
-            VALUES (${userId}, ${targetProject.id}, ${l.email}, ${l.firstName}, ${l.lastName}, ${l.company}, ${l.position}, ${l.source}, ${'Chat: ' + domain})
-            ON CONFLICT (user_id, email) DO NOTHING`;
-        } catch { /* skip duplicates */ }
-      }
-    }
-
     if (domains.length === 0) {
       reply = `Please provide one or more domains to search. Examples:\n\n- "Find leads for stripe.com"\n- "Prospect hubspot.com, intercom.com, calendly.com"\n- "Search domain bumrungrad.com"`;
     } else if (domains.length === 1) {
@@ -621,17 +646,11 @@ export async function POST(req: NextRequest) {
             return `| ${l.email} | ${name} | ${l.position || "—"} | ${l.source}${badge} |`;
           }).join("\n");
 
-          // Save to paid user's project
-          await saveLeadsToProject(result.leads, domains[0]);
-
           reply = `**Lead search: ${domains[0]}**\n\nFound **${result.leads.length}** contacts (Apollo: ${result.apolloCount}, Hunter: ${result.hunterCount}, Snov: ${result.snovCount})\n\n| Email | Name | Position | Source |\n|-------|------|----------|--------|\n${leadTable}`;
           if (!isPaid && result.leads.length > 10) {
-            reply += `\n\n_Showing 10 of ${result.leads.length} results. Upgrade to **Growth** or **Scale** to see all contacts and save to your database._`;
+            reply += `\n\n_Showing 10 of ${result.leads.length} results. Upgrade to **Growth** or **Scale** to see all contacts._`;
           }
-          if (isPaid && targetProject) {
-            reply += `\n\n**${result.leads.length}** contacts saved to project **${targetProject.name}**.`;
-          }
-          reply += `\n**${result.imported}** contacts imported to CRM.`;
+          reply += nextStepsHint();
         }
       } catch {
         reply = `Error searching ${domains[0]}. Please try again later.`;
@@ -646,15 +665,10 @@ export async function POST(req: NextRequest) {
             const name = [l.firstName, l.lastName].filter(Boolean).join(" ");
             return `  - ${l.email}${name ? ` (${name})` : ""}${l.position ? ` — ${l.position}` : ""}`;
           }).join("\n");
-          parts.push(`**${r.domain}** — ${r.leads.length} contacts, ${r.imported} imported\n${leadList}`);
-          await saveLeadsToProject(r.leads, r.domain);
+          parts.push(`**${r.domain}** — ${r.leads.length} contacts\n${leadList}`);
         }
-        parts.push(`\n**Total: ${result.totalLeads} leads found, ${result.totalImported} imported to CRM.**`);
-        if (isPaid && targetProject) {
-          parts.push(`All contacts saved to project **${targetProject.name}**.`);
-        } else if (!isPaid) {
-          parts.push(`_Upgrade to **Growth** or **Scale** to see all contacts and save to your database._`);
-        }
+        parts.push(`\n**Total: ${result.totalLeads} leads found.**`);
+        parts.push(nextStepsHint());
         reply = parts.join("\n\n");
       } catch {
         reply = `Error searching domains. Please try again later.`;
@@ -802,7 +816,8 @@ Guide users to use these specific commands:
 - "add my key xxx to openai" to configure BYOK AI keys
 
 ${ragContext ? ragContext + "\nUse the knowledge base context above to inform your answers when relevant.\n" : ""}${projects.length === 0 ? "The user has no projects yet. Help them create one by asking about their business, or answer their question directly. Always connect back to how AutoClaw's agents can help.\n" : ""}
-Keep responses concise and helpful. Use markdown formatting. Always be proactive in suggesting relevant AutoClaw capabilities.`;
+Keep responses concise and helpful. Use markdown formatting. Always be proactive in suggesting relevant AutoClaw capabilities.
+${locale === "zh" ? "IMPORTANT: You MUST respond entirely in Simplified Chinese (简体中文)." : locale === "zh-TW" ? "IMPORTANT: You MUST respond entirely in Traditional Chinese (繁體中文)." : locale === "fr" ? "IMPORTANT: You MUST respond entirely in French (Français)." : ""}`;
 
     try {
       // === Tool-calling system: two-pass approach ===
@@ -811,18 +826,67 @@ Keep responses concise and helpful. Use markdown formatting. Always be proactive
 ## Tool Calling
 You have access to tools that can execute real searches and actions. When the user asks a question that requires searching for companies, leads, suppliers, factories, or any business entities, you MUST use a tool instead of giving a generic answer.
 
-Available tools:
-1. **search_companies** — Search for companies by keyword, industry, and location using Apollo.io
-   Parameters: { "keywords": "string", "industry": "string", "location": "string", "titles": ["string"], "limit": number }
-   Use when: user asks to find companies, factories, suppliers, installers, distributors, partners in a specific industry/region
+Available tools (ordered by priority — prefer Apify tools for searching):
 
-2. **prospect_domain** — Find contacts at a specific company domain using Hunter.io, Apollo, Snov.io
+### PRIMARY SEARCH TOOLS (use these first):
+1. **search_lead_finder** — Find people by job title, location, and industry (BEST for "find Sales Directors in European energy companies")
+   Parameters: { "job_titles": ["string"], "locations": ["string"], "industries": ["string"] }
+   Use when: user asks to find people/contacts by title in a region or industry.
+
+2. **search_google_maps** — Search for businesses/companies by category and location on Google Maps
+   Parameters: { "query": "string", "max_results": number }
+   Use when: user asks to find companies, factories, stores, installers, or businesses in a location.
+
+3. **search_leads_apify** — Search for leads/contacts by industry keywords and job titles (general purpose lead search)
+   Parameters: { "keywords": ["string"], "job_titles": ["string"], "industries": ["string"] }
+   Use when: user asks to find companies, factories, suppliers, installers, distributors, leads, contacts, or partners in any industry/region.
+
+4. **search_google** — Search Google for company/industry information
+   Parameters: { "queries": ["string"] }
+   Use when: user wants to research a company, industry trends, market info, or gather public information
+
+3. **crawl_website** — Crawl and extract content from a website (supports JS-rendered SPAs)
+   Parameters: { "url": "string" }
+   Use when: user wants to analyze a website, extract product/service info, or research a specific company
+
+### DOMAIN-SPECIFIC TOOLS:
+4. **prospect_domain** — Find contacts at a specific company domain
    Parameters: { "domain": "string" }
-   Use when: user provides a specific company domain to search
+   Use when: user provides a specific company domain (e.g. "find contacts at tesla.com")
 
-3. **prospect_multi** — Search contacts across multiple domains
+5. **prospect_multi** — Search contacts across multiple domains
    Parameters: { "domains": ["string"] }
-   Use when: user provides multiple domains
+   Use when: user provides multiple domains to search
+
+6. **search_companies** — Search for companies using Apollo.io (NOTE: requires Apollo paid plan for search, free plan only supports enrichment)
+   Parameters: { "keywords": "string", "industry": "string", "location": "string", "titles": ["string"], "limit": number }
+   Use when: user explicitly asks to use Apollo, or as a fallback if Apify is not available
+
+### ACTION TOOLS:
+9. **enrich_domains** — Enrich company domains with email patterns, contacts, and quality scores
+   Parameters: { "domains": ["string"] }
+   Use when: user wants to enrich/analyze company domains to find email patterns and contact info
+
+10. **save_contacts** — Save search results to a specific project's contact list
+   Parameters: { "project_name": "string", "from_last_search": true } or { "project_name": "string", "emails": ["string"] }
+   Use when: user wants to save contacts. ALWAYS include project_name — ask the user which project if not specified.
+
+8. **enrich_contacts** — Enrich prospect data with seniority, department, industry analysis
+   Parameters: { "project_id": number, "limit": number }
+   Use when: user wants to enrich existing contacts with AI-generated insights
+
+9. **send_email** — Send an email to a contact via Brevo/SendGrid
+   Parameters: { "to": "string", "subject": "string", "body": "string" } or { "to": ["string"], "template": "cold_outreach" }
+   Use when: user wants to send an email to a prospect
+
+IMPORTANT ROUTING RULES:
+- "find people/contacts by title in a region" → search_lead_finder
+- "find companies/factories/stores in a location" → search_google_maps
+- When user asks to "find/search/list companies/leads/contacts" → use search_leads_apify
+- "enrich these domains" → enrich_domains
+- When user asks to "research/google/look up" → use search_google
+- When user asks to "check/crawl/analyze a website" → use crawl_website
+- Only use search_companies (Apollo) if user explicitly mentions Apollo or if Apify tools are not available
 
 If you determine a tool should be called, respond with ONLY a JSON block in this exact format (no other text):
 \`\`\`tool_call
@@ -832,10 +896,25 @@ If you determine a tool should be called, respond with ONLY a JSON block in this
 If no tool is needed, respond normally with helpful text.
 
 Examples of when to call tools:
-- "欧洲储能工厂和安装商列表" → search_companies with keywords="energy storage", location="Europe"
-- "Find solar panel manufacturers in Germany" → search_companies with keywords="solar panel manufacturer", location="Germany"
-- "EV charging installers in France" → search_companies with keywords="EV charging installer", location="France"
+- "欧洲储能工厂和安装商" → search_google_maps with query="energy storage companies installers Europe"
+- "Find Sales Directors at European energy companies" → search_lead_finder with job_titles=["Sales Director"], locations=["Europe"], industries=["Energy Storage"]
+- "Enrich sonnen.de and fluence.com" → enrich_domains with domains=["sonnen.de","fluence.com"]
+- "Find solar panel manufacturers in Germany" → search_google_maps with query="solar panel manufacturers Germany"
+- "EV charging installers in France" → search_google_maps with query="EV charging installers France"
 - "Find contacts at tesla.com" → prospect_domain with domain="tesla.com"
+- "搜索一下特斯拉最新新闻" → search_google with queries=["Tesla latest news 2026"]
+- "帮我了解一下 unincore.com 这家公司" → crawl_website with url="https://unincore.com"
+- "通过Apify找储能行业的销售总监" → search_leads_apify with keywords=["energy storage"], job_titles=["Sales Director","VP Sales"]
+- "Find CTOs at fintech companies" → search_leads_apify with keywords=["fintech"], job_titles=["CTO","Chief Technology Officer"]
+- "把刚才搜到的联系人保存到 Unincore 项目" → save_contacts with project_name="Unincore", from_last_search=true
+- "丰富一下我的潜在客户数据" → enrich_contacts with limit=20
+- "给 john@acme.com 发一封介绍邮件" → send_email with to="john@acme.com", subject="...", body="..."
+- "保存上次搜索的联系人" → save_contacts with from_last_search=true
+- "Save those contacts" → save_contacts with from_last_search=true
+- "丰富我项目中的联系人数据" → enrich_contacts with project_id (auto-detected)
+- "Enrich my contacts" → enrich_contacts
+- "给 john@example.com 发一封冷邮件" → send_email with to="john@example.com", subject and body generated
+- "Send cold outreach to these leads" → send_email with to=[emails], template="cold_outreach"
 `;
 
       const pass1Result = await chatWithAI([
@@ -853,11 +932,31 @@ Examples of when to call tools:
       const toolCallMatch = pass1Result.content.match(/```tool_call\s*\n?([\s\S]*?)\n?```/);
 
       if (toolCallMatch) {
-        try {
-          const toolCall = JSON.parse(toolCallMatch[1].trim());
-          const toolName = toolCall.tool as string;
-          const toolParams = toolCall.params || {};
-          const toolSummary = (toolCall.summary as string) || "";
+        // Tool call detected — switch to SSE streaming for progress updates
+        const TOOL_LABELS: Record<string, Record<string, string>> = {
+          en: { search_leads_apify: "Searching for leads via Apify...", search_google: "Searching Google...", crawl_website: "Crawling website...", search_companies: "Searching companies via Apollo...", prospect_domain: "Looking up domain contacts...", prospect_multi: "Searching multiple domains...", save_contacts: "Saving contacts...", enrich_contacts: "Enriching contact data...", send_email: "Sending email...", fallback_google: "No direct results. Trying Google Search fallback...", fallback_prospect: "Found companies. Looking up contacts...", fallback_lead_finder: "Trying Lead Finder fallback...", saving: "Saving contacts to project...", search_google_maps: "Searching Google Maps...", search_lead_finder: "Finding leads by title and location...", enrich_domains: "Enriching company domains...", done: "Done!" },
+          zh: { search_leads_apify: "正在通过 Apify 搜索潜在客户...", search_google: "正在搜索 Google...", crawl_website: "正在爬取网站内容...", search_companies: "正在通过 Apollo 搜索公司...", prospect_domain: "正在查找域名联系人...", prospect_multi: "正在搜索多个域名...", save_contacts: "正在保存联系人...", enrich_contacts: "正在丰富联系人数据...", send_email: "正在发送邮件...", fallback_google: "直接搜索无结果，正在尝试 Google 搜索...", fallback_prospect: "已发现公司，正在查找联系人...", fallback_lead_finder: "正在尝试 Lead Finder 备选搜索...", saving: "正在保存联系人到项目...", search_google_maps: "正在搜索 Google 地图...", search_lead_finder: "正在按职位和地区搜索联系人...", enrich_domains: "正在丰富公司域名数据...", done: "完成！" },
+          "zh-TW": { search_leads_apify: "正在透過 Apify 搜尋潛在客戶...", search_google: "正在搜尋 Google...", crawl_website: "正在爬取網站內容...", search_companies: "正在透過 Apollo 搜尋公司...", prospect_domain: "正在查找網域聯絡人...", prospect_multi: "正在搜尋多個網域...", save_contacts: "正在儲存聯絡人...", enrich_contacts: "正在豐富聯絡人資料...", send_email: "正在發送郵件...", fallback_google: "直接搜尋無結果，正在嘗試 Google 搜尋...", fallback_prospect: "已發現公司，正在查找聯絡人...", fallback_lead_finder: "正在嘗試 Lead Finder 備選搜尋...", saving: "正在儲存聯絡人到專案...", search_google_maps: "正在搜尋 Google 地圖...", search_lead_finder: "正在按職位和地區搜尋聯絡人...", enrich_domains: "正在豐富公司網域資料...", done: "完成！" },
+          fr: { search_leads_apify: "Recherche de prospects via Apify...", search_google: "Recherche sur Google...", crawl_website: "Exploration du site web...", search_companies: "Recherche d'entreprises via Apollo...", prospect_domain: "Recherche de contacts du domaine...", prospect_multi: "Recherche sur plusieurs domaines...", save_contacts: "Sauvegarde des contacts...", enrich_contacts: "Enrichissement des contacts...", send_email: "Envoi de l'e-mail...", fallback_google: "Aucun résultat direct. Recherche Google en cours...", fallback_prospect: "Entreprises trouvées. Recherche de contacts...", fallback_lead_finder: "Essai du Lead Finder en secours...", saving: "Sauvegarde des contacts dans le projet...", search_google_maps: "Recherche sur Google Maps...", search_lead_finder: "Recherche de contacts par titre et localisation...", enrich_domains: "Enrichissement des domaines...", done: "Terminé !" },
+        };
+        const tLabels = TOOL_LABELS[locale] || TOOL_LABELS.en;
+
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+          async start(controller) {
+            const sendStep = (key: string) => {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "step", message: tLabels[key] || key })}\n\n`));
+            };
+            const sendDone = (reply: string) => {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "done", reply })}\n\n`));
+            };
+
+            try {
+        const toolCall = JSON.parse(toolCallMatch[1].trim());
+        const toolName = toolCall.tool as string;
+        const toolParams = toolCall.params || {};
+        const toolSummary = (toolCall.summary as string) || "";
+        sendStep(toolName);
 
           let toolResult = "";
 
@@ -888,26 +987,9 @@ Examples of when to call tools:
                 toolResult += `\n\n_Showing 5 of ${companies.length} results. Upgrade to **Growth** or **Scale** to see all results._`;
               }
 
-              // Save leads to project if paid
-              const targetProject = projects.length > 0 ? (project_id ? projects.find((p) => p.id === project_id) || projects[projects.length - 1] : projects[projects.length - 1]) : null;
-              if (isPaid && targetProject) {
-                let savedCount = 0;
-                for (const c of companies) {
-                  for (const lead of c.contacts) {
-                    try {
-                      await sql`INSERT INTO contacts (user_id, project_id, email, first_name, last_name, company, position, source, source_detail)
-                        VALUES (${userId}, ${targetProject.id}, ${lead.email}, ${lead.firstName}, ${lead.lastName}, ${lead.company}, ${lead.position}, ${lead.source}, ${'Chat: ' + c.domain})
-                        ON CONFLICT (user_id, email) DO NOTHING`;
-                      savedCount++;
-                    } catch { /* skip duplicates */ }
-                  }
-                }
-                if (savedCount > 0) {
-                  toolResult += `\n\n**${savedCount}** contacts saved to project **${targetProject.name}**.`;
-                }
-              }
-
-              toolResult += `\n\nWant to dig deeper? Say **"activate lead prospecting"** to set up automated research, or search specific domains like **"find leads for ${displayCompanies[0]?.domain || "example.com"}"**.`;
+              // Prompt next steps instead of auto-saving
+              const projectList = projects.map((p) => `**${p.name}** (ID: ${p.id})`).join(", ");
+              toolResult += `\n\n---\n**Next steps:**\n- Save these contacts: **"save contacts to project [name]"**${projectList ? `\n- Your projects: ${projectList}` : ""}\n- Search specific domains: **"find leads for ${displayCompanies[0]?.domain || "example.com"}"**\n- Deeper research: **"activate lead prospecting"**`;
             }
           } else if (toolName === "prospect_domain") {
             const domain = toolParams.domain as string;
@@ -940,18 +1022,537 @@ Examples of when to call tools:
               parts.push(`\n**Total: ${result.totalLeads} leads found, ${result.totalImported} imported to CRM.**`);
               toolResult = parts.join("\n\n");
             }
+          } else if (toolName === "search_google") {
+            // Tool 4: Google Search via Apify
+            if (!apifyToken) {
+              toolResult = "**Apify API key not configured.** Please add your Apify API token in Settings > API Keys (service: apify), or ask your admin to set the APIFY_API_TOKEN environment variable.";
+            } else {
+              const queries = (toolParams.queries as string[]) || [];
+              if (queries.length === 0) {
+                toolResult = "Please provide at least one search query.";
+              } else {
+                try {
+                  const searchResult = await searchGoogleApify(apifyToken, queries.slice(0, 5));
+                  toolResult = `**${toolSummary || "Google Search Results"}**\n\n${searchResult}`;
+                } catch (err) {
+                  toolResult = `Google search failed: ${err instanceof Error ? err.message : "Unknown error"}. Please try again.`;
+                }
+              }
+            }
+          } else if (toolName === "crawl_website") {
+            // Tool 5: Website Crawler via Apify
+            if (!apifyToken) {
+              toolResult = "**Apify API key not configured.** Please add your Apify API token in Settings > API Keys (service: apify), or ask your admin to set the APIFY_API_TOKEN environment variable.";
+            } else {
+              const url = toolParams.url as string;
+              if (!url) {
+                toolResult = "Please provide a URL to crawl.";
+              } else {
+                try {
+                  const content = await crawlWebsiteApify(apifyToken, url);
+                  toolResult = `**Website content from ${url}**\n\n${content.substring(0, 3000)}`;
+                } catch (err) {
+                  toolResult = `Website crawl failed: ${err instanceof Error ? err.message : "Unknown error"}. The site may be blocking crawlers.`;
+                }
+              }
+            }
+          } else if (toolName === "search_leads_apify") {
+            // Tool 6: Lead Search via Apify leads-finder
+            if (!apifyToken) {
+              toolResult = "**Apify API key not configured.** Please add your Apify API token in Settings > API Keys (service: apify), or ask your admin to set the APIFY_API_TOKEN environment variable.";
+            } else {
+              try {
+                const leads = await searchLeadsApify(apifyToken, {
+                  keywords: toolParams.keywords as string[],
+                  job_titles: toolParams.job_titles as string[],
+                  industries: toolParams.industries as string[],
+                });
+
+                if (leads.length === 0) {
+                  // Fallback 1: Try search_lead_finder (crawlerbros) if job_titles provided
+                  const fallbackJobTitles = toolParams.job_titles as string[] | undefined;
+                  if (fallbackJobTitles && fallbackJobTitles.length > 0) {
+                    try {
+                      sendStep("fallback_lead_finder");
+                      const lfLeads = await searchLeadFinder(apifyToken, {
+                        jobTitles: fallbackJobTitles,
+                        locations: (toolParams.keywords as string[]) || [],
+                        industries: (toolParams.industries as string[]) || [],
+                      });
+                      if (lfLeads.length > 0) {
+                        const isPaidLf = userPlan !== "starter";
+                        const displayLeadsLf = isPaidLf ? lfLeads : lfLeads.slice(0, 10);
+                        const leadTableLf = displayLeadsLf.map((l) => {
+                          const name = [l.firstName, l.lastName].filter(Boolean).join(" ") || "—";
+                          return `| ${name} | ${l.email || "—"} | ${l.position || "—"} | ${l.company || "—"} | ${l.linkedinUrl || "—"} |`;
+                        }).join("\n");
+
+                        toolResult = `**${toolSummary || "Lead Search (via Lead Finder fallback)"}**\n\n_Direct lead search returned no results. Fallback: Lead Finder found ${lfLeads.length} contacts._\n\n| Name | Email | Title | Company | LinkedIn |\n|------|-------|-------|---------|----------|\n${leadTableLf}`;
+
+                        if (!isPaidLf && lfLeads.length > 10) {
+                          toolResult += `\n\n_Showing 10 of ${lfLeads.length} results. Upgrade to **Growth** or **Scale** to see all results._`;
+                        }
+
+                        const projectListLfFb = projects.map((p) => `**${p.name}** (ID: ${p.id})`).join(", ");
+                        toolResult += `\n\n---\n**Next steps:**\n- Save these contacts: **"save contacts to project [name]"**${projectListLfFb ? `\n- Your projects: ${projectListLfFb}` : ""}\n- Enrich data: **"enrich contacts"**`;
+                      }
+                    } catch { /* lead finder fallback failed, continue to Google fallback */ }
+                  }
+
+                  // Fallback 2: Google Search → AI extract company domains → prospect via Hunter/Apollo/Snov
+                  if (!toolResult) {
+                  const fallbackKeywords = [...(toolParams.keywords as string[] || []), ...(toolParams.industries as string[] || [])];
+                  if (fallbackKeywords.length > 0) {
+                    try {
+                      sendStep("fallback_google");
+                      const googleQueries = fallbackKeywords.slice(0, 2).map(k => `top ${k} companies Europe list`);
+                      googleQueries.push(fallbackKeywords.join(" ") + " manufacturers suppliers directory");
+                      const googleResults = await searchGoogleApify(apifyToken, googleQueries);
+
+                      // Use AI to extract real company domains from Google results
+                      sendStep("fallback_prospect");
+                      const extractPrompt = `From the following Google search results, extract REAL company website domains (e.g. "sonnen.de", "fluence.com").
+Only include actual company domains, NOT social media, news sites, directories, or generic sites.
+
+Search results:
+${googleResults.substring(0, 2000)}
+
+Return a JSON array of domains, e.g. ["sonnen.de", "fluence.com", "byd.com"]
+Return ONLY the JSON array, nothing else.`;
+                      let extractedDomains: string[] = [];
+                      try {
+                        const extractResult = await chatWithAI([
+                          { role: "system", content: "You are a data extraction assistant. Return ONLY valid JSON arrays." },
+                          { role: "user", content: extractPrompt },
+                        ], 300, byok, selectedModel);
+                        const jsonMatch = extractResult.content.match(/\[[\s\S]*\]/);
+                        if (jsonMatch) {
+                          extractedDomains = (JSON.parse(jsonMatch[0]) as string[])
+                            .filter(d => typeof d === "string" && d.includes(".") && d.length > 3 && d.length < 50)
+                            .slice(0, 8);
+                        }
+                      } catch { /* extraction failed */ }
+
+                      if (extractedDomains.length > 0) {
+                        // Prospect the discovered domains
+                        sendStep("fallback_prospect");
+                        const domainResults: { domain: string; leads: Lead[] }[] = [];
+                        for (const domain of extractedDomains.slice(0, 3)) {
+                          try {
+                            const { leads: domLeads } = await prospectDomain(domain);
+                            if (domLeads.length > 0) domainResults.push({ domain, leads: domLeads });
+                          } catch { /* skip */ }
+                        }
+
+                        if (domainResults.length > 0) {
+                          const allFoundLeads = domainResults.flatMap(r => r.leads);
+                          const leadTable = allFoundLeads.slice(0, 20).map(l => {
+                            const name = [l.firstName, l.lastName].filter(Boolean).join(" ") || "—";
+                            return `| ${l.email} | ${name} | ${l.company || "—"} | ${l.position || "—"} |`;
+                          }).join("\n");
+
+                          toolResult = `**${toolSummary || "Search Results"}**\n\n_Direct lead search returned no results. Fallback: Google Search → found ${extractedDomains.length} company domains → prospected contacts._\n\n**Discovered companies:** ${extractedDomains.join(", ")}\n\nFound **${allFoundLeads.length}** contacts:\n\n| Email | Name | Company | Position |\n|-------|------|---------|----------|\n${leadTable}`;
+
+                          toolResult += nextStepsHint();
+                        } else {
+                          toolResult = `**${toolSummary || "Search Results"}**\n\nDirect lead search returned no results. Google Search found these companies: **${extractedDomains.join(", ")}**, but no public contacts were found.\n\nTry:\n- Search specific domains: "find contacts at ${extractedDomains[0]}"\n- Activate **Lead Prospecting** agent for deeper research`;
+                        }
+                      } else {
+                        toolResult = `**${toolSummary || "Search Results"}**\n\nNo leads or companies found. Google Search also returned no relevant company domains.\n\nTry:\n- Broadening your keywords\n- Using **search_google** to research the industry first`;
+                      }
+                    } catch {
+                      toolResult = `**${toolSummary || "Apify Lead Search"}**\n\nNo leads found, and Google fallback also failed. Try broadening your keywords or job titles.`;
+                    }
+                  } else {
+                    toolResult = `**${toolSummary || "Apify Lead Search"}**\n\nNo leads found. Try providing more specific keywords or job titles.`;
+                  }
+                  } // end if (!toolResult)
+                } else {
+                  const isPaid = userPlan !== "starter";
+                  const displayLeads = isPaid ? leads : leads.slice(0, 10);
+                  const leadTable = displayLeads.map((l) => {
+                    const name = [l.firstName, l.lastName].filter(Boolean).join(" ") || "—";
+                    return `| ${l.email} | ${name} | ${l.company || "—"} | ${l.position || "—"} |`;
+                  }).join("\n");
+
+                  toolResult = `**${toolSummary || "Apify Lead Search"}**\n\nFound **${leads.length}** contacts:\n\n| Email | Name | Company | Position |\n|-------|------|---------|----------|\n${leadTable}`;
+
+                  if (!isPaid && leads.length > 10) {
+                    toolResult += `\n\n_Showing 10 of ${leads.length} results. Upgrade to **Growth** or **Scale** to see all results._`;
+                  }
+
+                  // Prompt next steps instead of auto-saving
+                  const projectListApify = projects.map((p) => `**${p.name}** (ID: ${p.id})`).join(", ");
+                  toolResult += `\n\n---\n**Next steps:**\n- Save these contacts: **"save contacts to project [name]"**${projectListApify ? `\n- Your projects: ${projectListApify}` : ""}\n- Enrich data: **"enrich contacts"**`;
+                }
+              } catch (err) {
+                toolResult = `Apify lead search failed: ${err instanceof Error ? err.message : "Unknown error"}. Please try again.`;
+              }
+            }
+          } else if (toolName === "search_google_maps") {
+            // Tool: Google Maps search via Apify
+            if (!apifyToken) {
+              toolResult = "**Apify API key not configured.** Please add your Apify API token in Settings > API Keys (service: apify), or ask your admin to set the APIFY_API_TOKEN environment variable.";
+            } else {
+              try {
+                sendStep("search_google_maps");
+                const query = toolParams.query as string;
+                const maxResults = (toolParams.max_results as number) || 10;
+                const results = await searchGoogleMaps(apifyToken, query, maxResults);
+
+                if (results.length === 0) {
+                  toolResult = `**Google Maps search: "${query}"**\n\nNo businesses found. Try broadening your search terms or checking the location.`;
+                } else {
+                  const rows = results.map((r) =>
+                    `| ${r.name || "—"} | ${r.website || "—"} | ${r.phone || "—"} | ${r.address || "—"} | ${r.category || "—"} |`
+                  ).join("\n");
+
+                  toolResult = `**${toolSummary || "Google Maps Search"}**\n\nFound **${results.length}** businesses:\n\n| Company | Website | Phone | Address | Category |\n|---------|---------|-------|---------|----------|\n${rows}`;
+
+                  // Prompt next steps (NO auto-save)
+                  const projectListGm = projects.map((p) => `**${p.name}** (ID: ${p.id})`).join(", ");
+                  toolResult += `\n\n---\n**Next steps:**\n- Save these contacts: **"save contacts to project [name]"**${projectListGm ? `\n- Your projects: ${projectListGm}` : ""}\n- Enrich domains: **"enrich domains ${results.filter(r => r.website).slice(0, 2).map(r => { try { return new URL(r.website).hostname; } catch { return r.website; } }).join(", ")}"**\n- Search specific domains: **"find leads for [domain]"**`;
+                }
+              } catch (err) {
+                toolResult = `Google Maps search failed: ${err instanceof Error ? err.message : "Unknown error"}. Please try again.`;
+              }
+            }
+          } else if (toolName === "search_lead_finder") {
+            // Tool: Lead Finder via Apify crawlerbros~lead-finder
+            if (!apifyToken) {
+              toolResult = "**Apify API key not configured.** Please add your Apify API token in Settings > API Keys (service: apify), or ask your admin to set the APIFY_API_TOKEN environment variable.";
+            } else {
+              try {
+                sendStep("search_lead_finder");
+                const leads = await searchLeadFinder(apifyToken, {
+                  jobTitles: (toolParams.job_titles as string[]) || [],
+                  locations: (toolParams.locations as string[]) || [],
+                  industries: (toolParams.industries as string[]) || [],
+                });
+
+                if (leads.length === 0) {
+                  toolResult = `**${toolSummary || "Lead Finder Search"}**\n\nNo leads found matching the criteria. Try:\n- Broadening job titles or locations\n- Using **search_leads_apify** with keywords\n- Using **search_google_maps** to find companies first`;
+                } else {
+                  const isPaid = userPlan !== "starter";
+                  const displayLeads = isPaid ? leads : leads.slice(0, 10);
+                  const leadTable = displayLeads.map((l) => {
+                    const name = [l.firstName, l.lastName].filter(Boolean).join(" ") || "—";
+                    return `| ${name} | ${l.email || "—"} | ${l.position || "—"} | ${l.company || "—"} | ${l.linkedinUrl || "—"} |`;
+                  }).join("\n");
+
+                  toolResult = `**${toolSummary || "Lead Finder Search"}**\n\nFound **${leads.length}** contacts:\n\n| Name | Email | Title | Company | LinkedIn |\n|------|-------|-------|---------|----------|\n${leadTable}`;
+
+                  if (!isPaid && leads.length > 10) {
+                    toolResult += `\n\n_Showing 10 of ${leads.length} results. Upgrade to **Growth** or **Scale** to see all results._`;
+                  }
+
+                  // Prompt next steps (NO auto-save)
+                  const projectListLf = projects.map((p) => `**${p.name}** (ID: ${p.id})`).join(", ");
+                  toolResult += `\n\n---\n**Next steps:**\n- Save these contacts: **"save contacts to project [name]"**${projectListLf ? `\n- Your projects: ${projectListLf}` : ""}\n- Enrich data: **"enrich contacts"**`;
+                }
+              } catch (err) {
+                toolResult = `Lead Finder search failed: ${err instanceof Error ? err.message : "Unknown error"}. Please try again.`;
+              }
+            }
+          } else if (toolName === "enrich_domains") {
+            // Tool: Enrich company domains via Apify ryanclinton~b2b-lead-gen-suite
+            if (!apifyToken) {
+              toolResult = "**Apify API key not configured.** Please add your Apify API token in Settings > API Keys (service: apify), or ask your admin to set the APIFY_API_TOKEN environment variable.";
+            } else {
+              try {
+                sendStep("enrich_domains");
+                const domains = (toolParams.domains as string[]) || [];
+                if (domains.length === 0) {
+                  toolResult = "Please provide at least one domain to enrich.";
+                } else {
+                  const results = await enrichCompanyDomains(apifyToken, domains);
+
+                  if (results.length === 0) {
+                    toolResult = `**Domain Enrichment**\n\nNo enrichment data found for the provided domains. The domains may be unreachable or too small.`;
+                  } else {
+                    const parts: string[] = [`**${toolSummary || "Domain Enrichment"}**\n\nEnriched **${results.length}** domains:\n`];
+                    for (const r of results) {
+                      parts.push(`### ${r.domain}`);
+                      parts.push(`- **Emails found:** ${r.emails.length > 0 ? r.emails.join(", ") : "None"}`);
+                      parts.push(`- **Phones:** ${r.phones.length > 0 ? r.phones.join(", ") : "None"}`);
+                      parts.push(`- **Email pattern:** ${r.emailPattern || "Unknown"}`);
+                      parts.push(`- **Score:** ${r.score} | **Grade:** ${r.grade || "N/A"}`);
+                      parts.push("");
+                    }
+
+                    toolResult = parts.join("\n");
+
+                    // Prompt next steps (NO auto-save)
+                    const projectListEd = projects.map((p) => `**${p.name}** (ID: ${p.id})`).join(", ");
+                    toolResult += `\n---\n**Next steps:**\n- Save these contacts: **"save contacts to project [name]"**${projectListEd ? `\n- Your projects: ${projectListEd}` : ""}\n- Find more contacts: **"find leads for ${domains[0]}"**`;
+                  }
+                }
+              } catch (err) {
+                toolResult = `Domain enrichment failed: ${err instanceof Error ? err.message : "Unknown error"}. Please try again.`;
+              }
+            }
+          } else if (toolName === "save_contacts") {
+            // Tool 7: Save contacts — requires explicit project selection + write access
+            const projectName = toolParams.project_name as string | undefined;
+            const projectIdParam = toolParams.project_id as number | undefined;
+            let targetProject: typeof projects[0] | undefined;
+
+            if (projectName) {
+              targetProject = projects.find((p) => (p.name as string).toLowerCase() === projectName.toLowerCase());
+            } else if (projectIdParam) {
+              targetProject = projects.find((p) => p.id === projectIdParam);
+            } else if (project_id) {
+              targetProject = projects.find((p) => p.id === project_id);
+            }
+
+            if (!targetProject) {
+              const writableProjects = projects.filter((p) => p.access_role !== "reader");
+              const projectList = writableProjects.map((p) => `- **${p.name}**`).join("\n");
+              toolResult = projectList
+                ? `Please specify which project to save to:\n\n${projectList}\n\nSay: **"save contacts to project [name]"**`
+                : "No projects found. Please create a project first.";
+            } else if (targetProject.access_role === "reader") {
+              toolResult = `You have **read-only** access to project **${targetProject.name}**. Please ask the project owner or org admin to grant you editor access.`;
+            } else {
+              // Look at recent chat messages to find the last tool result with contacts
+              const recentMessages = await sql`
+                SELECT content FROM chat_messages
+                WHERE user_id = ${userId} AND role = 'assistant'
+                ORDER BY created_at DESC LIMIT 10
+              `;
+
+              // Extract emails from recent messages using regex
+              const emailRegex = /[\w.+-]+@[\w-]+\.[\w.]+/g;
+              const foundEmails = new Set<string>();
+              for (const msg of recentMessages) {
+                const matches = (msg.content as string).match(emailRegex);
+                if (matches) {
+                  for (const em of matches) foundEmails.add(em.toLowerCase());
+                }
+              }
+
+              const requestedEmails = toolParams.emails as string[] | undefined;
+              const fromLastSearch = toolParams.from_last_search as boolean;
+
+              let emailsToSave: string[] = [];
+              if (requestedEmails && requestedEmails.length > 0) {
+                // Save only specified emails that exist in recent results
+                emailsToSave = requestedEmails.filter((e) => foundEmails.has(e.toLowerCase()));
+                if (emailsToSave.length === 0) emailsToSave = requestedEmails; // Save anyway if user specified them
+              } else if (fromLastSearch) {
+                emailsToSave = Array.from(foundEmails);
+              }
+
+              if (emailsToSave.length === 0) {
+                toolResult = "No contacts found to save. Run a search first, then ask me to save the results.";
+              } else {
+                let savedCount = 0;
+                for (const email of emailsToSave) {
+                  try {
+                    await sql`INSERT INTO contacts (user_id, project_id, email, source, source_detail)
+                      VALUES (${userId}, ${targetProject.id}, ${email}, 'chat', 'Chat: manual save')
+                      ON CONFLICT (user_id, email) DO NOTHING`;
+                    savedCount++;
+                  } catch { /* skip */ }
+                }
+                toolResult = `**${savedCount}** contacts saved to project **${targetProject.name}**.`;
+              }
+            }
+          } else if (toolName === "enrich_contacts") {
+            // Tool 8: Enrich contacts with AI-generated insights
+            const enrichProjectId = (toolParams.project_id as number) || project_id || (projects.length > 0 ? projects[projects.length - 1].id : null);
+            if (!enrichProjectId) {
+              toolResult = "No project found. Please create a project first.";
+            } else {
+              const limit = Math.min((toolParams.limit as number) || 20, 50);
+              const contacts = await sql`
+                SELECT id, email, first_name, last_name, company, position, tags, notes
+                FROM contacts
+                WHERE user_id = ${userId} AND project_id = ${enrichProjectId} AND emails_sent = 0
+                ORDER BY created_at DESC
+                LIMIT ${limit}
+              `;
+
+              if (contacts.length === 0) {
+                toolResult = "No contacts to enrich. All contacts have already been processed or the project has no contacts.";
+              } else {
+                const contactSummary = contacts.map((c) =>
+                  `${c.first_name || ""} ${c.last_name || ""} | ${c.email} | ${c.company || ""} | ${c.position || ""}`
+                ).join("\n");
+
+                const enrichPrompt = `Analyze these business contacts and for each one, provide:
+- seniority: (C-Level, VP, Director, Manager, Staff, Unknown)
+- department: (Sales, Marketing, Engineering, Operations, Finance, HR, Executive, Unknown)
+- industry: best guess of their company's industry
+- priority: (high, medium, low) based on their likely decision-making power
+
+Contacts:
+${contactSummary}
+
+Respond with a JSON array: [{"email": "...", "seniority": "...", "department": "...", "industry": "...", "priority": "..."}]`;
+
+                try {
+                  const enrichResult = await chatWithAI([
+                    { role: "system", content: "You are a B2B sales intelligence analyst. Return ONLY valid JSON." },
+                    { role: "user", content: enrichPrompt },
+                  ], 2000, byok, selectedModel);
+
+                  // Record token usage for enrichment
+                  if (enrichResult.usage) {
+                    sql`INSERT INTO token_usage (project_id, user_id, provider, model, prompt_tokens, completion_tokens, total_tokens, source)
+                        VALUES (${enrichProjectId}, ${userId}, ${enrichResult.provider}, ${enrichResult.model}, ${enrichResult.usage.prompt_tokens}, ${enrichResult.usage.completion_tokens}, ${enrichResult.usage.total_tokens}, 'chat_enrich')`.catch(() => {});
+                  }
+
+                  // Parse enrichment JSON from AI response
+                  const jsonMatch = enrichResult.content.match(/\[[\s\S]*\]/);
+                  if (jsonMatch) {
+                    const enrichments = JSON.parse(jsonMatch[0]) as { email: string; seniority: string; department: string; industry: string; priority: string }[];
+                    let enrichedCount = 0;
+                    for (const e of enrichments) {
+                      const tags = JSON.stringify({ seniority: e.seniority, department: e.department, industry: e.industry, priority: e.priority });
+                      try {
+                        await sql`UPDATE contacts SET tags = ${tags}, notes = ${'AI enriched: ' + e.seniority + ' ' + e.department + ' (' + e.priority + ' priority)'}
+                          WHERE user_id = ${userId} AND email = ${e.email}`;
+                        enrichedCount++;
+                      } catch { /* skip */ }
+                    }
+                    toolResult = `**Enrichment complete!** Updated **${enrichedCount}** of ${contacts.length} contacts with seniority, department, industry, and priority data.`;
+
+                    // Show summary table
+                    const summaryRows = enrichments.slice(0, 10).map((e) =>
+                      `| ${e.email} | ${e.seniority} | ${e.department} | ${e.industry} | ${e.priority} |`
+                    ).join("\n");
+                    toolResult += `\n\n| Email | Seniority | Department | Industry | Priority |\n|-------|-----------|------------|----------|----------|\n${summaryRows}`;
+                  } else {
+                    toolResult = "Enrichment failed: could not parse AI response. Please try again.";
+                  }
+                } catch (err) {
+                  toolResult = `Enrichment failed: ${err instanceof Error ? err.message : "Unknown error"}`;
+                }
+              }
+            }
+          } else if (toolName === "send_email") {
+            // Tool 9: Send email via Brevo or SendGrid
+            const to = toolParams.to as string | string[];
+            const subject = toolParams.subject as string;
+            const body = toolParams.body as string;
+            const template = toolParams.template as string | undefined;
+
+            if (!brevoApiKey && !sendgridApiKey) {
+              toolResult = "**No email service configured.** Please add your Brevo or SendGrid API key in Settings > API Keys.";
+            } else if (!to) {
+              toolResult = "Please specify a recipient email address.";
+            } else {
+              const recipients = Array.isArray(to) ? to : [to];
+              let sentCount = 0;
+              const errors: string[] = [];
+
+              // If template requested, generate email content via AI
+              let emailSubject = subject;
+              let emailBody = body;
+              if (template === "cold_outreach" && (!emailSubject || !emailBody)) {
+                // Load project context for personalization
+                const currentProject = project_id ? projects.find((p) => p.id === project_id) : projects[projects.length - 1];
+                const templatePrompt = `Generate a professional cold outreach email for B2B sales prospecting.
+Project: ${currentProject?.name || "AutoClaw"}
+Description: ${currentProject?.description || "Marketing automation platform"}
+
+Write a concise, professional cold email with:
+- A compelling subject line
+- Personalized opening
+- Clear value proposition
+- Soft call to action
+
+Return as JSON: {"subject": "...", "body": "..."}`;
+
+                try {
+                  const templateResult = await chatWithAI([
+                    { role: "system", content: "You are an expert cold email copywriter. Return ONLY valid JSON." },
+                    { role: "user", content: templatePrompt },
+                  ], 500, byok, selectedModel);
+
+                  const templateJson = templateResult.content.match(/\{[\s\S]*\}/);
+                  if (templateJson) {
+                    const parsed = JSON.parse(templateJson[0]) as { subject: string; body: string };
+                    emailSubject = emailSubject || parsed.subject;
+                    emailBody = emailBody || parsed.body;
+                  }
+                } catch {
+                  // Use fallback
+                  emailSubject = emailSubject || "Quick question about your business";
+                  emailBody = emailBody || "Hi, I wanted to reach out about a potential collaboration opportunity.";
+                }
+              }
+
+              if (!emailSubject || !emailBody) {
+                toolResult = "Please provide a subject and body for the email, or use template='cold_outreach' to auto-generate.";
+              } else {
+                for (const recipient of recipients.slice(0, 10)) {
+                  try {
+                    if (brevoApiKey) {
+                      // Send via Brevo
+                      const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+                        method: "POST",
+                        headers: { "api-key": brevoApiKey, "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          sender: { name: "AutoClaw", email: "noreply@autoclaw.com" },
+                          to: [{ email: recipient }],
+                          subject: emailSubject,
+                          htmlContent: `<p>${emailBody.replace(/\n/g, "<br>")}</p>`,
+                        }),
+                      });
+                      if (res.ok || res.status === 201) sentCount++;
+                      else errors.push(`${recipient}: Brevo error ${res.status}`);
+                    } else if (sendgridApiKey) {
+                      // Send via SendGrid
+                      const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
+                        method: "POST",
+                        headers: { Authorization: `Bearer ${sendgridApiKey}`, "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          personalizations: [{ to: [{ email: recipient }] }],
+                          from: { email: "noreply@autoclaw.com", name: "AutoClaw" },
+                          subject: emailSubject,
+                          content: [{ type: "text/html", value: `<p>${emailBody.replace(/\n/g, "<br>")}</p>` }],
+                        }),
+                      });
+                      if (res.ok || res.status === 202) sentCount++;
+                      else errors.push(`${recipient}: SendGrid error ${res.status}`);
+                    }
+
+                    // Update contacts.emails_sent and log to email_logs
+                    sql`UPDATE contacts SET emails_sent = emails_sent + 1 WHERE user_id = ${userId} AND email = ${recipient}`.catch(() => {});
+                    sql`INSERT INTO email_logs (user_id, project_id, to_email, subject, status)
+                        VALUES (${userId}, ${project_id || null}, ${recipient}, ${emailSubject}, 'sent')`.catch(() => {});
+                  } catch (err) {
+                    errors.push(`${recipient}: ${err instanceof Error ? err.message : "Unknown error"}`);
+                  }
+                }
+
+                toolResult = `**Email sent!** ${sentCount}/${recipients.length} emails delivered successfully.`;
+                if (errors.length > 0) {
+                  toolResult += `\n\nErrors:\n${errors.map((e) => `- ${e}`).join("\n")}`;
+                }
+              }
+            }
           }
 
-          if (toolResult) {
-            reply = toolResult;
-          } else {
-            // Tool call failed, use the raw AI response (strip the tool_call block)
-            reply = pass1Result.content.replace(/```tool_call[\s\S]*?```/, "").trim() || "I couldn't execute that search. Please try rephrasing your request.";
-          }
+          sendStep("done");
+          reply = toolResult || pass1Result.content.replace(/```tool_call[\s\S]*?```/, "").trim() || "I couldn't execute that search. Please try rephrasing your request.";
         } catch {
-          // JSON parse failed, treat as normal response
           reply = pass1Result.content.replace(/```tool_call[\s\S]*?```/, "").trim() || pass1Result.content;
         }
+
+        // Save and stream final reply
+        await sql`INSERT INTO chat_messages (user_id, project_id, role, content, agent_type) VALUES (${userId}, ${project_id || null}, 'assistant', ${reply}, 'autoclaw')`;
+        sendDone(reply);
+        controller.close();
+          },
+        });
+
+        return new Response(stream, {
+          headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
+        });
+
       } else {
         // No tool call — use the AI response directly
         reply = pass1Result.content;
@@ -961,7 +1562,7 @@ Examples of when to call tools:
     }
   }
 
-  // Save agent reply
+  // Save agent reply (non-SSE path)
   await sql`INSERT INTO chat_messages (user_id, project_id, role, content, agent_type) VALUES (${userId}, ${project_id || null}, 'assistant', ${reply}, 'autoclaw')`;
 
   return NextResponse.json({ reply });

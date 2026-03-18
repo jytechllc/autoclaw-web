@@ -12,9 +12,10 @@ export interface Lead {
   lastName: string;
   company: string;
   position: string;
-  source: "hunter" | "snov" | "apollo";
+  source: "hunter" | "snov" | "apollo" | "apify";
   confidence?: number;
   verified?: boolean;
+  linkedinUrl?: string;
 }
 
 async function searchHunter(domain: string): Promise<Lead[]> {
@@ -291,4 +292,243 @@ export async function prospectMultipleDomains(domains: string[]): Promise<{
   }
 
   return { totalLeads, totalImported, results };
+}
+
+// ---- Apify-based functions ----
+
+/**
+ * Helper: Run an Apify actor and return the dataset items.
+ */
+async function runApifyActor<T = Record<string, unknown>>(
+  apiToken: string,
+  actorId: string,
+  input: Record<string, unknown>,
+  opts: { waitForFinish?: number; itemsLimit?: number } = {},
+): Promise<T[]> {
+  const waitSec = opts.waitForFinish ?? 60;
+  const startRes = await fetch(
+    `https://api.apify.com/v2/acts/${actorId}/runs?token=${apiToken}&waitForFinish=${waitSec}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    },
+  );
+  if (!startRes.ok) {
+    const text = await startRes.text().catch(() => "");
+    throw new Error(`Apify ${actorId} start error ${startRes.status}: ${text.substring(0, 200)}`);
+  }
+  const runData = (await startRes.json()) as {
+    data?: { id?: string; status?: string; defaultDatasetId?: string };
+  };
+  const run = runData.data;
+  if (!run?.id) throw new Error(`Apify ${actorId}: no run ID returned`);
+
+  let datasetId = run.defaultDatasetId;
+
+  if (run.status !== "SUCCEEDED" && run.status !== "FAILED") {
+    const pollRes = await fetch(
+      `https://api.apify.com/v2/actor-runs/${run.id}?token=${apiToken}&waitForFinish=${waitSec}`,
+    );
+    if (pollRes.ok) {
+      const pollData = (await pollRes.json()) as {
+        data?: { status?: string; defaultDatasetId?: string };
+      };
+      if (pollData.data?.status === "FAILED" || pollData.data?.status === "ABORTED") {
+        throw new Error(`Apify ${actorId} run ${pollData.data.status}`);
+      }
+      datasetId = pollData.data?.defaultDatasetId || datasetId;
+    }
+  } else if (run.status === "FAILED") {
+    throw new Error(`Apify ${actorId} run failed`);
+  }
+
+  if (!datasetId) throw new Error(`Apify ${actorId}: no dataset ID`);
+
+  const limit = opts.itemsLimit ?? 200;
+  const itemsRes = await fetch(
+    `https://api.apify.com/v2/datasets/${datasetId}/items?token=${apiToken}&limit=${limit}`,
+  );
+  if (!itemsRes.ok) {
+    throw new Error(`Apify ${actorId} dataset error ${itemsRes.status}`);
+  }
+  return (await itemsRes.json()) as T[];
+}
+
+/**
+ * Search Google via Apify google-search-scraper.
+ * Returns formatted text of search results.
+ */
+export async function searchGoogleApify(apiToken: string, queries: string[]): Promise<string> {
+  const items = await runApifyActor<{
+    searchQuery?: { term?: string };
+    organicResults?: { title?: string; description?: string; url?: string }[];
+  }>(apiToken, "apify~google-search-scraper", {
+    queries: queries.join("\n"),
+    maxPagesPerQuery: 1,
+    resultsPerPage: 5,
+    languageCode: "",
+  }, { waitForFinish: 60, itemsLimit: 5 });
+
+  const parts: string[] = [];
+  for (const item of items) {
+    if (item.searchQuery?.term) parts.push(`\n[Search: ${item.searchQuery.term}]`);
+    for (const r of (item.organicResults || []).slice(0, 5)) {
+      parts.push(`- **${r.title || ""}** (${r.url || ""}): ${r.description || ""}`);
+    }
+  }
+  return parts.join("\n").substring(0, 3000) || "No search results found.";
+}
+
+/**
+ * Crawl a website using Apify website-content-crawler with Playwright (JS rendering).
+ * Returns extracted text content.
+ */
+export async function crawlWebsiteApify(apiToken: string, url: string): Promise<string> {
+  const items = await runApifyActor<{
+    url?: string;
+    text?: string;
+    metadata?: { title?: string; description?: string };
+  }>(apiToken, "apify~website-content-crawler", {
+    startUrls: [{ url }],
+    maxCrawlDepth: 0,
+    maxCrawlPages: 3,
+    crawlerType: "playwright:firefox",
+  }, { waitForFinish: 120, itemsLimit: 5 });
+
+  const parts: string[] = [];
+  for (const item of items) {
+    if (item.metadata?.title) parts.push(`Title: ${item.metadata.title}`);
+    if (item.metadata?.description) parts.push(`Description: ${item.metadata.description}`);
+    if (item.text) parts.push(item.text.substring(0, 1500));
+  }
+  return parts.join("\n").substring(0, 3000) || "No content extracted from the website.";
+}
+
+/**
+ * Search for leads using Apify leads-finder (code_crafter~leads-finder).
+ * Returns Lead[] array.
+ */
+export async function searchLeadsApify(
+  apiToken: string,
+  opts: { keywords?: string[]; job_titles?: string[]; industries?: string[] },
+): Promise<Lead[]> {
+  const input: Record<string, unknown> = { maxItems: 100 };
+  if (opts.keywords && opts.keywords.length > 0) input.company_keywords = opts.keywords;
+  if (opts.job_titles && opts.job_titles.length > 0) input.person_titles = opts.job_titles;
+  if (opts.industries && opts.industries.length > 0) input.company_keywords = [
+    ...(input.company_keywords as string[] || []),
+    ...opts.industries,
+  ];
+
+  const items = await runApifyActor<Record<string, unknown>>(
+    apiToken, "code_crafter~leads-finder", input, { waitForFinish: 60, itemsLimit: 200 },
+  );
+
+  return items
+    .filter((p) => p.email)
+    .map((p) => ({
+      email: String(p.email),
+      firstName: String(p.first_name || p.firstName || ""),
+      lastName: String(p.last_name || p.lastName || ""),
+      company: String(p.company_name || p.organization || ""),
+      position: String(p.title || p.job_title || ""),
+      source: "apify" as const,
+      confidence: 80,
+      verified: false,
+    }));
+}
+
+/**
+ * Search Google Maps for businesses/companies via Apify compass~crawler-google-places.
+ */
+export async function searchGoogleMaps(
+  apiToken: string,
+  query: string,
+  maxResults = 10,
+): Promise<{ name: string; website: string; phone: string; address: string; category: string }[]> {
+  const items = await runApifyActor<Record<string, unknown>>(
+    apiToken,
+    "compass~crawler-google-places",
+    {
+      searchStringsArray: [query],
+      maxCrawledPlacesPerSearch: maxResults,
+      language: "en",
+    },
+    { waitForFinish: 120, itemsLimit: maxResults },
+  );
+
+  return items.map((item) => ({
+    name: String(item.title || ""),
+    website: String(item.website || ""),
+    phone: String(item.phone || ""),
+    address: String(item.address || ""),
+    category: String(item.categoryName || ""),
+  }));
+}
+
+/**
+ * Search for leads by job title, location, and industry via Apify crawlerbros~lead-finder.
+ */
+export async function searchLeadFinder(
+  apiToken: string,
+  opts: { jobTitles: string[]; locations: string[]; industries: string[]; maxResults?: number },
+): Promise<Lead[]> {
+  const items = await runApifyActor<Record<string, unknown>>(
+    apiToken,
+    "crawlerbros~lead-finder",
+    {
+      jobTitles: opts.jobTitles,
+      locations: opts.locations,
+      industries: opts.industries,
+      maxResults: opts.maxResults || 20,
+    },
+    { waitForFinish: 120, itemsLimit: 200 },
+  );
+
+  return items
+    .filter((item) => item.email || item.full_name)
+    .map((item) => {
+      const fullName = String(item.full_name || "");
+      const nameParts = fullName.trim().split(/\s+/);
+      const firstName = nameParts[0] || "";
+      const lastName = nameParts.slice(1).join(" ") || "";
+      return {
+        email: String(item.email || ""),
+        firstName,
+        lastName,
+        company: String(item.company_name || ""),
+        position: String(item.title || ""),
+        source: "apify" as const,
+        confidence: 75,
+        verified: false,
+        linkedinUrl: item.linkedin_url ? String(item.linkedin_url) : undefined,
+      };
+    });
+}
+
+/**
+ * Enrich company domains with email patterns, contacts, and quality scores
+ * via Apify ryanclinton~b2b-lead-gen-suite.
+ */
+export async function enrichCompanyDomains(
+  apiToken: string,
+  domains: string[],
+): Promise<{ domain: string; emails: string[]; phones: string[]; emailPattern: string; score: number; grade: string }[]> {
+  const urls = domains.map((d) => (d.startsWith("http") ? d : "https://" + d));
+  const items = await runApifyActor<Record<string, unknown>>(
+    apiToken,
+    "ryanclinton~b2b-lead-gen-suite",
+    { urls },
+    { waitForFinish: 120, itemsLimit: 200 },
+  );
+
+  return items.map((item) => ({
+    domain: String(item.domain || item.url || ""),
+    emails: Array.isArray(item.emails) ? item.emails.map(String) : [],
+    phones: Array.isArray(item.phones) ? item.phones.map(String) : [],
+    emailPattern: String(item.emailPattern || item.email_pattern || ""),
+    score: Number(item.score || item.quality_score || 0),
+    grade: String(item.grade || item.quality_grade || ""),
+  }));
 }

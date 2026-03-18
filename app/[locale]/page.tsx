@@ -146,9 +146,9 @@ export default function Home() {
   ];
 
   const caseStudies = [
-    { company: "Sienovo", industry: "Edge AI / Hardware", agents: 3, results: t.caseSienovo },
-    { company: "MedTravel China", industry: "Dental Tourism", agents: 5, results: t.caseMedTravel },
-    { company: "GPULaw", industry: "Legal Tech", agents: 4, results: t.caseGpuLaw },
+    { company: "DK Wholesale", industry: "B2B Wholesale", agents: 4, results: t.caseDkWholesale },
+    { company: "US ProGlove", industry: "Industrial Safety / PPE", agents: 3, results: t.caseUsProglove },
+    { company: "GPULaw", industry: "Legal Tech / SaaS", agents: 1, results: t.caseGpuLaw },
   ];
 
   const pricingPlans = [
@@ -184,7 +184,7 @@ export default function Home() {
             <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-gray-600">
               <a href="#agents" className="hover:text-primary transition-colors">{tc.agents}</a>
               <a href="#how-it-works" className="hover:text-primary transition-colors">{t.howItWorks}</a>
-              <a href="#cases" className="hover:text-primary transition-colors">{t.caseStudies}</a>
+              <Link href={`/${locale}/use-cases`} className="hover:text-primary transition-colors">{t.caseStudies}</Link>
               <a href="#pricing" className="hover:text-primary transition-colors">{t.pricing}</a>
               <a href={`/${locale}/dashboard`} className="hover:text-primary transition-colors">{tc.dashboard}</a>
               <LanguageSwitcher locale={locale} />

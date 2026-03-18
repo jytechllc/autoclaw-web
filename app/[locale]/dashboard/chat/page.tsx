@@ -114,24 +114,55 @@ export default function ChatPage() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  const [toolStatus, setToolStatus] = useState<string>("");
+
   async function doSendMessage(userMsg: string) {
     setSending(true);
+    setToolStatus("");
     const tempMsg: ChatMessage = { id: Date.now(), role: "user", content: userMsg, created_at: new Date().toISOString() };
     setMessages((prev) => [...prev, tempMsg]);
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMsg, model: selectedModel !== "auto" ? selectedModel : undefined }),
+        body: JSON.stringify({ message: userMsg, model: selectedModel !== "auto" ? selectedModel : undefined, locale }),
       });
-      const data = await res.json();
-      if (data.reply) {
-        setMessages((prev) => [...prev, { id: Date.now() + 1, role: "assistant", content: data.reply, agent_type: "autoclaw", created_at: new Date().toISOString() }]);
+
+      // Check if streaming (SSE) response
+      if (res.headers.get("content-type")?.includes("text/event-stream")) {
+        const reader = res.body?.getReader();
+        const decoder = new TextDecoder();
+        let finalReply = "";
+        if (reader) {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const text = decoder.decode(value, { stream: true });
+            for (const line of text.split("\n")) {
+              if (line.startsWith("data: ")) {
+                try {
+                  const evt = JSON.parse(line.slice(6));
+                  if (evt.type === "step") setToolStatus(evt.message);
+                  if (evt.type === "done") { finalReply = evt.reply; setToolStatus(""); }
+                } catch { /* skip */ }
+              }
+            }
+          }
+        }
+        if (finalReply) {
+          setMessages((prev) => [...prev, { id: Date.now() + 1, role: "assistant", content: finalReply, agent_type: "autoclaw", created_at: new Date().toISOString() }]);
+        }
+      } else {
+        const data = await res.json();
+        if (data.reply) {
+          setMessages((prev) => [...prev, { id: Date.now() + 1, role: "assistant", content: data.reply, agent_type: "autoclaw", created_at: new Date().toISOString() }]);
+        }
       }
     } catch {
       setMessages((prev) => [...prev, { id: Date.now() + 1, role: "assistant", content: td.errorMsg, created_at: new Date().toISOString() }]);
     } finally {
       setSending(false);
+      setToolStatus("");
       refreshQuota();
     }
   }
@@ -239,7 +270,9 @@ export default function ChatPage() {
             ))}
             {sending && (
               <div className="flex justify-start">
-                <div className="bg-gray-100 text-gray-400 rounded-lg px-4 py-3 text-sm">{td.thinking}</div>
+                <div className="bg-gray-100 text-gray-500 rounded-lg px-4 py-3 text-sm">
+                  <span className="animate-pulse">{toolStatus || td.thinking}</span>
+                </div>
               </div>
             )}
             <div ref={chatEndRef} />

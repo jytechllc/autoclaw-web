@@ -393,9 +393,9 @@ const zh: typeof en = {
     footerTerms: "服务条款",
     footerPrivacy: "隐私政策",
     footerChangelog: "更新日志",
-    caseSienovo: "自动化 B2B 客户触达，月均获取 200+ 精准线索，邮件打开率 65%",
-    caseMedTravel: "AI 自动发送冷邮件和 SEO 内容，3 个月内自然流量增长 180%",
-    caseGpuLaw: "全自动市场调研和竞品分析，产品迭代速度提升 3 倍",
+    caseDkWholesale: "4 个 AI 员工协同运作，完成 43 个自动化任务，每周生成策略摘要 — 零人工营销团队实现完整营销运营",
+    caseUsProglove: "3 个 AI 员工自主找到 20 个合格 B2B 联系人并发起冷邮件营销 — 从零线索到活跃管道全自动完成",
+    caseGpuLaw: "Dev Agent 自动化健康检查、构建监控和部署报告 — 24/7 DevOps 无需 DevOps 团队",
   },
   onboarding: {
     welcomeTitle: "欢迎使用 AutoClaw",

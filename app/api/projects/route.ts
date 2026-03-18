@@ -476,5 +476,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true });
   }
 
+  // Set project member role (owner or org admin only)
+  if (action === "set_project_role") {
+    const { project_id: pid, target_user_id, role: newRole } = body;
+    if (!pid || !target_user_id || !["reader", "editor", "admin"].includes(newRole)) {
+      return NextResponse.json({ error: "project_id, target_user_id, and role (reader/editor/admin) required" }, { status: 400 });
+    }
+
+    // Check caller is project owner or org admin
+    const proj = await sql`SELECT user_id, org_id FROM projects WHERE id = ${pid}`;
+    if (proj.length === 0) return NextResponse.json({ error: "Project not found" }, { status: 404 });
+    const isOwner = proj[0].user_id === userId;
+    const isOrgAdmin = proj[0].org_id ? (await sql`SELECT role FROM organization_members WHERE org_id = ${proj[0].org_id} AND user_id = ${userId}`)?.[0]?.role === "admin" : false;
+    if (!isOwner && !isOrgAdmin && !isAdmin) {
+      return NextResponse.json({ error: "Only project owner or org admin can set roles" }, { status: 403 });
+    }
+
+    await sql`
+      INSERT INTO project_members (project_id, user_id, role) VALUES (${pid}, ${target_user_id}, ${newRole})
+      ON CONFLICT (project_id, user_id) DO UPDATE SET role = ${newRole}
+    `;
+    logAudit({ userId, userEmail: email, action: "project.set_role", resourceType: "project", resourceId: pid, details: { target_user_id, role: newRole }, ipAddress: getIp(req) });
+    return NextResponse.json({ success: true });
+  }
+
   return NextResponse.json({ error: "Unknown action" }, { status: 400 });
 }
