@@ -34,8 +34,8 @@ export async function GET(req: NextRequest) {
 
     const projectId = req.nextUrl.searchParams.get("project_id");
     const messages = projectId
-      ? await sql`SELECT role, content, agent_type, created_at FROM chat_messages WHERE user_id = ${users[0].id} AND project_id = ${projectId} ORDER BY created_at ASC LIMIT 100`
-      : await sql`SELECT role, content, agent_type, created_at FROM chat_messages WHERE user_id = ${users[0].id} AND project_id IS NULL ORDER BY created_at ASC LIMIT 100`;
+      ? await sql`SELECT id, role, content, agent_type, created_at FROM chat_messages WHERE user_id = ${users[0].id} AND project_id = ${projectId} ORDER BY created_at ASC LIMIT 100`
+      : await sql`SELECT id, role, content, agent_type, created_at FROM chat_messages WHERE user_id = ${users[0].id} AND project_id IS NULL ORDER BY created_at ASC LIMIT 100`;
 
     return NextResponse.json({ messages });
   } catch (err) {
@@ -172,16 +172,30 @@ export async function POST(req: NextRequest) {
       `
       : [];
 
-    // Get last assistant message for context
-    const lastAssistantMsg = await sql`SELECT content FROM chat_messages WHERE user_id = ${userId} AND role = 'assistant' ORDER BY created_at DESC LIMIT 1`;
-    const lastReply = lastAssistantMsg.length > 0 ? (lastAssistantMsg[0].content as string).toLowerCase() : "";
+    // Get recent chat history for context (last 6 messages for confirmation awareness)
+    const recentHistory = project_id
+      ? await sql`SELECT role, content FROM chat_messages WHERE user_id = ${userId} AND project_id = ${project_id} ORDER BY created_at DESC LIMIT 6`
+      : await sql`SELECT role, content FROM chat_messages WHERE user_id = ${userId} AND project_id IS NULL ORDER BY created_at DESC LIMIT 6`;
+    const lastAssistantMsg = recentHistory.find(m => m.role === "assistant");
+    const lastReply = lastAssistantMsg ? (lastAssistantMsg.content as string).toLowerCase() : "";
 
     let reply: string;
     const lowerMsg = message.toLowerCase();
-    const isAffirmative = /^(yes|yeah|yep|sure|ok|okay|please|do it|go ahead|y|let's go|let's do it|absolutely|of course)\b/i.test(message.trim());
+    const isAffirmative = /^(yes|yeah|yep|sure|ok|okay|please|do it|go ahead|y|let's go|let's do it|absolutely|of course|好的|好|可以|开始|行|嗯|是的|没问题|来吧|开始吧)\b/i.test(message.trim());
 
-    // === CONTEXT: Handle affirmative responses ===
-    if (isAffirmative && lastReply.includes("would you like to assign agents") || isAffirmative && lastReply.includes("would you like to activate") || isAffirmative && lastReply.includes("which agents would you like to activate")) {
+    // Detect if user is confirming a previously proposed search/find plan
+    const isSearchPlanConfirmation = isAffirmative && (
+      lastReply.includes("需要我开始") || lastReply.includes("可以开始吗") ||
+      lastReply.includes("shall i") || lastReply.includes("should i start") ||
+      lastReply.includes("want me to") || lastReply.includes("ready to") ||
+      lastReply.includes("我计划") || lastReply.includes("i plan to") ||
+      (lastReply.includes("找客户") || lastReply.includes("find customer") || lastReply.includes("find lead") || lastReply.includes("search"))
+        && (lastReply.includes("?") || lastReply.includes("？"))
+    );
+
+    // === CONTEXT: Handle affirmative responses — agent activation ===
+    // (skip if this is a search plan confirmation — those fall through to DEFAULT AI)
+    if (!isSearchPlanConfirmation && (isAffirmative && lastReply.includes("would you like to assign agents") || isAffirmative && lastReply.includes("would you like to activate") || isAffirmative && lastReply.includes("which agents would you like to activate"))) {
       if (projects.length > 0) {
         const targetProject = projects[projects.length - 1];
         const totalAgents = agents.length;
@@ -440,7 +454,14 @@ export async function POST(req: NextRequest) {
       }
     }
     // === ACTION: Find leads / prospect domains ===
-    else if (lowerMsg.includes("find leads") || lowerMsg.includes("prospect") || lowerMsg.includes("search domain") || lowerMsg.includes("find contacts") || lowerMsg.includes("find emails") || lowerMsg.includes("找客户") || lowerMsg.includes("找联系人") || lowerMsg.includes("搜索客户") || lowerMsg.includes("客户") && (lowerMsg.includes(".com") || lowerMsg.includes(".io") || lowerMsg.includes(".org") || lowerMsg.includes(".co") || lowerMsg.includes(".us")) || (lowerMsg.includes("look up") && (lowerMsg.includes(".com") || lowerMsg.includes(".io") || lowerMsg.includes(".org") || lowerMsg.includes(".co")))) {
+    // "帮我找客户" / "帮 xxx 找客户" / "find customers for xxx" → fall through to AI (context-aware)
+    // "find contacts at xxx.com" / "find leads for xxx.com" = find contacts AT a domain → direct prospect
+    else if (
+      !lowerMsg.match(/帮.*(我|.+)找客户/) && !lowerMsg.match(/(find|help).*(me|my|us)\s+(customers|clients|leads)/i) && !lowerMsg.match(/for\s+\S+\.\S+\s+find\s+(customers|clients)/) &&
+      (lowerMsg.includes("find leads") || lowerMsg.includes("prospect") || lowerMsg.includes("search domain") || lowerMsg.includes("find contacts") || lowerMsg.includes("find emails") || lowerMsg.includes("找联系人") || lowerMsg.includes("搜索客户") ||
+      lowerMsg.includes("客户") && (lowerMsg.includes(".com") || lowerMsg.includes(".io") || lowerMsg.includes(".org") || lowerMsg.includes(".co") || lowerMsg.includes(".us")) ||
+      (lowerMsg.includes("look up") && (lowerMsg.includes(".com") || lowerMsg.includes(".io") || lowerMsg.includes(".org") || lowerMsg.includes(".co"))))
+    ) {
       const domainPattern = /([a-zA-Z0-9-]+\.[a-zA-Z]{2,}(?:\.[a-zA-Z]{2,})?)/g;
       const domains = [...message.matchAll(domainPattern)].map((m) => m[1]).filter((d) => d.includes(".") && !d.startsWith("http"));
       const isPaid = userPlan !== "starter";
@@ -555,10 +576,20 @@ export async function POST(req: NextRequest) {
       const toolSystemPrompt = systemPrompt + TOOL_SYSTEM_PROMPT_EXTENSION;
 
       try {
-        const pass1Result = await chatWithAI([
+        // Build conversation messages with recent history for context
+        const chatMessages: { role: string; content: string }[] = [
           { role: "system", content: toolSystemPrompt },
-          { role: "user", content: message },
-        ], 800, byok, selectedModel);
+        ];
+        // Include recent history (reversed to chronological order) so AI knows what was discussed
+        const historyForContext = recentHistory.slice().reverse();
+        for (const msg of historyForContext) {
+          // Skip the current user message (it's the last one we just saved)
+          if (msg.role === "user" && msg.content === redactedMessage) continue;
+          chatMessages.push({ role: msg.role as string, content: (msg.content as string).slice(0, 500) });
+        }
+        chatMessages.push({ role: "user", content: message });
+
+        const pass1Result = await chatWithAI(chatMessages, 800, byok, selectedModel);
 
         // Record token usage
         if (pass1Result.usage) {
@@ -566,10 +597,10 @@ export async function POST(req: NextRequest) {
               VALUES (${project_id || null}, ${userId}, ${pass1Result.provider}, ${pass1Result.model}, ${pass1Result.usage.prompt_tokens}, ${pass1Result.usage.completion_tokens}, ${pass1Result.usage.total_tokens}, 'chat')`.catch(() => {});
         }
 
-        // Check if AI wants to call a tool
-        const toolCallMatch = pass1Result.content.match(/```tool_call\s*\n?([\s\S]*?)\n?```/);
+        // === ORCHESTRATOR LOOP: AI decides tools, executes, reviews results, continues or finishes ===
+        const firstToolMatch = pass1Result.content.match(/```tool_call\s*\n?([\s\S]*?)\n?```/);
 
-        if (toolCallMatch) {
+        if (firstToolMatch) {
           const tLabels = TOOL_LABELS[locale] || TOOL_LABELS.en;
           const encoder = new TextEncoder();
           const stream = new ReadableStream({
@@ -577,30 +608,91 @@ export async function POST(req: NextRequest) {
               const sendStep = (key: string) => {
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "step", message: tLabels[key] || key })}\n\n`));
               };
-              const sendDone = (reply: string) => {
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "done", reply })}\n\n`));
+              const sendDone = (finalReply: string) => {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "done", reply: finalReply })}\n\n`));
               };
 
+              const enrichKeys: LeadEnrichKeys = { hunter: hunterKey || undefined, apollo: apolloKey || undefined, snovId: snovId || undefined, snovSecret: snovSecret || undefined };
+              const toolCtx: ToolContext = {
+                sql, userId, userPlan, projects, agents, project_id: project_id || null,
+                byok, selectedModel: selectedModel || "", apifyToken, brevoApiKey, sendgridApiKey, enrichKeys, sendStep,
+              };
+
+              // Orchestrator conversation: accumulates tool calls and results
+              const orchMessages: { role: string; content: string }[] = [
+                { role: "system", content: toolSystemPrompt },
+                ...chatMessages.slice(1), // skip system (already added), include history + user message
+              ];
+
+              const MAX_STEPS = 5;
+              let currentAiContent = pass1Result.content;
+              let finalReply = "";
+              const toolResultParts: string[] = []; // collect all tool outputs for the final reply
+
               try {
-                const toolCall = JSON.parse(toolCallMatch[1].trim());
-                const toolName = toolCall.tool as string;
-                const toolParams = toolCall.params || {};
-                const toolSummary = (toolCall.summary as string) || "";
-                sendStep(toolName);
+                for (let step = 0; step < MAX_STEPS; step++) {
+                  const toolMatch = currentAiContent.match(/```tool_call\s*\n?([\s\S]*?)\n?```/);
+                  if (!toolMatch) {
+                    // AI decided no more tools needed — use its text as final summary
+                    const aiText = currentAiContent.trim();
+                    if (aiText && step > 0) {
+                      // AI provided a summary after executing tools
+                      finalReply = toolResultParts.join("\n\n---\n\n") + "\n\n---\n\n" + aiText;
+                    } else if (toolResultParts.length > 0) {
+                      finalReply = toolResultParts.join("\n\n---\n\n");
+                    } else {
+                      finalReply = aiText || "I couldn't execute that search. Please try rephrasing your request.";
+                    }
+                    break;
+                  }
 
-                const enrichKeys: LeadEnrichKeys = { hunter: hunterKey || undefined, apollo: apolloKey || undefined, snovId: snovId || undefined, snovSecret: snovSecret || undefined };
-                const toolCtx: ToolContext = {
-                  sql, userId, userPlan, projects, agents, project_id: project_id || null,
-                  byok, selectedModel: selectedModel || "", apifyToken, brevoApiKey, sendgridApiKey, enrichKeys, sendStep,
-                };
-                const toolResult = await executeTool(toolName, toolParams, toolSummary, toolCtx);
+                  // Parse and execute the tool
+                  const toolCall = JSON.parse(toolMatch[1].trim());
+                  const toolName = toolCall.tool as string;
+                  const toolParams = toolCall.params || {};
+                  const toolSummary = (toolCall.summary as string) || "";
+                  sendStep(toolName);
 
-                sendStep("done");
-                reply = toolResult || pass1Result.content.replace(/```tool_call[\s\S]*?```/, "").trim() || "I couldn't execute that search. Please try rephrasing your request.";
-              } catch {
-                reply = pass1Result.content.replace(/```tool_call[\s\S]*?```/, "").trim() || pass1Result.content;
+                  const toolResult = await executeTool(toolName, toolParams, toolSummary, toolCtx);
+
+                  if (toolResult && toolResult.length > 10) {
+                    toolResultParts.push(toolResult);
+                  }
+
+                  // Add AI's tool call and the tool result to the conversation
+                  orchMessages.push({ role: "assistant", content: currentAiContent });
+                  orchMessages.push({
+                    role: "user",
+                    content: `[Tool "${toolName}" result]:\n${(toolResult || "No results found.").substring(0, 3000)}\n\nBased on this result, decide what to do next:\n- If the user's goal is fulfilled (e.g., leads/contacts found), respond with a helpful summary. Do NOT call another tool.\n- If more steps are needed to complete the user's request (e.g., you researched the business but haven't searched for leads yet), call the next appropriate tool.\n- Do NOT repeat a tool that already returned results.\n- Do NOT ask the user for confirmation — either call the next tool or provide the final answer.`,
+                  });
+
+                  // Ask AI for next step
+                  sendStep("orchestrating");
+                  const nextResult = await chatWithAI(orchMessages, 800, byok, selectedModel);
+
+                  if (nextResult.usage) {
+                    sql`INSERT INTO token_usage (project_id, user_id, provider, model, prompt_tokens, completion_tokens, total_tokens, source)
+                        VALUES (${project_id || null}, ${userId}, ${nextResult.provider}, ${nextResult.model}, ${nextResult.usage.prompt_tokens}, ${nextResult.usage.completion_tokens}, ${nextResult.usage.total_tokens}, 'chat')`.catch(() => {});
+                  }
+
+                  currentAiContent = nextResult.content;
+                }
+
+                // Safety: if loop exhausted, use what we have
+                if (!finalReply) {
+                  finalReply = toolResultParts.length > 0
+                    ? toolResultParts.join("\n\n---\n\n")
+                    : currentAiContent.replace(/```tool_call[\s\S]*?```/g, "").trim() || "Search completed.";
+                }
+              } catch (err) {
+                // Orchestrator error — return whatever results we collected
+                finalReply = toolResultParts.length > 0
+                  ? toolResultParts.join("\n\n---\n\n")
+                  : pass1Result.content.replace(/```tool_call[\s\S]*?```/g, "").trim() || pass1Result.content;
               }
 
+              reply = finalReply;
+              sendStep("done");
               await sql`INSERT INTO chat_messages (user_id, project_id, role, content, agent_type) VALUES (${userId}, ${project_id || null}, 'assistant', ${reply}, 'autoclaw')`;
               sendDone(reply);
               controller.close();

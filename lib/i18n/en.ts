@@ -29,6 +29,7 @@ const en = {
     workspace: "Workspace",
     finance: "Finance",
     income: "Income",
+    usage: "Usage",
     projects: "Projects",
     partners: "Partners",
     socialMediaMarketing: "Social Media",

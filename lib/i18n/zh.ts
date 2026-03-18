@@ -31,6 +31,7 @@ const zh: typeof en = {
     workspace: "工作空间",
     finance: "财务",
     income: "收入",
+    usage: "用量",
     projects: "项目",
     partners: "合作伙伴",
     socialMediaMarketing: "社交媒体",

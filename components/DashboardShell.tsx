@@ -64,6 +64,7 @@ export default function DashboardShell({ children, user, plan, fullHeight }: Pro
       label: tc.finance,
       children: [
         { href: `/${locale}/dashboard/billing`, label: tc.billing },
+        { href: `/${locale}/dashboard/usage`, label: tc.usage },
         { href: `/${locale}/dashboard/income`, label: tc.income },
       ],
     },

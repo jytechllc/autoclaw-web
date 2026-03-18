@@ -36,6 +36,7 @@ export interface ModelInfo {
 export const AVAILABLE_MODELS: ModelInfo[] = [
   // Platform-provided (free for users)
   { id: "cerebras/gpt-oss-120b", name: "Cerebras GPT-OSS 120B", provider: "cerebras", costPer1MInput: 0, costPer1MOutput: 0 },
+  { id: "cerebras/llama-3.3-70b", name: "Cerebras Llama 3.3 70B", provider: "cerebras", costPer1MInput: 0, costPer1MOutput: 0 },
   { id: "nvidia/llama-3.1-8b", name: "NVIDIA Llama 3.1 8B", provider: "nvidia", costPer1MInput: 0, costPer1MOutput: 0 },
   { id: "google/gemini-2.0-flash", name: "Gemini 2.0 Flash", provider: "google", costPer1MInput: 10, costPer1MOutput: 40 },
   // BYOK models
@@ -178,6 +179,7 @@ async function callGoogle(apiKey: string, model: string, messages: ChatMessage[]
 // ── Model ID → API model mapping ──
 const MODEL_API_MAP: Record<string, string> = {
   "cerebras/gpt-oss-120b": "gpt-oss-120b",
+  "cerebras/llama-3.3-70b": "llama-3.3-70b",
   "nvidia/llama-3.1-8b": "meta/llama-3.1-8b-instruct",
   "google/gemini-2.0-flash": "gemini-2.0-flash",
   "openai/gpt-4o-mini": "gpt-4o-mini",
@@ -226,52 +228,35 @@ export async function chatWithAI(messages: ChatMessage[], maxTokens = 500, byok?
   }
 
   // Auto mode: BYOK keys first, then platform keys
-  if (byok?.openai) {
+  // Helper: extract short error reason from provider errors
+  const shortErr = (e: unknown) => e instanceof Error ? e.message.split("\n")[0].slice(0, 120) : String(e);
+
+  // BYOK keys first (user-provided keys take priority)
+  const byokProviders: { key: string | undefined; name: string; call: () => Promise<AIResponse> }[] = [
+    { key: byok?.openai, name: "BYOK OpenAI", call: () => callOpenAICompatible("https://api.openai.com/v1/chat/completions", byok!.openai!, "gpt-4o-mini", "openai", messages, maxTokens) },
+    { key: byok?.anthropic, name: "BYOK Anthropic", call: () => callAnthropic(byok!.anthropic!, "claude-sonnet-4-20250514", messages, maxTokens) },
+    { key: byok?.google, name: "BYOK Google", call: () => callGoogle(byok!.google!, "gemini-2.0-flash", messages, maxTokens) },
+    { key: byok?.alibaba, name: "BYOK Alibaba", call: () => callOpenAICompatible(`${ALIBABA_AI_BASE_URL}/chat/completions`, byok!.alibaba!, "qwen-turbo", "alibaba", messages, maxTokens) },
+    { key: byok?.cerebras, name: "BYOK Cerebras", call: () => callOpenAICompatible("https://api.cerebras.ai/v1/chat/completions", byok!.cerebras!, "qwen-3-235b-a22b-instruct-2507", "cerebras", messages, maxTokens) },
+  ];
+
+  for (const p of byokProviders) {
+    if (!p.key) continue;
     try {
-      return await callOpenAICompatible("https://api.openai.com/v1/chat/completions", byok.openai, "gpt-4o-mini", "openai", messages, maxTokens);
+      return await p.call();
     } catch (e) {
-      console.error("BYOK OpenAI failed:", e);
+      console.warn(`[AI fallback] ${p.name} failed: ${shortErr(e)}`);
     }
   }
 
-  if (byok?.anthropic) {
-    try {
-      return await callAnthropic(byok.anthropic, "claude-sonnet-4-20250514", messages, maxTokens);
-    } catch (e) {
-      console.error("BYOK Anthropic failed:", e);
-    }
-  }
-
-  if (byok?.google) {
-    try {
-      return await callGoogle(byok.google, "gemini-2.0-flash", messages, maxTokens);
-    } catch (e) {
-      console.error("BYOK Google failed:", e);
-    }
-  }
-
-  if (byok?.alibaba) {
-    try {
-      return await callOpenAICompatible(`${ALIBABA_AI_BASE_URL}/chat/completions`, byok.alibaba, "qwen-turbo", "alibaba", messages, maxTokens);
-    } catch (e) {
-      console.error("BYOK Alibaba failed:", e);
-    }
-  }
-
-  if (byok?.cerebras) {
-    try {
-      return await callOpenAICompatible("https://api.cerebras.ai/v1/chat/completions", byok.cerebras, "qwen-3-235b-a22b-instruct-2507", "cerebras", messages, maxTokens);
-    } catch (e) {
-      console.error("BYOK Cerebras failed:", e);
-    }
-  }
-
-  // Platform keys (Cerebras → NVIDIA → Google Gemini Flash)
+  // Platform keys (Cerebras gpt-oss-120b → llama-3.3-70b → NVIDIA → Google Gemini Flash)
   if (CEREBRAS_API_KEY) {
-    try {
-      return await callOpenAICompatible("https://api.cerebras.ai/v1/chat/completions", CEREBRAS_API_KEY, "gpt-oss-120b", "cerebras", messages, maxTokens);
-    } catch (e) {
-      console.error("Cerebras failed:", e);
+    for (const model of ["gpt-oss-120b", "llama-3.3-70b"]) {
+      try {
+        return await callOpenAICompatible("https://api.cerebras.ai/v1/chat/completions", CEREBRAS_API_KEY, model, "cerebras", messages, maxTokens);
+      } catch (e) {
+        console.warn(`[AI fallback] Cerebras ${model} failed: ${shortErr(e)}`);
+      }
     }
   }
 
@@ -279,7 +264,7 @@ export async function chatWithAI(messages: ChatMessage[], maxTokens = 500, byok?
     try {
       return await callOpenAICompatible("https://integrate.api.nvidia.com/v1/chat/completions", NVIDIA_API_KEY, "meta/llama-3.1-8b-instruct", "nvidia", messages, maxTokens);
     } catch (e) {
-      console.error("NVIDIA failed:", e);
+      console.warn(`[AI fallback] NVIDIA failed: ${shortErr(e)}`);
     }
   }
 
@@ -287,7 +272,7 @@ export async function chatWithAI(messages: ChatMessage[], maxTokens = 500, byok?
     try {
       return await callGoogle(GOOGLE_AI_API, "gemini-2.0-flash", messages, maxTokens);
     } catch (e) {
-      console.error("Google Gemini Flash failed:", e);
+      console.warn(`[AI fallback] Google failed: ${shortErr(e)}`);
     }
   }
 

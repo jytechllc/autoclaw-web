@@ -31,6 +31,7 @@ const fr: typeof en = {
     workspace: "Espace de travail",
     finance: "Finance",
     income: "Revenus",
+    usage: "Utilisation",
     projects: "Projets",
     partners: "Partenaires",
     socialMediaMarketing: "Réseaux sociaux",

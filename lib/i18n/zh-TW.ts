@@ -31,6 +31,7 @@ const zhTW: typeof en = {
     workspace: "工作空間",
     finance: "財務",
     income: "收入",
+    usage: "用量",
     projects: "專案",
     partners: "合作夥伴",
     socialMediaMarketing: "社群媒體",

@@ -235,10 +235,10 @@ export const COST_PER_M: Record<string, { input: number; output: number }> = {
 };
 
 export const TOOL_LABELS: Record<string, Record<string, string>> = {
-  en: { search_leads_apify: "Searching for leads via Apify...", search_google: "Searching Google...", crawl_website: "Crawling website...", search_companies: "Searching companies via Apollo...", prospect_domain: "Looking up domain contacts...", prospect_multi: "Searching multiple domains...", save_contacts: "Saving contacts...", enrich_contacts: "Enriching contact data...", send_email: "Sending email...", fallback_google: "No direct results. Trying Google Search fallback...", fallback_prospect: "Found companies. Looking up contacts...", fallback_lead_finder: "Trying Lead Finder fallback...", saving: "Saving contacts to project...", search_google_maps: "Searching Google Maps...", search_lead_finder: "Finding leads by title and location...", enrich_domains: "Enriching company domains...", done: "Done!" },
-  zh: { search_leads_apify: "正在通过 Apify 搜索潜在客户...", search_google: "正在搜索 Google...", crawl_website: "正在爬取网站内容...", search_companies: "正在通过 Apollo 搜索公司...", prospect_domain: "正在查找域名联系人...", prospect_multi: "正在搜索多个域名...", save_contacts: "正在保存联系人...", enrich_contacts: "正在丰富联系人数据...", send_email: "正在发送邮件...", fallback_google: "直接搜索无结果，正在尝试 Google 搜索...", fallback_prospect: "已发现公司，正在查找联系人...", fallback_lead_finder: "正在尝试 Lead Finder 备选搜索...", saving: "正在保存联系人到项目...", search_google_maps: "正在搜索 Google 地图...", search_lead_finder: "正在按职位和地区搜索联系人...", enrich_domains: "正在丰富公司域名数据...", done: "完成！" },
-  "zh-TW": { search_leads_apify: "正在透過 Apify 搜尋潛在客戶...", search_google: "正在搜尋 Google...", crawl_website: "正在爬取網站內容...", search_companies: "正在透過 Apollo 搜尋公司...", prospect_domain: "正在查找網域聯絡人...", prospect_multi: "正在搜尋多個網域...", save_contacts: "正在儲存聯絡人...", enrich_contacts: "正在豐富聯絡人資料...", send_email: "正在發送郵件...", fallback_google: "直接搜尋無結果，正在嘗試 Google 搜尋...", fallback_prospect: "已發現公司，正在查找聯絡人...", fallback_lead_finder: "正在嘗試 Lead Finder 備選搜尋...", saving: "正在儲存聯絡人到專案...", search_google_maps: "正在搜尋 Google 地圖...", search_lead_finder: "正在按職位和地區搜尋聯絡人...", enrich_domains: "正在豐富公司網域資料...", done: "完成！" },
-  fr: { search_leads_apify: "Recherche de prospects via Apify...", search_google: "Recherche sur Google...", crawl_website: "Exploration du site web...", search_companies: "Recherche d'entreprises via Apollo...", prospect_domain: "Recherche de contacts du domaine...", prospect_multi: "Recherche sur plusieurs domaines...", save_contacts: "Sauvegarde des contacts...", enrich_contacts: "Enrichissement des contacts...", send_email: "Envoi de l'e-mail...", fallback_google: "Aucun résultat direct. Recherche Google en cours...", fallback_prospect: "Entreprises trouvées. Recherche de contacts...", fallback_lead_finder: "Essai du Lead Finder en secours...", saving: "Sauvegarde des contacts dans le projet...", search_google_maps: "Recherche sur Google Maps...", search_lead_finder: "Recherche de contacts par titre et localisation...", enrich_domains: "Enrichissement des domaines...", done: "Terminé !" },
+  en: { search_leads_apify: "Searching for leads via Apify...", search_google: "Searching Google...", crawl_website: "Crawling website...", search_companies: "Searching companies via Apollo...", prospect_domain: "Looking up domain contacts...", prospect_multi: "Searching multiple domains...", save_contacts: "Saving contacts...", enrich_contacts: "Enriching contact data...", send_email: "Sending email...", fallback_google: "No direct results. Trying Google Search fallback...", fallback_prospect: "Found companies. Looking up contacts...", fallback_lead_finder: "Trying Lead Finder fallback...", saving: "Saving contacts to project...", search_google_maps: "Searching Google Maps...", search_lead_finder: "Finding leads by title and location...", enrich_domains: "Enriching company domains...", analyzing: "Analyzing results and searching for leads...", orchestrating: "Planning next step...", done: "Done!" },
+  zh: { search_leads_apify: "正在通过 Apify 搜索潜在客户...", search_google: "正在搜索 Google...", crawl_website: "正在爬取网站内容...", search_companies: "正在通过 Apollo 搜索公司...", prospect_domain: "正在查找域名联系人...", prospect_multi: "正在搜索多个域名...", save_contacts: "正在保存联系人...", enrich_contacts: "正在丰富联系人数据...", send_email: "正在发送邮件...", fallback_google: "直接搜索无结果，正在尝试 Google 搜索...", fallback_prospect: "已发现公司，正在查找联系人...", fallback_lead_finder: "正在尝试 Lead Finder 备选搜索...", saving: "正在保存联系人到项目...", search_google_maps: "正在搜索 Google 地图...", search_lead_finder: "正在按职位和地区搜索联系人...", enrich_domains: "正在丰富公司域名数据...", analyzing: "正在分析结果并搜索潜在客户...", orchestrating: "正在规划下一步...", done: "完成！" },
+  "zh-TW": { search_leads_apify: "正在透過 Apify 搜尋潛在客戶...", search_google: "正在搜尋 Google...", crawl_website: "正在爬取網站內容...", search_companies: "正在透過 Apollo 搜尋公司...", prospect_domain: "正在查找網域聯絡人...", prospect_multi: "正在搜尋多個網域...", save_contacts: "正在儲存聯絡人...", enrich_contacts: "正在豐富聯絡人資料...", send_email: "正在發送郵件...", fallback_google: "直接搜尋無結果，正在嘗試 Google 搜尋...", fallback_prospect: "已發現公司，正在查找聯絡人...", fallback_lead_finder: "正在嘗試 Lead Finder 備選搜尋...", saving: "正在儲存聯絡人到專案...", search_google_maps: "正在搜尋 Google 地圖...", search_lead_finder: "正在按職位和地區搜尋聯絡人...", enrich_domains: "正在豐富公司網域資料...", analyzing: "正在分析結果並搜尋潛在客戶...", orchestrating: "正在規劃下一步...", done: "完成！" },
+  fr: { search_leads_apify: "Recherche de prospects via Apify...", search_google: "Recherche sur Google...", crawl_website: "Exploration du site web...", search_companies: "Recherche d'entreprises via Apollo...", prospect_domain: "Recherche de contacts du domaine...", prospect_multi: "Recherche sur plusieurs domaines...", save_contacts: "Sauvegarde des contacts...", enrich_contacts: "Enrichissement des contacts...", send_email: "Envoi de l'e-mail...", fallback_google: "Aucun résultat direct. Recherche Google en cours...", fallback_prospect: "Entreprises trouvées. Recherche de contacts...", fallback_lead_finder: "Essai du Lead Finder en secours...", saving: "Sauvegarde des contacts dans le projet...", search_google_maps: "Recherche sur Google Maps...", search_lead_finder: "Recherche de contacts par titre et localisation...", enrich_domains: "Enrichissement des domaines...", analyzing: "Analyse des résultats et recherche de prospects...", orchestrating: "Planification de l'étape suivante...", done: "Terminé !" },
 };
 
 export function buildSystemPrompt(opts: {
@@ -288,9 +288,19 @@ Do NOT just provide a generic AI answer to business research questions. Instead,
 - **Partners** (/partners): View AutoClaw's partner ecosystem.
 
 ## Current user context
-- Projects: ${projects.length > 0 ? projects.map((p) => `"${p.name}"${p.website ? ` (${p.website})` : ""}`).join(", ") : "none"}
+- Projects: ${projects.length > 0 ? projects.map((p) => `"${p.name}"${p.website ? ` (${p.website})` : ""}${p.description ? ` — ${(p.description as string).slice(0, 120)}` : ""}`).join("\n  - ") : "none"}
 - Active agents: ${agents.length > 0 ? agents.map((a) => `${a.agent_type} on ${a.project_name} [${a.status}]`).join(", ") : "none"}
 - Plan: ${userPlan} (${agentLimit} agent limit)
+
+## IMPORTANT: Context-aware behavior
+When the user says generic things like "帮我找客户", "find me customers", "help me find leads" WITHOUT specifying a domain or industry:
+1. **Look at their projects above** — use the project name, website, and description to understand what their business does
+2. If they have exactly ONE project, assume they want customers for THAT business and **act immediately**:
+   - If the project has a description → you already know the business, directly search for relevant leads
+   - If the project has only a website and no description → crawl the website to understand the business
+3. If they have MULTIPLE projects, ask which project they want to find customers for
+4. If they have NO projects, ask them to describe their business first
+5. **Be decisive** — prefer action over asking. If you have project context, call a search tool directly. Do NOT ask "需要我开始吗？" when you have enough information to proceed.
 
 ## Available chat commands
 Guide users to use these specific commands:
@@ -309,8 +319,22 @@ ${locale === "zh" ? "IMPORTANT: You MUST respond entirely in Simplified Chinese 
 }
 
 export const TOOL_SYSTEM_PROMPT_EXTENSION = `\n
-## Tool Calling
-You have access to tools that can execute real searches and actions. When the user asks a question that requires searching for companies, leads, suppliers, factories, or any business entities, you MUST use a tool instead of giving a generic answer.
+## Tool Calling — Orchestrator Mode
+You are an orchestrator agent. You can call tools **one at a time in a loop**. After each tool executes, you will receive the result and decide what to do next — call another tool or provide a final answer.
+
+**How it works:**
+1. You call a tool → the system executes it and returns the result
+2. You see the result and decide: call another tool OR respond with final text
+3. This loop continues until you respond without a tool_call block (max 5 steps)
+
+**Key rules:**
+- When the user's request requires multiple steps (e.g., research a business → find leads → enrich), just start with the FIRST step. You will get to continue after each step.
+- Do NOT try to plan or explain all steps upfront — just execute the first tool. You'll decide the next step after seeing results.
+- When you receive a tool result and the user's goal is ALREADY fulfilled (e.g., leads were found), respond with a helpful summary — do NOT call another tool.
+- Do NOT repeat a tool that already returned results.
+- Do NOT ask the user for confirmation between steps — just proceed.
+
+When the user asks a question that requires searching for companies, leads, suppliers, factories, or any business entities, you MUST use a tool instead of giving a generic answer.
 
 Available tools (ordered by priority — prefer Apify tools for searching):
 
@@ -374,6 +398,24 @@ IMPORTANT ROUTING RULES:
 - When user asks to "check/crawl/analyze a website" → use crawl_website
 - Only use search_companies (Apollo) if user explicitly mentions Apollo or if Apify tools are not available
 
+### CRITICAL: "Find customers FOR a business" pattern
+When a user says "帮我找客户", "find me customers", "帮 xxx.com 找客户", or similar:
+
+**Case 1: User provides a URL/domain** (e.g., "帮 usproglove.com 找客户")
+→ Start with crawl_website to understand the business. After you see the crawl result, you'll automatically get to call a search tool next.
+
+**Case 2: User says "帮我找客户" with NO domain** (generic request)
+→ Check the user's projects in the "Current user context" section above.
+- If user has a project with description: you already know the business. Call a search tool directly (search_google_maps or search_lead_finder).
+- If user has a project with website but no description: start with crawl_website. You'll search for leads in the next step.
+- If user has multiple projects: ask which project, do NOT call any tool.
+- If user has no projects: ask them to describe their business, do NOT call any tool.
+
+**IMPORTANT — Be decisive, take action:**
+- If you have enough context, CALL A TOOL immediately. Do NOT propose a plan and ask for confirmation.
+- If the user confirmed a previously proposed plan (e.g., "好的", "yes", "开始"), CALL the tool now.
+- Remember: you can chain multiple tools across steps. Just start with the first one.
+
 If you determine a tool should be called, respond with ONLY a JSON block in this exact format (no other text):
 \`\`\`tool_call
 {"tool": "tool_name", "params": {...}, "summary": "brief description of what you're searching for"}
@@ -390,6 +432,12 @@ Examples of when to call tools:
 - "Find contacts at tesla.com" → prospect_domain with domain="tesla.com"
 - "搜索一下特斯拉最新新闻" → search_google with queries=["Tesla latest news 2026"]
 - "帮我了解一下 unincore.com 这家公司" → crawl_website with url="https://unincore.com"
+- "帮 usproglove.com 找客户" → crawl_website with url="https://usproglove.com" (understand the business first, then suggest search strategies)
+- "help acme.com find customers" → crawl_website with url="https://acme.com" (understand the business first)
+- "帮我找客户" (user has 1 project: "USProGlove — industrial wearable scanners") → search_google_maps with query="industrial wearable barcode scanner distributors" (use project context, search directly!)
+- "帮我找客户" (user has 1 project with website but no description) → crawl_website first (orchestrator will continue to search after)
+- "帮我找客户" (user has no projects) → do NOT call tool, ask user to describe their business
+- "好的/yes/开始" (user confirming a previous plan) → call the tool now based on conversation history
 - "通过Apify找储能行业的销售总监" → search_leads_apify with keywords=["energy storage"], job_titles=["Sales Director","VP Sales"]
 - "Find CTOs at fintech companies" → search_leads_apify with keywords=["fintech"], job_titles=["CTO","Chief Technology Officer"]
 - "把刚才搜到的联系人保存到 Unincore 项目" → save_contacts with project_name="Unincore", from_last_search=true
