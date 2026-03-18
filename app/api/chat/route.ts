@@ -598,9 +598,9 @@ export async function POST(req: NextRequest) {
       if (!isPaid || !targetProject) return;
       for (const l of leads) {
         try {
-          await sql`INSERT INTO leads (project_id, user_id, email, first_name, last_name, company, position, source, domain, confidence, verified)
-            VALUES (${targetProject.id}, ${userId}, ${l.email}, ${l.firstName}, ${l.lastName}, ${l.company}, ${l.position}, ${l.source}, ${domain}, ${l.confidence || null}, ${l.verified || false})
-            ON CONFLICT (project_id, email) DO NOTHING`;
+          await sql`INSERT INTO contacts (user_id, project_id, email, first_name, last_name, company, position, source, source_detail)
+            VALUES (${userId}, ${targetProject.id}, ${l.email}, ${l.firstName}, ${l.lastName}, ${l.company}, ${l.position}, ${l.source}, ${'Chat: ' + domain})
+            ON CONFLICT (user_id, email) DO NOTHING`;
         } catch { /* skip duplicates */ }
       }
     }
@@ -895,9 +895,9 @@ Examples of when to call tools:
                 for (const c of companies) {
                   for (const lead of c.contacts) {
                     try {
-                      await sql`INSERT INTO leads (project_id, user_id, email, first_name, last_name, company, position, source, domain, verified)
-                        VALUES (${targetProject.id}, ${userId}, ${lead.email}, ${lead.firstName}, ${lead.lastName}, ${lead.company}, ${lead.position}, ${lead.source}, ${c.domain}, ${lead.verified || false})
-                        ON CONFLICT (project_id, email) DO NOTHING`;
+                      await sql`INSERT INTO contacts (user_id, project_id, email, first_name, last_name, company, position, source, source_detail)
+                        VALUES (${userId}, ${targetProject.id}, ${lead.email}, ${lead.firstName}, ${lead.lastName}, ${lead.company}, ${lead.position}, ${lead.source}, ${'Chat: ' + c.domain})
+                        ON CONFLICT (user_id, email) DO NOTHING`;
                       savedCount++;
                     } catch { /* skip duplicates */ }
                   }

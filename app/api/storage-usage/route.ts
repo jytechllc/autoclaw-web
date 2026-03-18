@@ -114,7 +114,7 @@ export async function GET() {
         (SELECT COUNT(*) FROM projects WHERE user_id = ${userId} OR org_id IN (SELECT org_id FROM organization_members WHERE user_id = ${userId}))::int as projects
     `;
     const leadRows = await sql`
-      SELECT COUNT(*)::int as cnt FROM leads WHERE project_id IN (
+      SELECT COUNT(*)::int as cnt FROM contacts WHERE emails_sent = 0 AND project_id IN (
         SELECT id FROM projects WHERE user_id = ${userId} OR org_id IN (SELECT org_id FROM organization_members WHERE user_id = ${userId})
       )
     `;

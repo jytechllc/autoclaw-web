@@ -686,19 +686,21 @@ async function fetchDbKpisByProject(
           SELECT
             p.name AS project,
             COUNT(*)::int AS leads_generated
-          FROM leads l
-          JOIN projects p ON p.id = l.project_id
-          WHERE l.created_at >= NOW() - INTERVAL '30 days'
+          FROM contacts c
+          JOIN projects p ON p.id = c.project_id
+          WHERE c.created_at >= NOW() - INTERVAL '30 days'
+            AND c.source IN ('apollo', 'hunter', 'snov', 'apify', 'import')
           GROUP BY p.name
           ORDER BY p.name`
       : await sql`
           SELECT
             p.name AS project,
             COUNT(*)::int AS leads_generated
-          FROM leads l
-          JOIN projects p ON p.id = l.project_id
-          WHERE l.created_at >= NOW() - INTERVAL '30 days'
-            AND l.project_id = ANY(${projectIds})
+          FROM contacts c
+          JOIN projects p ON p.id = c.project_id
+          WHERE c.created_at >= NOW() - INTERVAL '30 days'
+            AND c.project_id = ANY(${projectIds})
+            AND c.source IN ('apollo', 'hunter', 'snov', 'apify', 'import')
           GROUP BY p.name
           ORDER BY p.name`;
 
