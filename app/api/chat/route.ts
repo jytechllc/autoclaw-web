@@ -3,7 +3,7 @@ import { auth0 } from "@/lib/auth0";
 import { getDb, resolveUserPlan } from "@/lib/db";
 import { chatWithAI, ByokKeys } from "@/lib/ai";
 import { decrypt, encrypt } from "@/lib/crypto";
-import { prospectDomain, prospectMultipleDomains } from "@/lib/leads";
+import { prospectDomain, prospectMultipleDomains, type LeadEnrichKeys } from "@/lib/leads";
 import { searchKnowledgeBase, buildRagContext } from "@/lib/rag";
 import {
   AVAILABLE_AGENTS, AGENT_PLANS, BYOK_SERVICES,
@@ -77,15 +77,19 @@ export async function POST(req: NextRequest) {
     const userPlan = await resolveUserPlan(sql, userId, (users[0].plan as string) || "starter", email);
     const agentLimit = getAgentLimit(userPlan);
 
-    // Fetch user BYOK AI keys + service keys
+    // Fetch user BYOK AI keys + service keys (including lead enrichment keys)
     const byokRows = await sql`
       SELECT service, api_key FROM user_api_keys
-      WHERE user_id = ${userId} AND service IN ('openai', 'anthropic', 'google', 'alibaba', 'cerebras', 'apify', 'brevo', 'sendgrid')
+      WHERE user_id = ${userId} AND service IN ('openai', 'anthropic', 'google', 'alibaba', 'cerebras', 'apify', 'brevo', 'sendgrid', 'hunter', 'apollo', 'snov_id', 'snov_secret')
     `;
     const byok: ByokKeys = {};
     let apifyToken = process.env.APIFY_API_TOKEN || "";
     let brevoApiKey = process.env.BREVO_API_KEY || "";
     let sendgridApiKey = process.env.SENDGRID_API_KEY || "";
+    let hunterKey = "";
+    let apolloKey = "";
+    let snovId = "";
+    let snovSecret = "";
     for (const row of byokRows) {
       try {
         const key = decrypt(row.api_key as string);
@@ -97,6 +101,10 @@ export async function POST(req: NextRequest) {
         else if (row.service === "apify") apifyToken = key;
         else if (row.service === "brevo") brevoApiKey = key;
         else if (row.service === "sendgrid") sendgridApiKey = key;
+        else if (row.service === "hunter") hunterKey = key;
+        else if (row.service === "apollo") apolloKey = key;
+        else if (row.service === "snov_id") snovId = key;
+        else if (row.service === "snov_secret") snovSecret = key;
       } catch {
         // Skip keys that fail to decrypt
       }
@@ -441,7 +449,8 @@ export async function POST(req: NextRequest) {
         reply = `Please provide one or more domains to search. Examples:\n\n- "Find leads for stripe.com"\n- "Prospect hubspot.com, intercom.com, calendly.com"\n- "Search domain bumrungrad.com"`;
       } else if (domains.length === 1) {
         try {
-          const result = await prospectDomain(domains[0]);
+          const directEnrichKeys: LeadEnrichKeys = { hunter: hunterKey || undefined, apollo: apolloKey || undefined, snovId: snovId || undefined, snovSecret: snovSecret || undefined };
+          const result = await prospectDomain(domains[0], directEnrichKeys);
           if (result.leads.length === 0) {
             reply = `**Lead search: ${domains[0]}**\n\nNo public contacts found for this domain. This can happen when:\n- The domain has few public-facing employees\n- Email addresses are well-protected\n- It's a small or personal website\n\nTry searching for **competitor or target customer domains** instead.`;
           } else {
@@ -458,7 +467,8 @@ export async function POST(req: NextRequest) {
         }
       } else {
         try {
-          const result = await prospectMultipleDomains(domains.slice(0, 5));
+          const multiEnrichKeys: LeadEnrichKeys = { hunter: hunterKey || undefined, apollo: apolloKey || undefined, snovId: snovId || undefined, snovSecret: snovSecret || undefined };
+          const result = await prospectMultipleDomains(domains.slice(0, 5), multiEnrichKeys);
           const parts: string[] = [`**Lead search across ${result.results.length} domains**\n`];
           for (const r of result.results) {
             const displayLeads = isPaid ? r.leads : r.leads.slice(0, 3);
@@ -578,9 +588,10 @@ export async function POST(req: NextRequest) {
                 const toolSummary = (toolCall.summary as string) || "";
                 sendStep(toolName);
 
+                const enrichKeys: LeadEnrichKeys = { hunter: hunterKey || undefined, apollo: apolloKey || undefined, snovId: snovId || undefined, snovSecret: snovSecret || undefined };
                 const toolCtx: ToolContext = {
                   sql, userId, userPlan, projects, agents, project_id: project_id || null,
-                  byok, selectedModel: selectedModel || "", apifyToken, brevoApiKey, sendgridApiKey, sendStep,
+                  byok, selectedModel: selectedModel || "", apifyToken, brevoApiKey, sendgridApiKey, enrichKeys, sendStep,
                 };
                 const toolResult = await executeTool(toolName, toolParams, toolSummary, toolCtx);
 

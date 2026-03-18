@@ -36,6 +36,7 @@ function createMockContext(overrides: Partial<ToolContext> = {}): ToolContext {
     apifyToken: "test-token",
     brevoApiKey: "",
     sendgridApiKey: "",
+    enrichKeys: {},
     sendStep: vi.fn(),
     ...overrides,
   };

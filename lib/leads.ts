@@ -4,6 +4,14 @@ const SNOV_API_SECRET = process.env.SNOV_API_SECRET;
 const APOLLO_API_KEY = process.env.APOLLO_API_KEY;
 const BREVO_API_KEY = process.env.BREVO_API_KEY;
 
+/** Optional BYOK keys for lead enrichment — override env vars when provided */
+export interface LeadEnrichKeys {
+  hunter?: string;
+  apollo?: string;
+  snovId?: string;
+  snovSecret?: string;
+}
+
 const BREVO_LIST_ID = 8; // MedTravel Leads list
 
 export interface Lead {
@@ -18,10 +26,11 @@ export interface Lead {
   linkedinUrl?: string;
 }
 
-async function searchHunter(domain: string): Promise<Lead[]> {
-  if (!HUNTER_API_KEY) return [];
+async function searchHunter(domain: string, byokKey?: string): Promise<Lead[]> {
+  const key = byokKey || HUNTER_API_KEY;
+  if (!key) return [];
   const res = await fetch(
-    `https://api.hunter.io/v2/domain-search?domain=${encodeURIComponent(domain)}&limit=10&api_key=${HUNTER_API_KEY}`
+    `https://api.hunter.io/v2/domain-search?domain=${encodeURIComponent(domain)}&limit=10&api_key=${key}`
   );
   if (!res.ok) return [];
   const data = await res.json();
@@ -37,15 +46,17 @@ async function searchHunter(domain: string): Promise<Lead[]> {
   }));
 }
 
-async function getSnovToken(): Promise<string | null> {
-  if (!SNOV_API_ID || !SNOV_API_SECRET) return null;
+async function getSnovToken(byokId?: string, byokSecret?: string): Promise<string | null> {
+  const id = byokId || SNOV_API_ID;
+  const secret = byokSecret || SNOV_API_SECRET;
+  if (!id || !secret) return null;
   const res = await fetch("https://api.snov.io/v1/oauth/access_token", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       grant_type: "client_credentials",
-      client_id: SNOV_API_ID,
-      client_secret: SNOV_API_SECRET,
+      client_id: id,
+      client_secret: secret,
     }),
   });
   if (!res.ok) return null;
@@ -53,8 +64,8 @@ async function getSnovToken(): Promise<string | null> {
   return data.access_token || null;
 }
 
-async function searchSnov(domain: string): Promise<Lead[]> {
-  const token = await getSnovToken();
+async function searchSnov(domain: string, byokId?: string, byokSecret?: string): Promise<Lead[]> {
+  const token = await getSnovToken(byokId, byokSecret);
   if (!token) return [];
   const res = await fetch(
     `https://api.snov.io/v2/domain-emails-with-info?access_token=${token}&domain=${encodeURIComponent(domain)}&type=all&limit=10`
@@ -73,12 +84,13 @@ async function searchSnov(domain: string): Promise<Lead[]> {
   }));
 }
 
-async function searchApollo(domain: string): Promise<Lead[]> {
-  if (!APOLLO_API_KEY) return [];
+async function searchApollo(domain: string, byokKey?: string): Promise<Lead[]> {
+  const key = byokKey || APOLLO_API_KEY;
+  if (!key) return [];
   try {
     const res = await fetch("https://api.apollo.io/v1/mixed_people/search", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Api-Key": APOLLO_API_KEY },
+      headers: { "Content-Type": "application/json", "X-Api-Key": key },
       body: JSON.stringify({
         q_organization_domains: domain,
         per_page: 10,
@@ -251,7 +263,7 @@ async function importToBrevo(leads: Lead[]): Promise<number> {
   return imported;
 }
 
-export async function prospectDomain(domain: string): Promise<{
+export async function prospectDomain(domain: string, enrichKeys?: LeadEnrichKeys): Promise<{
   leads: Lead[];
   imported: number;
   hunterCount: number;
@@ -259,9 +271,9 @@ export async function prospectDomain(domain: string): Promise<{
   apolloCount: number;
 }> {
   const [apolloLeads, hunterLeads, snovLeads] = await Promise.all([
-    searchApollo(domain),
-    searchHunter(domain),
-    searchSnov(domain),
+    searchApollo(domain, enrichKeys?.apollo),
+    searchHunter(domain, enrichKeys?.hunter),
+    searchSnov(domain, enrichKeys?.snovId, enrichKeys?.snovSecret),
   ]);
   // Apollo first (richest data), then Hunter, then Snov as fallback
   const leads = dedupeLeads(apolloLeads, hunterLeads, snovLeads);
@@ -275,7 +287,7 @@ export async function prospectDomain(domain: string): Promise<{
   };
 }
 
-export async function prospectMultipleDomains(domains: string[]): Promise<{
+export async function prospectMultipleDomains(domains: string[], enrichKeys?: LeadEnrichKeys): Promise<{
   totalLeads: number;
   totalImported: number;
   results: { domain: string; leads: Lead[]; imported: number }[];
@@ -285,7 +297,7 @@ export async function prospectMultipleDomains(domains: string[]): Promise<{
   let totalImported = 0;
 
   for (const domain of domains) {
-    const { leads, imported } = await prospectDomain(domain);
+    const { leads, imported } = await prospectDomain(domain, enrichKeys);
     results.push({ domain, leads, imported });
     totalLeads += leads.length;
     totalImported += imported;

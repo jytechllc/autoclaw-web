@@ -1,6 +1,6 @@
 import { NeonQueryFunction } from "@neondatabase/serverless";
 import { chatWithAI, ByokKeys } from "@/lib/ai";
-import { prospectDomain, prospectMultipleDomains, searchCompanies, searchGoogleApify, crawlWebsiteApify, searchLeadsApify, searchGoogleMaps, searchLeadFinder, enrichCompanyDomains, type Lead } from "@/lib/leads";
+import { prospectDomain, prospectMultipleDomains, searchCompanies, searchGoogleApify, crawlWebsiteApify, searchLeadsApify, searchGoogleMaps, searchLeadFinder, enrichCompanyDomains, type Lead, type LeadEnrichKeys } from "@/lib/leads";
 import { formatLeadTable, nextStepsHint, type ProjectRow } from "./constants";
 
 export interface ToolContext {
@@ -16,6 +16,7 @@ export interface ToolContext {
   apifyToken: string;
   brevoApiKey: string;
   sendgridApiKey: string;
+  enrichKeys: LeadEnrichKeys;
   sendStep: (key: string) => void;
 }
 
@@ -32,9 +33,9 @@ export async function executeTool(
     case "search_companies":
       return handleSearchCompanies(toolParams, toolSummary, ctx);
     case "prospect_domain":
-      return handleProspectDomain(toolParams, toolSummary, isPaid);
+      return handleProspectDomain(toolParams, toolSummary, isPaid, ctx.enrichKeys);
     case "prospect_multi":
-      return handleProspectMulti(toolParams, toolSummary);
+      return handleProspectMulti(toolParams, toolSummary, ctx.enrichKeys);
     case "search_google":
       return handleSearchGoogle(toolParams, toolSummary, apifyToken);
     case "crawl_website":
@@ -91,10 +92,10 @@ async function handleSearchCompanies(toolParams: Record<string, unknown>, toolSu
   return result;
 }
 
-async function handleProspectDomain(toolParams: Record<string, unknown>, toolSummary: string, isPaid: boolean): Promise<string> {
+async function handleProspectDomain(toolParams: Record<string, unknown>, toolSummary: string, isPaid: boolean, enrichKeys?: LeadEnrichKeys): Promise<string> {
   const domain = toolParams.domain as string;
   if (!domain) return "";
-  const result = await prospectDomain(domain);
+  const result = await prospectDomain(domain, enrichKeys);
   if (result.leads.length === 0) {
     return `**Lead search: ${domain}**\n\nNo public contacts found for this domain.`;
   }
@@ -103,10 +104,10 @@ async function handleProspectDomain(toolParams: Record<string, unknown>, toolSum
   return `**Lead search: ${domain}**\n\nFound **${result.leads.length}** contacts (Apollo: ${result.apolloCount}, Hunter: ${result.hunterCount}, Snov: ${result.snovCount})\n\n| Email | Name | Position | Source |\n|-------|------|----------|--------|\n${leadTable}`;
 }
 
-async function handleProspectMulti(toolParams: Record<string, unknown>, toolSummary: string): Promise<string> {
+async function handleProspectMulti(toolParams: Record<string, unknown>, toolSummary: string, enrichKeys?: LeadEnrichKeys): Promise<string> {
   const domains = (toolParams.domains as string[]) || [];
   if (domains.length === 0) return "";
-  const result = await prospectMultipleDomains(domains.slice(0, 5));
+  const result = await prospectMultipleDomains(domains.slice(0, 5), enrichKeys);
   const parts: string[] = [`**Lead search across ${result.results.length} domains**\n`];
   for (const r of result.results) {
     const leadList = r.leads.slice(0, 5).map((l) => {
@@ -223,7 +224,7 @@ Return ONLY the JSON array, nothing else.`;
             const domainResults: { domain: string; leads: Lead[] }[] = [];
             for (const domain of extractedDomains.slice(0, 3)) {
               try {
-                const { leads: domLeads } = await prospectDomain(domain);
+                const { leads: domLeads } = await prospectDomain(domain, ctx.enrichKeys);
                 if (domLeads.length > 0) domainResults.push({ domain, leads: domLeads });
               } catch { /* skip */ }
             }
@@ -272,7 +273,8 @@ Return ONLY the JSON array, nothing else.`;
 }
 
 async function handleSearchGoogleMaps(toolParams: Record<string, unknown>, toolSummary: string, ctx: ToolContext): Promise<string> {
-  const { apifyToken, sendStep, projects } = ctx;
+  const { apifyToken, sendStep, projects, enrichKeys, userPlan } = ctx;
+  const isPaid = userPlan !== "starter";
   if (!apifyToken) {
     return "**Apify API key not configured.** Please add your Apify API token in Settings > API Keys (service: apify), or ask your admin to set the APIFY_API_TOKEN environment variable.";
   }
@@ -292,8 +294,44 @@ async function handleSearchGoogleMaps(toolParams: Record<string, unknown>, toolS
 
     let result = `**${toolSummary || "Google Maps Search"}**\n\nFound **${results.length}** businesses:\n\n| Company | Website | Phone | Address | Category |\n|---------|---------|-------|---------|----------|\n${rows}`;
 
+    // Auto-enrich: extract domains from results and find decision-maker contacts
+    const hasEnrichKeys = enrichKeys.hunter || enrichKeys.apollo || enrichKeys.snovId;
+    const domains = results
+      .filter((r) => r.website)
+      .map((r) => { try { return new URL(r.website).hostname.replace(/^www\./, ""); } catch { return ""; } })
+      .filter((d) => d && d.includes("."));
+    const uniqueDomains = [...new Set(domains)].slice(0, 5);
+
+    if (uniqueDomains.length > 0 && hasEnrichKeys) {
+      sendStep("enrich_domains");
+      const allLeads: Lead[] = [];
+      for (const domain of uniqueDomains) {
+        try {
+          const { leads } = await prospectDomain(domain, enrichKeys);
+          allLeads.push(...leads);
+        } catch { /* skip failed domains */ }
+      }
+
+      if (allLeads.length > 0) {
+        const displayLeads = isPaid ? allLeads : allLeads.slice(0, 15);
+        const leadTable = displayLeads.map((l) => {
+          const name = [l.firstName, l.lastName].filter(Boolean).join(" ") || "—";
+          return `| ${l.email} | ${name} | ${l.company || "—"} | ${l.position || "—"} | ${l.source} |`;
+        }).join("\n");
+
+        result += `\n\n---\n\n**Decision Maker Contacts (${allLeads.length} found):**\n\n| Email | Name | Company | Position | Source |\n|-------|------|---------|----------|--------|\n${leadTable}`;
+
+        if (!isPaid && allLeads.length > 15) {
+          result += `\n\n_Showing 15 of ${allLeads.length} contacts. Upgrade to see all._`;
+        }
+      }
+    }
+
     const projectList = projects.map((p) => `**${p.name}** (ID: ${p.id})`).join(", ");
-    result += `\n\n---\n**Next steps:**\n- Save these contacts: **"save contacts to project [name]"**${projectList ? `\n- Your projects: ${projectList}` : ""}\n- Enrich domains: **"enrich domains ${results.filter(r => r.website).slice(0, 2).map(r => { try { return new URL(r.website).hostname; } catch { return r.website; } }).join(", ")}"**\n- Search specific domains: **"find leads for [domain]"**`;
+    result += `\n\n---\n**Next steps:**\n- Save these contacts: **"save contacts to project [name]"**${projectList ? `\n- Your projects: ${projectList}` : ""}`;
+    if (!hasEnrichKeys) {
+      result += `\n- **Add API keys** for richer results: "add my key xxx to hunter" or "add my key xxx to apollo"`;
+    }
     return result;
   } catch (err) {
     return `Google Maps search failed: ${err instanceof Error ? err.message : "Unknown error"}. Please try again.`;
