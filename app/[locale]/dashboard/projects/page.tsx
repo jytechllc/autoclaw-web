@@ -91,6 +91,7 @@ export default function ProjectsPage() {
           website: createForm.website,
           description: createForm.description,
           domain: createForm.domain || null,
+          ga_property_id: createForm.ga_property_id || null,
         }),
       });
       if (!res.ok) return;
@@ -259,6 +260,17 @@ export default function ProjectsPage() {
                 <p className="text-xs text-gray-400 mt-1">{ts.domainHint}</p>
               </div>
               <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">{ts.gaPropertyId}</label>
+                <input
+                  type="text"
+                  value={createForm.ga_property_id}
+                  onChange={(e) => setCreateForm((prev) => ({ ...prev, ga_property_id: e.target.value }))}
+                  placeholder="e.g. 123456789"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
+                />
+                <p className="text-xs text-gray-400 mt-1">{ts.gaPropertyIdHint}</p>
+              </div>
+              <div className="md:col-span-2">
                 <label className="block text-xs font-medium text-gray-600 mb-1">{ts.description}</label>
                 <textarea
                   value={createForm.description}

@@ -26,7 +26,7 @@ const AGENT_PLANS: Record<string, { plan: string; tasks: { name: string; status:
       { name: "Create email templates (cold, follow-up, newsletter)", status: "pending" },
       { name: "Configure sending schedule & limits", status: "pending" },
       { name: "Set up tracking (opens, clicks, replies)", status: "pending" },
-      { name: "Launch first outreach campaign", status: "pending" },
+      { name: "Launch outreach campaign", status: "pending" },
     ],
     blockers: [],
   },
@@ -64,7 +64,7 @@ const AGENT_PLANS: Record<string, { plan: string; tasks: { name: string; status:
       { name: "Launch engagement campaign (likes, replies, follows)", status: "pending" },
       { name: "Track follower growth & engagement metrics", status: "pending" },
     ],
-    blockers: ["Need X/Twitter API credentials", "Need LinkedIn page admin access"],
+    blockers: ["Need X/Twitter API credentials configured"],
   },
   product_manager: {
     plan: "Monitor website health, analyze user behavior, track conversion funnels, and identify optimization opportunities.",
@@ -86,9 +86,20 @@ const AGENT_PLANS: Record<string, { plan: string; tasks: { name: string; status:
       { name: "Create follow-up email sequences", status: "pending" },
       { name: "Set up automated reminders", status: "pending" },
       { name: "Configure deal stage tracking", status: "pending" },
-      { name: "Launch first nurture campaign", status: "pending" },
+      { name: "Launch follow-up email campaign", status: "pending" },
     ],
     blockers: ["Need CRM API credentials", "Need current sales pipeline data"],
+  },
+  orchestrator: {
+    plan: "Coordinate all agents across projects. Analyze reports, identify cross-agent synergies, generate market intelligence, auto-optimize workflows, and produce weekly operations digests.",
+    tasks: [
+      { name: "Analyze agent ecosystem & collect reports", status: "in_progress" },
+      { name: "Generate cross-agent optimization recommendations", status: "pending" },
+      { name: "Market intelligence & content strategy", status: "pending" },
+      { name: "Auto-coordinate agents (reset periodic tasks, flag blockers)", status: "pending" },
+      { name: "Generate weekly operations digest", status: "pending" },
+    ],
+    blockers: [],
   },
 };
 

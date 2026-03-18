@@ -117,8 +117,6 @@ export async function POST(req: NextRequest) {
     });
 
     const data = await res.json();
-    console.log("xPilot video generate response:", res.status, JSON.stringify(data));
-
     if (!res.ok) {
       const errMsg = typeof data.error === "string"
         ? data.error
@@ -223,8 +221,6 @@ export async function GET(req: NextRequest) {
     });
 
     const data = await res.json();
-    console.log("xPilot video status:", res.status, JSON.stringify(data));
-
     const videoUrl = data.outputs?.[0] || data.output?.video_url || data.videoUrl || data.video_url || data.output?.url;
 
     // If completed and has video URL, save to Vercel Blob and update DB

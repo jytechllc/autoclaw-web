@@ -89,7 +89,7 @@ const AGENT_PLANS: Record<string, Record<string, object>> = {
         { name: "Create follow-up email sequences", status: "pending" },
         { name: "Set up automated reminders", status: "pending" },
         { name: "Configure deal stage tracking", status: "pending" },
-        { name: "Launch nurture campaign", status: "pending" },
+        { name: "Launch follow-up email campaign", status: "pending" },
       ],
       blockers: ["Need CRM API credentials", "Need current sales pipeline data"],
     },
@@ -167,14 +167,14 @@ const AGENT_PLANS: Record<string, Record<string, object>> = {
       blockers: ["\u9700\u8981\u7f51\u7ad9 URL"],
     },
     sales_followup: {
-      plan: "\u96c6\u6210 CRM\uff0c\u8bbe\u7f6e\u6f5c\u5ba2\u57f9\u80b2\u5e8f\u5217\uff0c\u81ea\u52a8\u5316\u8ddf\u8fdb\u63d0\u9192\uff0c\u5e76\u8ddf\u8e2a\u4ea4\u6613\u7ba1\u9053\u3002",
+      plan: "集成 CRM，设置客户跟进邮件序列，自动化跟进提醒，并跟踪交易管道。",
       tasks: [
         { name: "\u8fde\u63a5 CRM\uff08HubSpot\u3001Salesforce \u7b49\uff09", status: "pending" },
         { name: "\u5bfc\u5165\u73b0\u6709\u6f5c\u5ba2\u548c\u4ea4\u6613", status: "pending" },
         { name: "\u521b\u5efa\u8ddf\u8fdb\u90ae\u4ef6\u5e8f\u5217", status: "pending" },
         { name: "\u8bbe\u7f6e\u81ea\u52a8\u63d0\u9192", status: "pending" },
         { name: "\u914d\u7f6e\u4ea4\u6613\u9636\u6bb5\u8ddf\u8e2a", status: "pending" },
-        { name: "\u53d1\u8d77\u57f9\u80b2\u6d3b\u52a8", status: "pending" },
+        { name: "发起跟进邮件活动", status: "pending" },
       ],
       blockers: ["\u9700\u8981 CRM API \u51ed\u8bc1", "\u9700\u8981\u5f53\u524d\u9500\u552e\u7ba1\u9053\u6570\u636e"],
     },
@@ -281,11 +281,11 @@ export async function POST(req: NextRequest) {
   const emailDomain = email.split("@")[1] || "";
 
   if (action === "create_project") {
-    const { name, website, description, domain } = body;
+    const { name, website, description, domain, ga_property_id } = body;
     if (!name) {
       return NextResponse.json({ error: "Project name is required" }, { status: 400 });
     }
-    const project = await sql`INSERT INTO projects (user_id, name, website, description, domain) VALUES (${userId}, ${name}, ${website || ""}, ${description || ""}, ${domain || null}) RETURNING id, name, website, description, domain, created_at`;
+    const project = await sql`INSERT INTO projects (user_id, name, website, description, domain, ga_property_id) VALUES (${userId}, ${name}, ${website || ""}, ${description || ""}, ${domain || null}, ${ga_property_id || null}) RETURNING id, name, website, description, domain, ga_property_id, created_at`;
     logAudit({ userId, userEmail: email, action: "project.create", resourceType: "project", resourceId: project[0].id as number, details: { name }, ipAddress: getIp(req) });
     sendWebhook("project.created", { project_id: project[0].id, name, website, description, domain, user_email: email });
     return NextResponse.json({ project: project[0] });

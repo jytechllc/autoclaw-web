@@ -104,7 +104,6 @@ export async function GET(req: NextRequest) {
 
     // If no session, fall back to first admin user
     if (!userId) {
-      console.log("No session found, falling back to first admin user");
       const admins = await sql`SELECT id FROM users WHERE role = 'admin' ORDER BY id ASC LIMIT 1`;
       if (admins.length > 0) {
         userId = admins[0].id;
@@ -124,7 +123,6 @@ export async function GET(req: NextRequest) {
           scope = EXCLUDED.scope,
           updated_at = NOW()
       `;
-      console.log("TikTok token saved for user_id:", userId, "open_id:", tokenData.open_id);
     } else {
       console.error("No user found to save TikTok token");
       return NextResponse.redirect(

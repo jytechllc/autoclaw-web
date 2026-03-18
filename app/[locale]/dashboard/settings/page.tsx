@@ -7,6 +7,15 @@ import { useParams } from "next/navigation";
 import { getDictionary, type Locale } from "@/lib/i18n";
 import DashboardShell from "@/components/DashboardShell";
 
+interface StorageUsage {
+  plan: string;
+  database: { totalSize: string; tableCount: number; tables: { name: string; rows: number; size: string }[] };
+  knowledgeBase: { docCount: number; chunkCount: number; totalTokens: number };
+  embeddings: { period: string; requestCount: number; tokenCount: number; budget: number };
+  blob: { configured: boolean; totalFiles: number; totalBytes: number; totalSizeMB: string };
+  data: { contacts: number; leads: number; projects: number; agents: number };
+}
+
 interface Project {
   id: number;
   name: string;
@@ -89,6 +98,7 @@ export default function SettingsPage() {
   const [orgKeyMsg, setOrgKeyMsg] = useState("");
   const [orgKeyRevealed, setOrgKeyRevealed] = useState<Record<string, string>>({});
   const [selectedOrgForKeys, setSelectedOrgForKeys] = useState<number | null>(null);
+  const [storage, setStorage] = useState<StorageUsage | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
     projects: true,
     language: true,
@@ -96,6 +106,7 @@ export default function SettingsPage() {
     byok: true,
     orgkeys: true,
     apikeys: true,
+    storage: true,
   });
 
   useEffect(() => {
@@ -116,6 +127,10 @@ export default function SettingsPage() {
     fetch("/api/api-keys")
       .then((r) => r.json())
       .then((data) => { setApiKeys(data.keys || []); setPlatformKeys(data.platformKeys || []); setOrgKeys(data.orgKeys || []); });
+    fetch("/api/storage-usage")
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d) setStorage(d); })
+      .catch(() => {});
   }, [user]);
 
   function loadOrgMembers(orgId: number) {
@@ -214,6 +229,7 @@ export default function SettingsPage() {
             { key: "byok", icon: "M6 8h12l1 11a2 2 0 01-2 2H7a2 2 0 01-2-2L6 8zm3 0V6a3 3 0 016 0v2m-6 0h6", label: ts.byokTitle, count: apiKeys.length },
             ...(orgs.some((o) => o.member_role === "admin" || o.member_role === "operator") ? [{ key: "orgkeys", icon: "M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4", label: ts.orgKeysTitle || "Org API Keys", count: orgKeys.length }] : []),
             { key: "apikeys", icon: "M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4", label: ts.apiKeysTitle || "API Keys", count: platformKeys.filter((k) => !k.revoked_at).length },
+            { key: "storage", icon: "M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4", label: ts.storageTitle || "Storage & Usage" },
           ].map((item) => (
             <button
               key={item.key}
@@ -452,7 +468,7 @@ export default function SettingsPage() {
                         </div>
                       ) : (
                         <>
-                          <h3 className="font-semibold text-sm">{org.name}</h3>
+                          <h3 className="font-semibold text-sm">{org.name} <span className="text-[10px] text-gray-400 font-normal">#{org.id}</span></h3>
                           {org.member_role === "admin" && (
                             <button
                               onClick={() => { setRenamingOrgId(org.id); setRenameOrgName(org.name); }}
@@ -1869,6 +1885,109 @@ export default function SettingsPage() {
                 {ts.apiKeyDocsHint || "Use your API key with"} <code className="bg-blue-100 px-1 rounded">Authorization: Bearer ac_live_...</code> {ts.apiKeyDocsHint2 || "to access"} <code className="bg-blue-100 px-1 rounded">/api/v1/*</code> {ts.apiKeyDocsHint3 || "endpoints."}
               </p>
             </div>
+          </div>}
+        </div>
+
+        {/* Storage & Usage */}
+        <div id="section-storage" className="bg-white rounded-lg border border-gray-200 mb-6 overflow-hidden">
+          <button
+            onClick={() => setCollapsed((prev) => ({ ...prev, storage: !prev.storage }))}
+            className="w-full flex items-center justify-between p-6 cursor-pointer hover:bg-gray-50 transition-colors"
+          >
+            <div className="text-left">
+              <h2 className="text-lg font-semibold">{ts.storageTitle || "Storage & Usage"}</h2>
+              <p className="text-sm text-gray-500">{ts.storageDesc || "Current resource usage across your workspace."}</p>
+            </div>
+            <svg className={`w-5 h-5 text-gray-400 transition-transform ${!collapsed.storage ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          {!collapsed.storage && <div className="px-6 pb-6">
+            {!storage ? (
+              <p className="text-sm text-gray-400 text-center py-4">{tc.loading}</p>
+            ) : (<>
+              {/* Summary cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+                <div className="bg-gray-50 rounded-lg border border-gray-200 p-3">
+                  <p className="text-xs text-gray-400">{ts.storageDb || "Database"}</p>
+                  <p className="text-lg font-bold text-gray-900">{storage.database.totalSize}</p>
+                  <p className="text-xs text-gray-400">{storage.database.tableCount} tables</p>
+                </div>
+                <div className="bg-gray-50 rounded-lg border border-gray-200 p-3">
+                  <p className="text-xs text-gray-400">{ts.storageKb || "Knowledge Base"}</p>
+                  <p className="text-lg font-bold text-gray-900">{storage.knowledgeBase.docCount} <span className="text-sm font-normal text-gray-400">docs</span></p>
+                  <p className="text-xs text-gray-400">{storage.knowledgeBase.chunkCount} chunks / ~{Math.round(storage.knowledgeBase.totalTokens / 1000)}K tokens</p>
+                </div>
+                <div className="bg-gray-50 rounded-lg border border-gray-200 p-3">
+                  <p className="text-xs text-gray-400">{ts.storageBlob || "Blob Storage"}</p>
+                  {storage.blob.configured ? (
+                    <>
+                      <p className="text-lg font-bold text-gray-900">{storage.blob.totalSizeMB} <span className="text-sm font-normal text-gray-400">MB</span></p>
+                      <p className="text-xs text-gray-400">{storage.blob.totalFiles} files</p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-gray-400">{ts.storageNotConfigured || "Not configured"}</p>
+                  )}
+                </div>
+                <div className="bg-gray-50 rounded-lg border border-gray-200 p-3">
+                  <p className="text-xs text-gray-400">{ts.storageEmbeddings || "Embeddings"}</p>
+                  <p className="text-lg font-bold text-gray-900">{(storage.embeddings.requestCount / 1000).toFixed(1)}K</p>
+                  <p className="text-xs text-gray-400">/ {(storage.embeddings.budget / 1000).toFixed(0)}K {ts.storageMonthly || "monthly"}</p>
+                  {storage.embeddings.budget > 0 && (
+                    <div className="mt-1.5 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${storage.embeddings.requestCount / storage.embeddings.budget > 0.8 ? "bg-red-500" : "bg-green-500"}`}
+                        style={{ width: `${Math.min(100, (storage.embeddings.requestCount / storage.embeddings.budget) * 100)}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Data counts */}
+              <div className="grid grid-cols-4 gap-3 mb-5">
+                {[
+                  { label: ts.storageProjects || "Projects", value: storage.data.projects },
+                  { label: ts.storageAgents || "AI Employees", value: storage.data.agents },
+                  { label: ts.storageContacts || "Contacts", value: storage.data.contacts },
+                  { label: ts.storageLeads || "Leads", value: storage.data.leads },
+                ].map((item) => (
+                  <div key={item.label} className="text-center p-2 bg-gray-50 rounded-lg border border-gray-100">
+                    <p className="text-lg font-bold text-gray-900">{item.value.toLocaleString()}</p>
+                    <p className="text-xs text-gray-400">{item.label}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Database tables detail */}
+              {storage.database.tables.length > 0 && (
+                <details className="text-sm">
+                  <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">{ts.storageDbDetail || "Database table details"}</summary>
+                  <div className="mt-2 overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-left text-gray-400 border-b border-gray-100">
+                          <th className="py-1.5 pr-4">Table</th>
+                          <th className="py-1.5 pr-4 text-right">Rows</th>
+                          <th className="py-1.5 text-right">Size</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {storage.database.tables.map((t) => (
+                          <tr key={t.name} className="border-b border-gray-50">
+                            <td className="py-1.5 pr-4 font-mono text-gray-600">{t.name}</td>
+                            <td className="py-1.5 pr-4 text-right text-gray-500">{t.rows.toLocaleString()}</td>
+                            <td className="py-1.5 text-right text-gray-500">{t.size}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              )}
+
+              <p className="text-xs text-gray-300 mt-3">Plan: {storage.plan} | {ts.storageUpdated || "Updated"}: {new Date().toLocaleDateString(locale)}</p>
+            </>)}
           </div>}
         </div>
 

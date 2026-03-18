@@ -84,6 +84,155 @@ function RunningTimer({ startedAt }: { startedAt: number }) {
   return <span className="ml-1 text-yellow-600 font-normal">({elapsed}s)</span>;
 }
 
+const STEP_LABELS: Record<string, Record<string, string>> = {
+  en: {
+    load_kb: "Loading knowledge base",
+    fetch_website: "Fetching website content",
+    search_company: "Searching company info via Google",
+    check_icp: "Checking existing ICP from Lead Prospecting",
+    ai_analyze: "AI analyzing",
+    extract_criteria: "Extracting search criteria",
+    save_result: "Saving results",
+    check_provider: "Checking email provider",
+    load_template: "Loading email template",
+    fetch_leads: "Fetching unsent leads",
+    sending_emails: "Sending emails",
+    save_report: "Saving report",
+    verify_sources: "Verifying data sources",
+    search_leads: "Searching for leads",
+    enrich_leads: "Enriching lead data",
+    score_leads: "Scoring leads",
+  },
+  zh: {
+    load_kb: "加载知识库",
+    fetch_website: "抓取网站内容",
+    search_company: "通过 Google 搜索公司信息",
+    check_icp: "检查潜客开发的 ICP 结果",
+    ai_analyze: "AI 分析中",
+    extract_criteria: "提取搜索条件",
+    save_result: "保存结果",
+    check_provider: "检查邮件服务商",
+    load_template: "加载邮件模板",
+    fetch_leads: "获取未发送潜客",
+    sending_emails: "发送邮件中",
+    save_report: "保存报告",
+    verify_sources: "验证数据源",
+    search_leads: "搜索潜客",
+    enrich_leads: "丰富潜客数据",
+    score_leads: "评分潜客",
+  },
+  "zh-TW": {
+    load_kb: "載入知識庫",
+    fetch_website: "擷取網站內容",
+    search_company: "透過 Google 搜尋公司資訊",
+    check_icp: "檢查潛客開發的 ICP 結果",
+    ai_analyze: "AI 分析中",
+    extract_criteria: "擷取搜尋條件",
+    save_result: "儲存結果",
+    check_provider: "檢查郵件服務商",
+    load_template: "載入郵件範本",
+    fetch_leads: "取得未發送潛客",
+    sending_emails: "發送郵件中",
+    save_report: "儲存報告",
+    verify_sources: "驗證資料來源",
+    search_leads: "搜尋潛客",
+    enrich_leads: "豐富潛客資料",
+    score_leads: "評分潛客",
+  },
+  fr: {
+    load_kb: "Chargement de la base de connaissances",
+    fetch_website: "Extraction du contenu du site",
+    search_company: "Recherche d'infos entreprise via Google",
+    check_icp: "Vérification de l'ICP existant",
+    ai_analyze: "Analyse IA",
+    extract_criteria: "Extraction des critères",
+    save_result: "Sauvegarde des résultats",
+    check_provider: "Vérification du fournisseur e-mail",
+    load_template: "Chargement du modèle e-mail",
+    fetch_leads: "Récupération des prospects",
+    sending_emails: "Envoi des e-mails",
+    save_report: "Sauvegarde du rapport",
+    verify_sources: "Vérification des sources",
+    search_leads: "Recherche de prospects",
+    enrich_leads: "Enrichissement des données",
+    score_leads: "Notation des prospects",
+  },
+};
+
+interface StepData {
+  step_key: string;
+  status: string;
+  detail: string | null;
+  created_at: string;
+}
+
+function StepItem({ step, label }: { step: StepData; label: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasLongDetail = !!step.detail && step.detail.length > 60;
+  const shortDetail = step.detail ? (step.detail.length > 60 ? step.detail.substring(0, 60) + "…" : step.detail) : "";
+
+  return (
+    <div>
+      <div className="flex items-center gap-1.5 text-[11px]">
+        {step.status === "running" ? (
+          <span className="text-yellow-500 animate-spin inline-block w-3 text-center">&#9696;</span>
+        ) : step.status === "done" ? (
+          <span className="text-green-500 w-3 text-center">&#10003;</span>
+        ) : (
+          <span className="text-red-500 w-3 text-center">&#10007;</span>
+        )}
+        <span className={step.status === "running" ? "text-gray-700 font-medium" : "text-gray-400"}>
+          {label}
+        </span>
+        {step.detail && !hasLongDetail && <span className="text-gray-300">({step.detail})</span>}
+        {hasLongDetail && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="text-blue-400 hover:text-blue-500 underline cursor-pointer ml-0.5"
+          >
+            {expanded ? "▾ collapse" : `▸ ${shortDetail}`}
+          </button>
+        )}
+      </div>
+      {expanded && step.detail && (
+        <pre className="ml-6 mt-0.5 mb-1 text-[10px] text-gray-500 bg-gray-50 rounded px-2 py-1 whitespace-pre-wrap break-words max-h-40 overflow-y-auto border border-gray-100">
+          {step.detail}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+function StepLog({ agentId, taskIndex, isRunning, locale }: { agentId: number; taskIndex: number; isRunning: boolean; locale: string }) {
+  const [steps, setSteps] = useState<StepData[]>([]);
+
+  useEffect(() => {
+    if (!isRunning && steps.length === 0) return;
+    let cancelled = false;
+    const poll = () => {
+      fetch(`/api/agent-steps?agent_id=${agentId}&task_index=${taskIndex}`)
+        .then((r) => r.ok ? r.json() : null)
+        .then((d) => { if (d && !cancelled) setSteps(d.steps || []); })
+        .catch(() => {});
+    };
+    poll();
+    const interval = isRunning ? setInterval(poll, 2000) : undefined;
+    return () => { cancelled = true; if (interval) clearInterval(interval); };
+  }, [agentId, taskIndex, isRunning]);
+
+  if (steps.length === 0) return null;
+
+  const labels = STEP_LABELS[locale] || STEP_LABELS.en;
+
+  return (
+    <div className="ml-6 mt-1 mb-1 space-y-0.5">
+      {steps.map((s, i) => (
+        <StepItem key={i} step={s} label={labels[s.step_key] || s.step_key} />
+      ))}
+    </div>
+  );
+}
+
 function stringifyResult(value: unknown): string {
   if (typeof value === "string") return value;
   if (value == null) return "";
@@ -1261,6 +1410,82 @@ export default function AgentsPage() {
                               </div>
                             )}
 
+                            {/* Failure / Status Diagnostics */}
+                            {tasks.length > 0 && (() => {
+                              const issues: { type: "error" | "warn" | "info"; msg: string }[] = [];
+
+                              // Detect unsupported agent type
+                              const unsupported = tasks.find((t: { result?: string }) => t.result && String(t.result).includes("not yet supported"));
+                              if (unsupported) {
+                                issues.push({ type: "error", msg: ta.diagUnsupported || `Agent type "${agent.agent_type}" is not yet supported. Tasks cannot execute.` });
+                              }
+
+                              // Detect no provider
+                              const noProvider = tasks.find((t: { result?: string }) => t.result && String(t.result).includes("No email provider configured"));
+                              if (noProvider) {
+                                issues.push({ type: "error", msg: ta.diagNoProvider || "No email provider (Brevo/SendGrid) configured. Add API keys in Settings → BYOK." });
+                              }
+
+                              // Detect no template
+                              const noTemplate = tasks.find((t: { result?: string }) => t.result && String(t.result).includes("Could not parse email template"));
+                              if (noTemplate) {
+                                issues.push({ type: "error", msg: ta.diagNoTemplate || "Email template missing or invalid. Re-run the Email Templates task." });
+                              }
+
+                              // Detect throttle
+                              const throttled = tasks.find((t: { result?: string }) => t.result && String(t.result).includes("Throttled:"));
+                              if (throttled) {
+                                const match = String(throttled.result).match(/last batch sent ([\d.]+)h ago \(min interval: (\d+)h\)/);
+                                const msg = match
+                                  ? (ta.diagThrottled || "Sending throttled: last batch {ago}h ago, next batch in ~{wait}h.").replace("{ago}", match[1]).replace("{wait}", String(Math.max(0.1, Number(match[2]) - Number(match[1])).toFixed(1)))
+                                  : (ta.diagThrottledGeneric || "Sending throttled. Will auto-retry next cron cycle.");
+                                issues.push({ type: "info", msg });
+                              }
+
+                              // Detect daily cap
+                              const capped = tasks.find((t: { result?: string }) => t.result && String(t.result).includes("Daily send cap reached"));
+                              if (capped) {
+                                issues.push({ type: "info", msg: ta.diagDailyCap || "Daily send cap reached. Will resume tomorrow." });
+                              }
+
+                              // Detect no unsent leads
+                              const noLeads = tasks.find((t: { result?: string }) => t.result && String(t.result).includes("No unsent leads found"));
+                              if (noLeads) {
+                                issues.push({ type: "info", msg: ta.diagNoLeads || "All leads have been emailed. Add more leads or run Lead Prospecting." });
+                              }
+
+                              // Detect stuck in_progress (task in_progress but no active run)
+                              const stuckTask = tasks.find((t: { status: string }, idx: number) =>
+                                t.status === "in_progress" && !(runningTask?.agentId === agent.id && (runningTask.taskIndex === idx || runningTask.taskIndex === -1))
+                              );
+                              if (stuckTask && !unsupported) {
+                                issues.push({ type: "warn", msg: ta.diagStuck || "A task appears stuck in progress. Try running it manually or restart." });
+                              }
+
+                              // Blockers
+                              if (config.blockers && (config.blockers as string[]).length > 0) {
+                                for (const b of config.blockers as string[]) {
+                                  issues.push({ type: "warn", msg: b });
+                                }
+                              }
+
+                              if (issues.length === 0) return null;
+
+                              const colors = { error: "bg-red-50 border-red-200 text-red-700", warn: "bg-yellow-50 border-yellow-200 text-yellow-700", info: "bg-blue-50 border-blue-200 text-blue-700" };
+                              const icons = { error: "\u26D4", warn: "\u26A0\uFE0F", info: "\u2139\uFE0F" };
+
+                              return (
+                                <div className="mb-3 space-y-1.5">
+                                  {issues.map((issue, idx) => (
+                                    <div key={idx} className={`flex items-start gap-2 text-xs px-3 py-2 rounded-lg border ${colors[issue.type]}`}>
+                                      <span className="flex-shrink-0">{icons[issue.type]}</span>
+                                      <span>{issue.msg}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            })()}
+
                             {tasks.length > 0 && (
                               <div className="mb-3">
                                 <p className="text-xs font-medium text-gray-500 mb-2">
@@ -1360,6 +1585,10 @@ export default function AgentsPage() {
                                             </button>
                                           )}
                                         </div>
+                                        {/* Real-time step log (thinking process) */}
+                                        {(isThisTaskRunning || task.status === "in_progress") && (
+                                          <StepLog agentId={agent.id} taskIndex={i} isRunning={isThisTaskRunning} locale={locale} />
+                                        )}
                                         {isExpanded && (
                                           <div className="ml-6 mt-1 mb-2 bg-gray-50 border border-gray-100 rounded-md p-2">
                                             <div className="flex items-center justify-between mb-2">

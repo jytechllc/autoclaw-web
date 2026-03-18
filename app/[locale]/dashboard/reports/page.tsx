@@ -546,9 +546,13 @@ export default function ReportsPage() {
                   const validSelection = saved
                     .filter((name): name is string => typeof name === "string" && availableProjectNames.includes(name));
                   if (validSelection.length > 0) {
-                    validSelection.forEach((name) => nextSelectedProjects.add(name));
+                    // Deselect only projects the user previously unchecked;
+                    // new projects (not in saved list at all) stay selected by default
+                    const savedSet = new Set(saved.filter((s): s is string => typeof s === "string"));
                     availableProjectNames.forEach((name) => {
-                      if (!validSelection.includes(name)) nextSelectedProjects.delete(name);
+                      if (savedSet.has(name) && !validSelection.includes(name)) {
+                        nextSelectedProjects.delete(name);
+                      }
                     });
                   }
                 }

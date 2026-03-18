@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
   const endpoint = action === "run-all" ? "/run-all" : "/execute";
   const body = action === "run-all"
     ? { agent_id, mode: mode || "continue", locale: locale || "en" }
-    : { agent_id, task_index, project_id: agents[0].project_id, user_id: userId, locale: locale || "en" };
+    : { agent_id, task_index, project_id: agents[0].project_id, user_id: userId, caller_id: userId, locale: locale || "en" };
 
   try {
     const workerRes = await fetch(`${workerUrl}${endpoint}`, {
