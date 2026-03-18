@@ -16,6 +16,7 @@ export const createProjectSchema = z.object({
   website: url,
   description: longText,
   domain,
+  ga_property_id: z.string().max(20).optional().nullable(),
 });
 
 export const activateAgentSchema = z.object({

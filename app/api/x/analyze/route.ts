@@ -329,7 +329,8 @@ export async function POST(req: NextRequest) {
 
     if (!fetched) {
       try {
-        const v1Timeline = await client.v1.userTimeline({ count: 5, exclude_replies: true, include_rts: false });
+        const v1Me = await client.v1.verifyCredentials();
+        const v1Timeline = await client.v1.userTimeline(v1Me.id_str, { count: 5, exclude_replies: true, include_rts: false });
         recentTweets = v1Timeline.tweets.map((t) => ({
           text: t.full_text || t.text,
           createdAt: t.created_at,

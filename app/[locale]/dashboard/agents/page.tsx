@@ -25,6 +25,9 @@ interface AgentAssignment {
     plan?: string;
     tasks?: { name: string; status: string; result?: string; model_used?: string; use_mode?: string }[];
     blockers?: string[];
+    sender_email?: string;
+    sender_name?: string;
+    [key: string]: unknown;
   };
 }
 

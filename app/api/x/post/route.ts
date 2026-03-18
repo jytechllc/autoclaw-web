@@ -265,7 +265,8 @@ export async function GET(req: NextRequest) {
       } catch {
         // v2 failed (Free tier) — try v1 user timeline
         try {
-          const v1Timeline = await client.v1.userTimeline({ count: 10, exclude_replies: true, include_rts: false });
+          const v1Me = await client.v1.verifyCredentials();
+          const v1Timeline = await client.v1.userTimeline(v1Me.id_str, { count: 10, exclude_replies: true, include_rts: false });
           const tweets = v1Timeline.tweets.map((tweet) => ({
             id: tweet.id_str,
             text: tweet.full_text || tweet.text,

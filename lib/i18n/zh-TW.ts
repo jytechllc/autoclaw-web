@@ -687,6 +687,10 @@ const zhTW: typeof en = {
     diagDailyCap: "已達每日發送上限，明天將自動恢復。",
     diagNoLeads: "所有潛客已發送完畢。請新增更多潛客或執行「潛客開發」。",
     diagStuck: "有任務似乎卡在執行中。請嘗試手動執行或重新啟動。",
+    senderConfig: "發送者設定",
+    senderEmailPlaceholder: "發送者郵箱（例如 hello@company.com）",
+    senderNamePlaceholder: "發送者名稱（例如 行銷團隊）",
+    senderConfigHint: "必須是您郵件服務商（Brevo/SendGrid）中已驗證的發送者。留空則使用專案擁有者的郵箱。",
   },
   reportsPage: {
     title: "報告",

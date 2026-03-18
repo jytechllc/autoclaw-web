@@ -24,7 +24,10 @@ export type AuditAction =
   | "apikey.delete"
   | "apikey.reveal"
   | "platform_apikey.create"
-  | "platform_apikey.revoke";
+  | "platform_apikey.revoke"
+  | "org_apikey.upsert"
+  | "org_apikey.reveal"
+  | "org_apikey.delete";
 
 interface AuditLogParams {
   userId: number | null;

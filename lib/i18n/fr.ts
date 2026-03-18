@@ -687,6 +687,10 @@ const fr: typeof en = {
     diagDailyCap: "Limite d'envoi quotidienne atteinte. Reprise demain.",
     diagNoLeads: "Tous les prospects ont été contactés. Ajoutez-en ou lancez la Prospection.",
     diagStuck: "Une tâche semble bloquée. Essayez de la relancer manuellement ou redémarrez.",
+    senderConfig: "Configuration de l'expéditeur",
+    senderEmailPlaceholder: "E-mail de l'expéditeur (ex. hello@company.com)",
+    senderNamePlaceholder: "Nom de l'expéditeur (ex. Équipe Marketing)",
+    senderConfigHint: "Doit être un expéditeur vérifié chez votre fournisseur (Brevo/SendGrid). Laissez vide pour utiliser l'e-mail du propriétaire.",
   },
   reportsPage: {
     title: "Rapports",
