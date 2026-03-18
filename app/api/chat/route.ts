@@ -53,10 +53,18 @@ export async function POST(req: NextRequest) {
 
     const sql = getDb();
     const email = session.user.email as string;
-    const { message, project_id, model: selectedModel, locale: reqLocale } = await req.json();
+
+    let body: { message?: string; project_id?: string; model?: string; locale?: string };
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    }
+
+    const { message, project_id, model: selectedModel, locale: reqLocale } = body;
     const locale = (reqLocale as string) || "en";
 
-    if (!message) {
+    if (!message || typeof message !== "string") {
       return NextResponse.json({ error: "Message required" }, { status: 400 });
     }
 
@@ -132,7 +140,7 @@ export async function POST(req: NextRequest) {
     // Load context — projects + agents
     const emailDomain = email.split("@")[1] || "";
     const projects = await sql`
-      SELECT DISTINCT p.id, p.name, p.website, p.description,
+      SELECT DISTINCT p.id, p.name, p.website, p.description, p.created_at,
         CASE
           WHEN p.user_id = ${userId} THEN 'owner'
           WHEN pm.role IS NOT NULL THEN pm.role
@@ -571,8 +579,8 @@ export async function POST(req: NextRequest) {
                 sendStep(toolName);
 
                 const toolCtx: ToolContext = {
-                  sql, userId, userPlan, projects, agents, project_id,
-                  byok, selectedModel, apifyToken, brevoApiKey, sendgridApiKey, sendStep,
+                  sql, userId, userPlan, projects, agents, project_id: project_id || null,
+                  byok, selectedModel: selectedModel || "", apifyToken, brevoApiKey, sendgridApiKey, sendStep,
                 };
                 const toolResult = await executeTool(toolName, toolParams, toolSummary, toolCtx);
 
