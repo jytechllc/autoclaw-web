@@ -601,7 +601,7 @@ export async function POST(req: NextRequest) {
 
       try {
         // Build conversation messages with recent history for context
-        const chatMessages: { role: string; content: string }[] = [
+        const chatMessages: { role: "system" | "user" | "assistant"; content: string }[] = [
           { role: "system", content: toolSystemPrompt },
         ];
         // Include recent history (reversed to chronological order) so AI knows what was discussed
@@ -609,7 +609,7 @@ export async function POST(req: NextRequest) {
         for (const msg of historyForContext) {
           // Skip the current user message (it's the last one we just saved)
           if (msg.role === "user" && msg.content === redactedMessage) continue;
-          chatMessages.push({ role: msg.role as string, content: (msg.content as string).slice(0, 500) });
+          chatMessages.push({ role: msg.role as "user" | "assistant", content: (msg.content as string).slice(0, 500) });
         }
         chatMessages.push({ role: "user", content: message });
 
@@ -646,7 +646,7 @@ export async function POST(req: NextRequest) {
               };
 
               // Orchestrator conversation: accumulates tool calls and results
-              const orchMessages: { role: string; content: string }[] = [
+              const orchMessages: { role: "system" | "user" | "assistant"; content: string }[] = [
                 { role: "system", content: toolSystemPrompt },
                 ...chatMessages.slice(1), // skip system (already added), include history + user message
               ];

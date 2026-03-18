@@ -9,10 +9,10 @@ export const AVAILABLE_AGENTS = [
 
 export const AGENT_PLANS: Record<string, { plan: string; tasks: { name: string; status: string }[]; blockers: string[] }> = {
   email_marketing: {
-    plan: "Set up cold outreach campaign with personalized templates, build prospect email list, configure follow-up sequences, and launch newsletter.",
+    plan: "Set up cold outreach campaign with personalized templates, build prospect email list from project contacts, configure follow-up sequences, and launch newsletter.",
     tasks: [
       { name: "Research target audience & ICP", status: "in_progress" },
-      { name: "Build prospect email list", status: "pending" },
+      { name: "Build prospect email list from existing contacts", status: "pending" },
       { name: "Create email templates (cold, follow-up, newsletter)", status: "pending" },
       { name: "Configure sending schedule & limits", status: "pending" },
       { name: "Set up tracking (opens, clicks, replies)", status: "pending" },
@@ -261,7 +261,7 @@ AutoClaw provides the following AI marketing agents that users can activate for 
 ${AVAILABLE_AGENTS.map((a) => `- **${a.label}** — ${a.desc}`).join("\n")}
 
 ### What each agent can do in detail:
-- **Email Marketing**: Send cold outreach emails, automated follow-up sequences (day 3, 7, 14), newsletters. Integrates with Brevo for sending. Can build prospect lists and personalize emails at scale.
+- **Email Marketing**: Send cold outreach emails, automated follow-up sequences (day 3, 7, 14), newsletters. Integrates with Brevo/SendGrid for sending. Syncs prospect lists from project contacts. Always use actual contact counts from the project — never invent numbers.
 - **SEO & Content**: Full SEO audits, keyword research, competitor analysis, write SEO-optimized blog posts, track rankings. Can publish content directly to user's website.
 - **Lead Prospecting**: Find B2B leads using Hunter.io, Snov.io, Apollo.io. Scrape industry directories, Google Maps, LinkedIn. Enrich contacts with company data. Import to CRM. Great for finding suppliers, factories, distributors, installers, partners in any industry or region.
 - **Social Media**: Manage X/Twitter and LinkedIn accounts. Create content calendars, schedule posts, engage with audiences, track follower growth.
