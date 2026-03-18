@@ -533,7 +533,6 @@ const zhTW: typeof en = {
     service: "服務",
     quantity: "用量",
     vercelOverage: "Vercel 超額",
-    totalTokens: "總 Token",
     platformLoading: "正在載入平台帳單...",
     platformNoData: "暫無帳單資料。請先執行 sync-billing 排程任務。",
   },

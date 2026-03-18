@@ -545,7 +545,6 @@ const en = {
     service: "Service",
     quantity: "Usage",
     vercelOverage: "Vercel Overage",
-    totalTokens: "Total Tokens",
     platformLoading: "Loading platform billing...",
     platformNoData: "No billing data yet. Run sync-billing cron first.",
   },
