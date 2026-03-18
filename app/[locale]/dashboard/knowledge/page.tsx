@@ -14,6 +14,7 @@ interface KBDocument {
   source_url?: string;
   file_size: number;
   chunk_count: number;
+  token_count: number;
   status: string;
   error_message?: string;
   org_name?: string;
@@ -58,7 +59,7 @@ export default function KnowledgePage() {
   const [documents, setDocuments] = useState<KBDocument[]>([]);
   const [orgs, setOrgs] = useState<Org[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [usage, setUsage] = useState({ docCount: 0, totalSize: 0, maxDocs: 10, maxSizeMB: 50 });
+  const [usage, setUsage] = useState({ docCount: 0, totalSize: 0, maxDocs: 10, maxSizeMB: 50, totalTokens: 0, totalChunks: 0 });
   const [plan, setPlan] = useState("starter");
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("all");
@@ -79,6 +80,8 @@ export default function KnowledgePage() {
   const [editUrl, setEditUrl] = useState("");
   const [editTitle, setEditTitle] = useState("");
   const [editSaving, setEditSaving] = useState(false);
+  const [editContent, setEditContent] = useState("");
+  const [editDocType, setEditDocType] = useState("");
   const [editingChunk, setEditingChunk] = useState<{ docId: number; index: number } | null>(null);
   const [editChunkContent, setEditChunkContent] = useState("");
   const [chunkSaving, setChunkSaving] = useState(false);
@@ -93,7 +96,7 @@ export default function KnowledgePage() {
       setDocuments(data.documents || []);
       setOrgs(data.orgs || []);
       setProjects(data.projects || []);
-      setUsage(data.usage || { docCount: 0, totalSize: 0, maxDocs: 10, maxSizeMB: 50 });
+      setUsage(data.usage || { docCount: 0, totalSize: 0, maxDocs: 10, maxSizeMB: 50, totalTokens: 0, totalChunks: 0 });
       setPlan(data.plan || "starter");
     } catch {
       // ignore
@@ -235,20 +238,46 @@ export default function KnowledgePage() {
     }
   }
 
-  function startEdit(doc: KBDocument) {
+  async function startEdit(doc: KBDocument) {
     setEditingDoc(doc.id);
     setEditUrl(doc.source_url || "");
     setEditTitle(doc.title);
+    setEditDocType(doc.doc_type);
+    setEditContent("");
+
+    // For text/pdf/docx docs, load chunk content to allow editing
+    if (doc.doc_type !== "url" && doc.chunk_count > 0) {
+      try {
+        const res = await fetch("/api/knowledge-base", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "get_chunks", document_id: doc.id }),
+        });
+        const data = await res.json();
+        if (data.chunks && data.chunks.length > 0) {
+          setEditContent(data.chunks.map((c: { content: string }) => c.content).join("\n\n"));
+        }
+      } catch { /* ignore */ }
+    }
   }
 
   async function handleSaveEdit(docId: number) {
     setEditSaving(true);
     try {
-      const res = await fetch("/api/knowledge-base", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "edit_url", document_id: docId, title: editTitle, url: editUrl }),
-      });
+      let res: Response;
+      if (editDocType === "url") {
+        res = await fetch("/api/knowledge-base", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "edit_url", document_id: docId, title: editTitle, url: editUrl }),
+        });
+      } else {
+        res = await fetch("/api/knowledge-base", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "edit_doc", document_id: docId, title: editTitle, text: editContent || undefined }),
+        });
+      }
       const data = await res.json();
       if (!res.ok) {
         alert(data.error || "Failed to save");
@@ -335,6 +364,14 @@ export default function KnowledgePage() {
           <div className="flex items-center gap-2">
             <span className="text-gray-500">{t.storage}:</span>
             <span className="font-medium">{formatSize(usage.totalSize)}/{usage.maxSizeMB}MB</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-gray-500">{t.kbTokens || "Tokens"}:</span>
+            <span className="font-medium">{usage.totalTokens.toLocaleString()}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-gray-500">{t.kbChunks || "Chunks"}:</span>
+            <span className="font-medium">{usage.totalChunks.toLocaleString()}</span>
           </div>
           {usage.docCount >= usage.maxDocs && (
             <span className="text-xs text-amber-600">{t.upgradeHint}</span>
@@ -529,6 +566,7 @@ export default function KnowledgePage() {
                       <span>{doc.doc_type.toUpperCase()}</span>
                       <span>{formatSize(doc.file_size)}</span>
                       {doc.chunk_count > 0 && <span>{doc.chunk_count} {t.chunks}</span>}
+                      {doc.token_count > 0 && <span>{doc.token_count.toLocaleString()} tokens</span>}
                       <span>{new Date(doc.created_at).toLocaleDateString()}</span>
                     </div>
                     {doc.status === "error" && doc.error_message && (
@@ -544,14 +582,12 @@ export default function KnowledgePage() {
                         {previewDocId === doc.id ? "Close" : "Preview"}
                       </button>
                     )}
-                    {doc.doc_type === "url" && (
-                      <button
-                        onClick={() => editingDoc === doc.id ? setEditingDoc(null) : startEdit(doc)}
-                        className={`text-xs cursor-pointer ${editingDoc === doc.id ? "text-gray-900 font-medium" : "text-gray-500 hover:text-gray-700"}`}
-                      >
-                        {editingDoc === doc.id ? dict.common.cancel : t.edit || "Edit"}
-                      </button>
-                    )}
+                    <button
+                      onClick={() => editingDoc === doc.id ? setEditingDoc(null) : startEdit(doc)}
+                      className={`text-xs cursor-pointer ${editingDoc === doc.id ? "text-gray-900 font-medium" : "text-gray-500 hover:text-gray-700"}`}
+                    >
+                      {editingDoc === doc.id ? dict.common.cancel : t.edit || "Edit"}
+                    </button>
                     {doc.status === "error" && doc.doc_type === "url" && (
                       <button
                         onClick={() => handleReprocess(doc.id)}
@@ -580,19 +616,34 @@ export default function KnowledgePage() {
                           className="w-full border border-gray-300 rounded-md px-3 py-1.5 text-sm"
                         />
                       </div>
-                      <div>
-                        <label className="text-xs text-gray-500 block mb-1">URL</label>
-                        <input
-                          type="url"
-                          value={editUrl}
-                          onChange={(e) => setEditUrl(e.target.value)}
-                          className="w-full border border-gray-300 rounded-md px-3 py-1.5 text-sm"
-                        />
-                      </div>
+                      {doc.doc_type === "url" && (
+                        <div>
+                          <label className="text-xs text-gray-500 block mb-1">URL</label>
+                          <input
+                            type="url"
+                            value={editUrl}
+                            onChange={(e) => setEditUrl(e.target.value)}
+                            className="w-full border border-gray-300 rounded-md px-3 py-1.5 text-sm"
+                          />
+                        </div>
+                      )}
+                      {doc.doc_type !== "url" && (
+                        <div>
+                          <label className="text-xs text-gray-500 block mb-1">{t.contentLabel || "Content"}</label>
+                          <textarea
+                            value={editContent}
+                            onChange={(e) => setEditContent(e.target.value)}
+                            rows={10}
+                            className="w-full border border-gray-300 rounded-md px-3 py-1.5 text-sm font-mono resize-y"
+                            placeholder={t.contentPlaceholder || "Document content..."}
+                          />
+                          <p className="text-[10px] text-gray-400 mt-1">{t.contentEditHint || "Editing content will re-process embeddings."}</p>
+                        </div>
+                      )}
                       <div className="flex gap-2">
                         <button
                           onClick={() => handleSaveEdit(doc.id)}
-                          disabled={editSaving || !editUrl.trim()}
+                          disabled={editSaving || (doc.doc_type === "url" && !editUrl.trim())}
                           className="px-3 py-1.5 text-xs bg-red-800 text-white rounded-md hover:bg-red-900 disabled:opacity-50 cursor-pointer"
                         >
                           {editSaving ? dict.common.loading : t.submit || "Save"}

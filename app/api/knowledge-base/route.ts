@@ -92,21 +92,50 @@ export async function GET(req: NextRequest) {
     `;
   }
 
-  // Count totals for limits
+  // Count totals for limits + token stats
   const countResult = await sql`
     SELECT COUNT(*)::int as count, COALESCE(SUM(file_size), 0)::bigint as total_size
     FROM kb_documents WHERE user_id = ${userId}
   `;
+
+  // Token stats: per-document and total
+  const docIds = documents.map((d) => d.id as number);
+  let totalTokens = 0;
+  let totalChunks = 0;
+  const docTokenMap: Record<number, number> = {};
+  if (docIds.length > 0) {
+    const tokenResult = await sql`
+      SELECT document_id, COALESCE(SUM(token_count), 0)::int as doc_tokens, COUNT(*)::int as doc_chunks
+      FROM kb_chunks WHERE document_id = ANY(${docIds})
+      GROUP BY document_id
+    `;
+    for (const row of tokenResult) {
+      const did = row.document_id as number;
+      const tokens = row.doc_tokens as number;
+      docTokenMap[did] = tokens;
+      totalTokens += tokens;
+      totalChunks += row.doc_chunks as number;
+    }
+  }
+
+  // Attach token_count to each document
+  const enrichedDocs = documents.map((d) => ({
+    ...d,
+    token_count: docTokenMap[d.id as number] || 0,
+  }));
+
   const limits = PLAN_LIMITS[plan] || PLAN_LIMITS.starter;
 
   return NextResponse.json({
-    documents,
+    documents: enrichedDocs,
     plan,
     usage: {
       docCount: countResult[0].count as number,
       totalSize: countResult[0].total_size as number,
       maxDocs: limits.maxDocs,
       maxSizeMB: limits.maxSizeMB,
+      totalTokens,
+      totalChunks,
     },
     orgs: orgs.map((o) => ({ id: o.id, name: o.name })),
     projects: projects.map((p) => ({ id: p.id, name: p.name })),
@@ -154,6 +183,8 @@ export async function POST(req: NextRequest) {
       return handleGetChunks(body, sql, userId);
     case "edit_url":
       return handleEditUrl(body, sql, userId, plan, limits);
+    case "edit_doc":
+      return handleEditDoc(body, sql, userId, plan);
     case "edit_chunk":
       return handleEditChunk(body, sql, userId, plan);
     case "assign_project":
@@ -589,6 +620,44 @@ async function handleEditUrl(
     } catch {
       // Extraction failed — still saved as reference
       await sql`UPDATE kb_documents SET status = 'ready' WHERE id = ${document_id}`;
+    }
+  }
+
+  return NextResponse.json({ updated: true });
+}
+
+async function handleEditDoc(
+  body: { document_id?: number; title?: string; text?: string },
+  sql: ReturnType<typeof getDb>,
+  userId: number,
+  plan: string,
+) {
+  const { document_id, title, text } = body;
+  if (!document_id) {
+    return NextResponse.json({ error: "document_id required" }, { status: 400 });
+  }
+
+  const docs = await sql`SELECT id, user_id, doc_type FROM kb_documents WHERE id = ${document_id}`;
+  if (docs.length === 0 || docs[0].user_id !== userId) {
+    return NextResponse.json({ error: "Document not found or not authorized" }, { status: 404 });
+  }
+
+  // Update title if provided
+  if (title?.trim()) {
+    await sql`UPDATE kb_documents SET title = ${title.trim()}, updated_at = NOW() WHERE id = ${document_id}`;
+  }
+
+  // Update text content: delete old chunks and re-embed
+  if (text?.trim()) {
+    await sql`DELETE FROM kb_chunks WHERE document_id = ${document_id}`;
+    const textSize = Buffer.byteLength(text, "utf-8");
+    await sql`UPDATE kb_documents SET file_size = ${textSize}, status = 'processing', chunk_count = 0, error_message = NULL, updated_at = NOW() WHERE id = ${document_id}`;
+
+    try {
+      await processAndEmbed(sql, document_id, text, userId, plan);
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : "Processing failed";
+      await sql`UPDATE kb_documents SET status = 'error', error_message = ${errMsg} WHERE id = ${document_id}`;
     }
   }
 

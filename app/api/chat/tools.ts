@@ -412,14 +412,24 @@ async function handleSaveContacts(
   project_id: string | null,
 ): Promise<string> {
   const projectName = toolParams.project_name as string | undefined;
-  const projectIdParam = toolParams.project_id as number | undefined;
+  const rawProjectId = toolParams.project_id;
   let targetProject: ProjectRow | undefined;
 
   if (projectName) {
-    targetProject = projects.find((p) => (p.name as string).toLowerCase() === projectName.toLowerCase());
-  } else if (projectIdParam) {
-    targetProject = projects.find((p) => p.id === projectIdParam);
-  } else if (project_id) {
+    targetProject = projects.find((p) => (p.name as string).toLowerCase() === projectName.toLowerCase())
+      || projects.find((p) => (p.name as string).toLowerCase().includes(projectName.toLowerCase()));
+  } else if (rawProjectId) {
+    const asNum = typeof rawProjectId === "number" ? rawProjectId : parseInt(String(rawProjectId), 10);
+    if (!isNaN(asNum)) {
+      targetProject = projects.find((p) => p.id === asNum);
+    } else {
+      // AI passed project name as project_id — do name match
+      const nameStr = String(rawProjectId).toLowerCase();
+      targetProject = projects.find((p) => (p.name as string).toLowerCase() === nameStr)
+        || projects.find((p) => (p.name as string).toLowerCase().includes(nameStr));
+    }
+  }
+  if (!targetProject && project_id) {
     targetProject = projects.find((p) => p.id === project_id);
   }
 
@@ -478,7 +488,25 @@ async function handleSaveContacts(
 
 async function handleEnrichContacts(toolParams: Record<string, unknown>, ctx: ToolContext): Promise<string> {
   const { sql, userId, project_id, projects, byok, selectedModel } = ctx;
-  const enrichProjectId = (toolParams.project_id as number) || project_id || (projects.length > 0 ? projects[projects.length - 1].id : null);
+
+  // Resolve project_id: accept integer ID or project name string
+  let enrichProjectId: unknown = null;
+  const rawProjectId = toolParams.project_id;
+  if (rawProjectId) {
+    const asNum = typeof rawProjectId === "number" ? rawProjectId : parseInt(String(rawProjectId), 10);
+    if (!isNaN(asNum)) {
+      enrichProjectId = asNum;
+    } else {
+      // Treat as project name — fuzzy match
+      const nameStr = String(rawProjectId).toLowerCase();
+      const matched = projects.find((p) => (p.name as string).toLowerCase() === nameStr)
+        || projects.find((p) => (p.name as string).toLowerCase().includes(nameStr));
+      if (matched) enrichProjectId = matched.id;
+    }
+  }
+  if (!enrichProjectId) {
+    enrichProjectId = project_id || (projects.length > 0 ? projects[projects.length - 1].id : null);
+  }
   if (!enrichProjectId) return "No project found. Please create a project first.";
 
   const limit = Math.min((toolParams.limit as number) || 20, 50);

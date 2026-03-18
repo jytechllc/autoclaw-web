@@ -90,6 +90,14 @@ export default function ChatPage() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Conversation state
+  interface Conversation { id: number; title: string; message_count: number; updated_at: string }
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeConvId, setActiveConvId] = useState<number | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameTitle, setRenameTitle] = useState("");
+
   function refreshQuota() {
     fetch("/api/status")
       .then((r) => r.json())
@@ -99,11 +107,77 @@ export default function ChatPage() {
       .catch(() => {});
   }
 
+  function fetchConversations() {
+    fetch("/api/conversations")
+      .then((r) => r.json())
+      .then((data) => setConversations(data.conversations || []))
+      .catch(() => {});
+  }
+
+  function loadMessages(convId: number | null) {
+    const url = convId ? `/api/chat?conversation_id=${convId}` : "/api/chat";
+    fetch(url)
+      .then((r) => r.json())
+      .then((data) => {
+        setMessages(data.messages || []);
+        setToolExecutions(data.toolExecutions || []);
+      });
+  }
+
+  async function handleNewConversation() {
+    try {
+      const res = await fetch("/api/conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "create", title: td.chatNewConv || "New Chat" }),
+      });
+      const data = await res.json();
+      if (data.conversation) {
+        setActiveConvId(data.conversation.id);
+        setMessages([]);
+        fetchConversations();
+      }
+    } catch { /* ignore */ }
+  }
+
+  async function handleRenameConversation(convId: number) {
+    if (!renameTitle.trim()) return;
+    try {
+      await fetch("/api/conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "rename", conversation_id: convId, title: renameTitle.trim() }),
+      });
+      setRenamingId(null);
+      fetchConversations();
+    } catch { /* ignore */ }
+  }
+
+  async function handleDeleteConversation(convId: number) {
+    try {
+      await fetch("/api/conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", conversation_id: convId }),
+      });
+      if (activeConvId === convId) {
+        setActiveConvId(null);
+        setMessages([]);
+      }
+      fetchConversations();
+    } catch { /* ignore */ }
+  }
+
+  function switchConversation(convId: number | null) {
+    setActiveConvId(convId);
+    loadMessages(convId);
+    setSidebarOpen(false);
+  }
+
   useEffect(() => {
     if (!user) return;
-    fetch("/api/chat")
-      .then((r) => r.json())
-      .then((data) => setMessages(data.messages || []));
+    fetchConversations();
+    loadMessages(null);
     fetch("/api/models")
       .then((r) => r.json())
       .then((data) => setModels(data.models || []));
@@ -115,17 +189,71 @@ export default function ChatPage() {
   }, [messages]);
 
   const [toolStatus, setToolStatus] = useState<string>("");
+  const [toolSteps, setToolSteps] = useState<{ label: string; done: boolean; error?: boolean; errorDetail?: string }[]>([]);
+
+  interface ToolExecution {
+    id: number; tool_name: string; status: string;
+    result_summary?: string; error_message?: string; duration_ms?: number; created_at: string;
+  }
+  const [toolExecutions, setToolExecutions] = useState<ToolExecution[]>([]);
+  const [copiedId, setCopiedId] = useState<number | null>(null);
+  const [savingKbId, setSavingKbId] = useState<number | null>(null);
+  const [savedKbId, setSavedKbId] = useState<number | null>(null);
+  const [shareToast, setShareToast] = useState<string | null>(null);
+
+  function handleCopy(msg: ChatMessage) {
+    navigator.clipboard.writeText(msg.content).then(() => {
+      setCopiedId(msg.id);
+      setTimeout(() => setCopiedId(null), 2000);
+    });
+  }
+
+  function handleShare(msg: ChatMessage) {
+    const text = msg.content;
+    if (navigator.share) {
+      navigator.share({ title: "AutoClaw AI", text }).catch(() => {});
+    } else {
+      navigator.clipboard.writeText(text).then(() => {
+        setShareToast(td.chatShareCopied || "Link copied!");
+        setTimeout(() => setShareToast(null), 2000);
+      });
+    }
+  }
+
+  async function handleSaveToKb(msg: ChatMessage) {
+    setSavingKbId(msg.id);
+    try {
+      const title = `Chat: ${msg.content.slice(0, 60).replace(/[#*|_\n]/g, "").trim()}...`;
+      const res = await fetch("/api/knowledge-base", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "add_text", title, text: msg.content, scope: "personal" }),
+      });
+      if (res.ok) {
+        setSavedKbId(msg.id);
+        setTimeout(() => setSavedKbId(null), 3000);
+      }
+    } catch { /* ignore */ } finally {
+      setSavingKbId(null);
+    }
+  }
 
   async function doSendMessage(userMsg: string) {
     setSending(true);
     setToolStatus("");
+    setToolSteps([]);
     const tempMsg: ChatMessage = { id: Date.now(), role: "user", content: userMsg, created_at: new Date().toISOString() };
     setMessages((prev) => [...prev, tempMsg]);
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMsg, model: selectedModel !== "auto" ? selectedModel : undefined, locale }),
+        body: JSON.stringify({
+          message: userMsg,
+          model: selectedModel !== "auto" ? selectedModel : undefined,
+          locale,
+          conversation_id: activeConvId ? String(activeConvId) : undefined,
+        }),
       });
 
       // Check if streaming (SSE) response
@@ -142,8 +270,45 @@ export default function ChatPage() {
               if (line.startsWith("data: ")) {
                 try {
                   const evt = JSON.parse(line.slice(6));
-                  if (evt.type === "step") setToolStatus(evt.message);
-                  if (evt.type === "done") { finalReply = evt.reply; setToolStatus(""); }
+                  if (evt.type === "step") {
+                    const stepMsg = evt.message as string;
+                    setToolStatus(stepMsg);
+                    // Skip terminal/internal labels from the visible step list
+                    const skipLabels = ["Done!", "完成！", "Terminé !"];
+                    const isError = stepMsg?.startsWith("error:");
+                    if (stepMsg && !skipLabels.includes(stepMsg)) {
+                      setToolSteps((prev) => {
+                        if (isError) {
+                          // Mark the last running step as failed
+                          return prev.map((s, i) => i === prev.length - 1 && !s.done ? { ...s, done: true, error: true } : s);
+                        }
+                        // Mark previous steps as done, add new one
+                        const updated = prev.map((s) => ({ ...s, done: true }));
+                        if (!updated.some((s) => s.label === stepMsg)) {
+                          updated.push({ label: stepMsg, done: false });
+                        }
+                        return updated;
+                      });
+                    }
+                  }
+                  if (evt.type === "step_error") {
+                    // Tool failed — mark last step as error with detail
+                    setToolSteps((prev) => {
+                      const updated = [...prev];
+                      if (updated.length > 0) {
+                        const last = updated[updated.length - 1];
+                        updated[updated.length - 1] = { ...last, done: true, error: true, errorDetail: evt.error };
+                      } else {
+                        updated.push({ label: evt.tool || "Unknown tool", done: true, error: true, errorDetail: evt.error });
+                      }
+                      return updated;
+                    });
+                  }
+                  if (evt.type === "done") {
+                    finalReply = evt.reply;
+                    setToolStatus("");
+                    setToolSteps([]);
+                  }
                 } catch { /* skip */ }
               }
             }
@@ -164,6 +329,7 @@ export default function ChatPage() {
       setSending(false);
       setToolStatus("");
       refreshQuota();
+      fetchConversations();
     }
   }
 
@@ -227,9 +393,98 @@ export default function ChatPage() {
   return (
     <DashboardShell user={user} fullHeight>
       <div className="px-4 sm:px-6 py-6 flex-1 flex flex-col min-h-0">
-        <h1 className="text-2xl font-bold mb-6">{td.title}</h1>
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-bold">{td.chatPageTitle || "AI Chat"}</h1>
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="sm:hidden text-gray-500 hover:text-gray-700 p-1.5 rounded-lg hover:bg-gray-100 cursor-pointer"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" /></svg>
+          </button>
+        </div>
 
-        <div className="flex-1 flex flex-col bg-white rounded-lg border border-gray-200 overflow-hidden min-h-0">
+        <div className="flex-1 flex gap-4 min-h-0">
+          {/* Conversation sidebar */}
+          <div className={`${sidebarOpen ? "fixed inset-0 z-40 bg-black/30 sm:relative sm:bg-transparent" : "hidden"} sm:block sm:w-56 shrink-0`}>
+            <div className={`${sidebarOpen ? "absolute right-0 top-0 h-full w-64 bg-white shadow-lg sm:shadow-none sm:relative sm:w-full" : ""} flex flex-col bg-white rounded-lg border border-gray-200 overflow-hidden h-full`}>
+              <div className="p-3 border-b border-gray-100 flex items-center justify-between">
+                <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">{td.chatConversations || "Conversations"}</span>
+                <button
+                  type="button"
+                  onClick={handleNewConversation}
+                  className="text-xs bg-red-800 hover:bg-red-900 text-white px-2 py-1 rounded cursor-pointer"
+                  title={td.chatNewConv || "New Chat"}
+                >
+                  + {td.chatNew || "New"}
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                {/* Default (no conversation) */}
+                <button
+                  type="button"
+                  onClick={() => switchConversation(null)}
+                  className={`w-full text-left px-3 py-2.5 text-sm border-b border-gray-50 hover:bg-gray-50 transition-colors cursor-pointer ${activeConvId === null ? "bg-red-50 text-red-800 font-medium" : "text-gray-700"}`}
+                >
+                  <div className="truncate">{td.chatGeneral || "General"}</div>
+                </button>
+                {conversations.map((conv) => (
+                  <div
+                    key={conv.id}
+                    className={`group relative border-b border-gray-50 ${activeConvId === conv.id ? "bg-red-50" : "hover:bg-gray-50"}`}
+                  >
+                    {renamingId === conv.id ? (
+                      <div className="px-3 py-2 flex gap-1">
+                        <input
+                          type="text"
+                          value={renameTitle}
+                          onChange={(e) => setRenameTitle(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") handleRenameConversation(conv.id); if (e.key === "Escape") setRenamingId(null); }}
+                          className="flex-1 text-xs border border-gray-300 rounded px-1.5 py-1 min-w-0"
+                          autoFocus
+                        />
+                        <button type="button" onClick={() => handleRenameConversation(conv.id)} className="text-xs text-red-800 cursor-pointer">OK</button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => switchConversation(conv.id)}
+                        className={`w-full text-left px-3 py-2.5 text-sm cursor-pointer ${activeConvId === conv.id ? "text-red-800 font-medium" : "text-gray-700"}`}
+                      >
+                        <div className="truncate pr-10">{conv.title}</div>
+                        <div className="text-[10px] text-gray-400 mt-0.5">{conv.message_count} msgs</div>
+                      </button>
+                    )}
+                    {renamingId !== conv.id && (
+                      <div className="absolute right-1 top-1/2 -translate-y-1/2 hidden group-hover:flex gap-0.5">
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setRenamingId(conv.id); setRenameTitle(conv.title); }}
+                          className="text-gray-400 hover:text-gray-600 p-1 cursor-pointer"
+                          title="Rename"
+                        >
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); handleDeleteConversation(conv.id); }}
+                          className="text-gray-400 hover:text-red-500 p-1 cursor-pointer"
+                          title="Delete"
+                        >
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+            {/* Mobile overlay close */}
+            {sidebarOpen && <div className="sm:hidden absolute inset-0 -z-10" onClick={() => setSidebarOpen(false)} />}
+          </div>
+
+          {/* Chat area */}
+          <div className="flex-1 flex flex-col bg-white rounded-lg border border-gray-200 overflow-hidden min-h-0">
           {/* Daily quota bar */}
           {quota && !quota.unlimited && (
             <div className="px-4 py-2 border-b border-gray-100 bg-gray-50 flex items-center gap-3 shrink-0">
@@ -257,26 +512,126 @@ export default function ChatPage() {
               </div>
             )}
             {messages.map((msg) => (
-              <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"} gap-2`}>
+              <div key={msg.id} className={`group flex ${msg.role === "user" ? "justify-end" : "justify-start"} gap-2`}>
                 {msg.role === "assistant" && (
                   <div className="w-7 h-7 rounded-full bg-red-100 flex items-center justify-center shrink-0 mt-1 text-sm">🦞</div>
                 )}
-                <div className={`max-w-[80%] rounded-lg px-4 py-3 text-sm ${msg.role === "user" ? "bg-red-800 text-white" : "bg-gray-50 text-gray-800 border border-gray-200"}`}>
-                  <div className={`prose prose-sm max-w-none [&>p]:my-1 [&>ul]:my-1 [&>ol]:my-1 [&>h1]:text-base [&>h2]:text-sm [&>h3]:text-sm [&_table]:text-xs [&_table]:border-collapse [&_th]:border [&_th]:px-2 [&_th]:py-1 [&_td]:border [&_td]:px-2 [&_td]:py-1 ${msg.role === "user" ? "prose-invert [&_th]:border-red-300 [&_td]:border-red-200 [&_th]:bg-red-400/30 [&_a]:text-red-100" : "prose-gray [&_th]:border-gray-300 [&_th]:bg-gray-50 [&_td]:border-gray-200"}`}>
-                    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>{msg.content}</ReactMarkdown>
+                <div className="flex flex-col max-w-[80%]">
+                  <div className={`rounded-lg px-4 py-3 text-sm ${msg.role === "user" ? "bg-red-800 text-white" : "bg-gray-50 text-gray-800 border border-gray-200"}`}>
+                    <div className={`prose prose-sm max-w-none [&>p]:my-1 [&>ul]:my-1 [&>ol]:my-1 [&>h1]:text-base [&>h2]:text-sm [&>h3]:text-sm [&_table]:text-xs [&_table]:border-collapse [&_th]:border [&_th]:px-2 [&_th]:py-1 [&_td]:border [&_td]:px-2 [&_td]:py-1 ${msg.role === "user" ? "prose-invert [&_th]:border-red-300 [&_td]:border-red-200 [&_th]:bg-red-400/30 [&_a]:text-red-100" : "prose-gray [&_th]:border-gray-300 [&_th]:bg-gray-50 [&_td]:border-gray-200"}`}>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>{msg.content}</ReactMarkdown>
+                    </div>
                   </div>
+                  {/* Action bar for assistant messages */}
+                  {msg.role === "assistant" && (
+                    <div className="flex items-center gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {/* Copy */}
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(msg)}
+                        className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 px-1.5 py-0.5 rounded hover:bg-gray-100 transition-colors cursor-pointer"
+                        title={td.chatCopy || "Copy"}
+                      >
+                        {copiedId === msg.id ? (
+                          <><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg><span>{td.chatCopied || "Copied!"}</span></>
+                        ) : (
+                          <><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" strokeWidth={2} /><path strokeWidth={2} d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" /></svg><span>{td.chatCopy || "Copy"}</span></>
+                        )}
+                      </button>
+                      {/* Share */}
+                      <button
+                        type="button"
+                        onClick={() => handleShare(msg)}
+                        className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 px-1.5 py-0.5 rounded hover:bg-gray-100 transition-colors cursor-pointer"
+                        title={td.chatShare || "Share"}
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13" /></svg>
+                        <span>{td.chatShare || "Share"}</span>
+                      </button>
+                      {/* Save to Knowledge Base */}
+                      <button
+                        type="button"
+                        onClick={() => handleSaveToKb(msg)}
+                        disabled={savingKbId === msg.id || savedKbId === msg.id}
+                        className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 px-1.5 py-0.5 rounded hover:bg-gray-100 transition-colors cursor-pointer disabled:opacity-50"
+                        title={td.chatSaveKb || "Save to Knowledge Base"}
+                      >
+                        {savedKbId === msg.id ? (
+                          <><svg className="w-3.5 h-3.5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg><span className="text-green-500">{td.chatSavedKb || "Saved!"}</span></>
+                        ) : savingKbId === msg.id ? (
+                          <><svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={4} /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg><span>{td.chatSavingKb || "Saving..."}</span></>
+                        ) : (
+                          <><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" /><polyline strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} points="17 21 17 13 7 13 7 21" /><polyline strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} points="7 3 7 8 15 8" /></svg><span>{td.chatSaveKb || "Save to KB"}</span></>
+                        )}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
             {sending && (
-              <div className="flex justify-start">
-                <div className="bg-gray-100 text-gray-500 rounded-lg px-4 py-3 text-sm">
-                  <span className="animate-pulse">{toolStatus || td.thinking}</span>
+              <div className="flex justify-start gap-2">
+                <div className="w-7 h-7 rounded-full bg-red-100 flex items-center justify-center shrink-0 mt-1 text-sm">🦞</div>
+                <div className="bg-gray-50 border border-gray-200 text-gray-600 rounded-lg px-4 py-3 text-sm min-w-[200px]">
+                  {toolSteps.length > 0 ? (
+                    <div className="space-y-1.5">
+                      {toolSteps.map((step, i) => (
+                        <div key={i} className="flex flex-col gap-0.5">
+                          <div className="flex items-center gap-2">
+                            {step.error ? (
+                              <svg className="w-3.5 h-3.5 text-red-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
+                            ) : step.done ? (
+                              <svg className="w-3.5 h-3.5 text-green-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+                            ) : (
+                              <svg className="w-3.5 h-3.5 text-red-800 animate-spin shrink-0" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={4} /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                            )}
+                            <span className={step.error ? "text-red-500" : step.done ? "text-gray-400" : "text-gray-700 font-medium"}>{step.label}</span>
+                          </div>
+                          {step.error && step.errorDetail && (
+                            <div className="ml-5.5 text-[11px] text-red-400 bg-red-50 rounded px-2 py-1 break-all" style={{ marginLeft: "22px" }}>{step.errorDetail}</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="animate-pulse">{td.thinking}</span>
+                  )}
                 </div>
               </div>
             )}
             <div ref={chatEndRef} />
           </div>
+          {/* Tool execution history */}
+          {toolExecutions.length > 0 && !sending && (
+            <div className="border-t border-gray-100 px-4 py-2 bg-gray-50/50">
+              <details className="text-xs">
+                <summary className="cursor-pointer text-gray-500 hover:text-gray-700 select-none">
+                  {td.chatToolHistory || "Tool executions"} ({toolExecutions.length})
+                </summary>
+                <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
+                  {toolExecutions.map((t) => (
+                    <div key={t.id} className="flex items-center gap-2 text-[11px]">
+                      {t.status === "done" ? (
+                        <span className="text-green-500">●</span>
+                      ) : t.status === "error" ? (
+                        <span className="text-red-500">●</span>
+                      ) : (
+                        <span className="text-yellow-500">●</span>
+                      )}
+                      <span className="font-mono text-gray-600">{t.tool_name}</span>
+                      {t.duration_ms != null && <span className="text-gray-400">{(t.duration_ms / 1000).toFixed(1)}s</span>}
+                      {t.status === "error" && t.error_message && (
+                        <span className="text-red-400 truncate max-w-[200px]" title={t.error_message}>{t.error_message}</span>
+                      )}
+                      {t.status === "done" && t.result_summary && (
+                        <span className="text-gray-400 truncate max-w-[200px]" title={t.result_summary}>{t.result_summary.slice(0, 60)}...</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </details>
+            </div>
+          )}
           <div className="border-t border-gray-200 px-4 pt-2 pb-1">
             <div className="flex items-center gap-2">
               <select
@@ -376,7 +731,14 @@ export default function ChatPage() {
             </button>
           </form>
         </div>
+        </div>{/* close flex sidebar+chat wrapper */}
       </div>
+      {/* Share toast */}
+      {shareToast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-sm px-4 py-2 rounded-lg shadow-lg z-50 animate-fade-in">
+          {shareToast}
+        </div>
+      )}
     </DashboardShell>
   );
 }

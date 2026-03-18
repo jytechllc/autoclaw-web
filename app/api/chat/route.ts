@@ -33,11 +33,29 @@ export async function GET(req: NextRequest) {
     }
 
     const projectId = req.nextUrl.searchParams.get("project_id");
-    const messages = projectId
-      ? await sql`SELECT id, role, content, agent_type, created_at FROM chat_messages WHERE user_id = ${users[0].id} AND project_id = ${projectId} ORDER BY created_at ASC LIMIT 100`
-      : await sql`SELECT id, role, content, agent_type, created_at FROM chat_messages WHERE user_id = ${users[0].id} AND project_id IS NULL ORDER BY created_at ASC LIMIT 100`;
+    const conversationId = req.nextUrl.searchParams.get("conversation_id");
 
-    return NextResponse.json({ messages });
+    let messages;
+    if (conversationId) {
+      messages = await sql`SELECT id, role, content, agent_type, created_at FROM chat_messages WHERE user_id = ${users[0].id} AND conversation_id = ${conversationId} ORDER BY created_at ASC LIMIT 100`;
+    } else if (projectId) {
+      messages = await sql`SELECT id, role, content, agent_type, created_at FROM chat_messages WHERE user_id = ${users[0].id} AND project_id = ${projectId} AND conversation_id IS NULL ORDER BY created_at ASC LIMIT 100`;
+    } else {
+      messages = await sql`SELECT id, role, content, agent_type, created_at FROM chat_messages WHERE user_id = ${users[0].id} AND project_id IS NULL AND conversation_id IS NULL ORDER BY created_at ASC LIMIT 100`;
+    }
+
+    // Include tool execution history for the conversation
+    let toolExecutions: unknown[] = [];
+    if (conversationId) {
+      toolExecutions = await sql`
+        SELECT id, tool_name, tool_params, status, result_summary, error_message, duration_ms, created_at
+        FROM tool_executions
+        WHERE user_id = ${users[0].id} AND conversation_id = ${conversationId}
+        ORDER BY created_at ASC
+      `;
+    }
+
+    return NextResponse.json({ messages, toolExecutions });
   } catch (err) {
     console.error("[GET /api/chat]", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
@@ -54,15 +72,16 @@ export async function POST(req: NextRequest) {
     const sql = getDb();
     const email = session.user.email as string;
 
-    let body: { message?: string; project_id?: string; model?: string; locale?: string };
+    let body: { message?: string; project_id?: string; conversation_id?: string; model?: string; locale?: string };
     try {
       body = await req.json();
     } catch {
       return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
     }
 
-    const { message, project_id, model: selectedModel, locale: reqLocale } = body;
+    const { message, project_id, conversation_id, model: selectedModel, locale: reqLocale } = body;
     const locale = (reqLocale as string) || "en";
+    const convId = conversation_id ? parseInt(conversation_id) : null;
 
     if (!message || typeof message !== "string") {
       return NextResponse.json({ error: "Message required" }, { status: 400 });
@@ -130,7 +149,7 @@ export async function POST(req: NextRequest) {
         const reply = userPlan === "starter"
           ? `You've reached your **$1.00 daily chat limit** on the Starter plan. Upgrade to Growth ($49/mo) for a higher limit, or bring your own AI key (BYOK) in Settings to use your own quota.`
           : `You've reached your daily chat limit. Please try again tomorrow or upgrade your plan.`;
-        await sql`INSERT INTO chat_messages (user_id, project_id, role, content, agent_type) VALUES (${userId}, ${project_id || null}, 'assistant', ${reply}, 'autoclaw')`;
+        await sql`INSERT INTO chat_messages (user_id, project_id, conversation_id, role, content, agent_type) VALUES (${userId}, ${project_id || null}, ${convId}, 'assistant', ${reply}, 'autoclaw')`;
         return NextResponse.json({ reply });
       }
     }
@@ -143,7 +162,10 @@ export async function POST(req: NextRequest) {
       /(?:add|set)\s+(?:my\s+)?\S+\s+key\s+(\S+)/i,
       (match: string, key: string) => match.replace(key, key.slice(0, 4) + "***")
     );
-    await sql`INSERT INTO chat_messages (user_id, project_id, role, content) VALUES (${userId}, ${project_id || null}, 'user', ${redactedMessage})`;
+    await sql`INSERT INTO chat_messages (user_id, project_id, conversation_id, role, content) VALUES (${userId}, ${project_id || null}, ${convId}, 'user', ${redactedMessage})`;
+    if (convId) {
+      sql`UPDATE conversations SET updated_at = NOW() WHERE id = ${convId}`.catch(() => {});
+    }
 
     // Load context — projects + agents
     const emailDomain = email.split("@")[1] || "";
@@ -173,9 +195,11 @@ export async function POST(req: NextRequest) {
       : [];
 
     // Get recent chat history for context (last 6 messages for confirmation awareness)
-    const recentHistory = project_id
-      ? await sql`SELECT role, content FROM chat_messages WHERE user_id = ${userId} AND project_id = ${project_id} ORDER BY created_at DESC LIMIT 6`
-      : await sql`SELECT role, content FROM chat_messages WHERE user_id = ${userId} AND project_id IS NULL ORDER BY created_at DESC LIMIT 6`;
+    const recentHistory = convId
+      ? await sql`SELECT role, content FROM chat_messages WHERE user_id = ${userId} AND conversation_id = ${convId} ORDER BY created_at DESC LIMIT 6`
+      : project_id
+        ? await sql`SELECT role, content FROM chat_messages WHERE user_id = ${userId} AND project_id = ${project_id} AND conversation_id IS NULL ORDER BY created_at DESC LIMIT 6`
+        : await sql`SELECT role, content FROM chat_messages WHERE user_id = ${userId} AND project_id IS NULL AND conversation_id IS NULL ORDER BY created_at DESC LIMIT 6`;
     const lastAssistantMsg = recentHistory.find(m => m.role === "assistant");
     const lastReply = lastAssistantMsg ? (lastAssistantMsg.content as string).toLowerCase() : "";
 
@@ -550,7 +574,7 @@ export async function POST(req: NextRequest) {
           const newProject = await sql`INSERT INTO projects (user_id, name, website, description) VALUES (${userId}, ${info.name}, ${info.website}, ${info.description}) RETURNING id, name`;
           reply = `I've created your project **"${newProject[0].name}"**.\n\nLet's set up your marketing agents! Available:\n\n${AVAILABLE_AGENTS.map((a) => `- **${a.label}** — ${a.desc}`).join("\n")}\n\nSay "activate all" or pick specific agents like "email marketing and SEO".`;
 
-          await sql`INSERT INTO chat_messages (user_id, project_id, role, content, agent_type) VALUES (${userId}, ${project_id || null}, 'assistant', ${reply}, 'autoclaw')`;
+          await sql`INSERT INTO chat_messages (user_id, project_id, conversation_id, role, content, agent_type) VALUES (${userId}, ${project_id || null}, ${convId}, 'assistant', ${reply}, 'autoclaw')`;
           return NextResponse.json({ reply });
         }
       }
@@ -608,6 +632,9 @@ export async function POST(req: NextRequest) {
               const sendStep = (key: string) => {
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "step", message: tLabels[key] || key })}\n\n`));
               };
+              const sendError = (toolLabel: string, errorMsg: string) => {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "step_error", tool: toolLabel, error: errorMsg })}\n\n`));
+              };
               const sendDone = (finalReply: string) => {
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "done", reply: finalReply })}\n\n`));
               };
@@ -653,9 +680,51 @@ export async function POST(req: NextRequest) {
                   const toolSummary = (toolCall.summary as string) || "";
                   sendStep(toolName);
 
-                  const toolResult = await executeTool(toolName, toolParams, toolSummary, toolCtx);
+                  // Record tool execution start
+                  const toolStartTime = Date.now();
+                  let toolExecId: number | null = null;
+                  try {
+                    const execRows = await sql`
+                      INSERT INTO tool_executions (user_id, conversation_id, tool_name, tool_params, status)
+                      VALUES (${userId}, ${convId}, ${toolName}, ${JSON.stringify(toolParams)}, 'running')
+                      RETURNING id
+                    `;
+                    toolExecId = execRows[0].id as number;
+                  } catch { /* non-critical */ }
 
-                  if (toolResult && toolResult.length > 10) {
+                  let toolResult: string;
+                  let toolError: string | null = null;
+                  try {
+                    toolResult = await executeTool(toolName, toolParams, toolSummary, toolCtx);
+                  } catch (toolErr) {
+                    toolError = toolErr instanceof Error ? toolErr.message : "Tool execution failed";
+                    toolResult = "";
+                    // Send error step to frontend with details
+                    sendError(tLabels[toolName] || toolName, toolError);
+                  }
+
+                  const toolDuration = Date.now() - toolStartTime;
+
+                  // Update tool execution record
+                  if (toolExecId) {
+                    const execStatus = toolError ? "error" : "done";
+                    const summary = toolError
+                      ? null
+                      : (toolResult || "").substring(0, 500);
+                    sql`
+                      UPDATE tool_executions
+                      SET status = ${execStatus},
+                          result_summary = ${summary},
+                          error_message = ${toolError},
+                          duration_ms = ${toolDuration}
+                      WHERE id = ${toolExecId}
+                    `.catch(() => {});
+                  }
+
+                  if (toolError) {
+                    // Add error to results so AI can react
+                    toolResultParts.push(`**${toolSummary || toolName}** — Error: ${toolError}`);
+                  } else if (toolResult && toolResult.length > 10) {
                     toolResultParts.push(toolResult);
                   }
 
@@ -663,7 +732,7 @@ export async function POST(req: NextRequest) {
                   orchMessages.push({ role: "assistant", content: currentAiContent });
                   orchMessages.push({
                     role: "user",
-                    content: `[Tool "${toolName}" result]:\n${(toolResult || "No results found.").substring(0, 3000)}\n\nBased on this result, decide what to do next:\n- If the user's goal is fulfilled (e.g., leads/contacts found), respond with a helpful summary. Do NOT call another tool.\n- If more steps are needed to complete the user's request (e.g., you researched the business but haven't searched for leads yet), call the next appropriate tool.\n- Do NOT repeat a tool that already returned results.\n- Do NOT ask the user for confirmation — either call the next tool or provide the final answer.`,
+                    content: `[Tool "${toolName}" ${toolError ? "ERROR" : "result"}]:\n${toolError ? `Error: ${toolError}` : (toolResult || "No results found.").substring(0, 3000)}\n\nDecide what to do next. Follow this priority chain:\n1. If a tool failed with an error → try an alternative tool or inform the user about the issue.\n2. If you just researched a business (crawl_website/search_google) but haven't searched for leads yet → call a search tool (search_google_maps, search_lead_finder, or search_leads_apify)\n3. If you just found companies/businesses (search_google_maps) with website domains but haven't found decision-maker contacts yet → call enrich_domains with the top domains to get email patterns and contacts\n4. If you just found leads with contact info AND the user's goal is fulfilled → respond with a helpful summary. Do NOT call another tool.\n5. If the search returned no results → try an alternative search tool with different keywords.\n\nDo NOT repeat a tool that already returned results. Do NOT ask the user for confirmation.`,
                   });
 
                   // Ask AI for next step
@@ -693,7 +762,7 @@ export async function POST(req: NextRequest) {
 
               reply = finalReply;
               sendStep("done");
-              await sql`INSERT INTO chat_messages (user_id, project_id, role, content, agent_type) VALUES (${userId}, ${project_id || null}, 'assistant', ${reply}, 'autoclaw')`;
+              await sql`INSERT INTO chat_messages (user_id, project_id, conversation_id, role, content, agent_type) VALUES (${userId}, ${project_id || null}, ${convId}, 'assistant', ${reply}, 'autoclaw')`;
               sendDone(reply);
               controller.close();
             },
@@ -706,13 +775,20 @@ export async function POST(req: NextRequest) {
           // No tool call — use the AI response directly
           reply = pass1Result.content;
         }
-      } catch {
-        reply = `I can help you with:\n\n- **Create a project** — "Create a new project called [name]"\n- **Rename a project** — "Rename demo to autoclaw-marketing"\n- **Delete a project** — "Delete project demo"\n- **Activate agents** — "Activate email marketing and SEO"\n- **Check status** — "Show me agent status"\n- **Pause agents** — "Pause email marketing"\n- **List projects** — "Show my projects"\n\nWhat would you like to do?`;
+      } catch (aiErr) {
+        const errDetail = aiErr instanceof Error ? aiErr.message : String(aiErr);
+        console.error("[AI chat error]", errDetail);
+        // Show specific error to user so they can diagnose (rate limits, key issues, etc.)
+        if (errDetail.includes("All AI providers failed")) {
+          reply = `**AI service temporarily unavailable.**\n\n${errDetail.split("\n").map(l => `- ${l}`).join("\n")}\n\nThis is usually caused by rate limits (429) or invalid API keys. Try again in a moment, or check your API key configuration in Settings.`;
+        } else {
+          reply = `**Error:** ${errDetail.slice(0, 500)}\n\nPlease try again. If this persists, check your API key configuration in Settings.`;
+        }
       }
     }
 
     // Save agent reply (non-SSE path)
-    await sql`INSERT INTO chat_messages (user_id, project_id, role, content, agent_type) VALUES (${userId}, ${project_id || null}, 'assistant', ${reply}, 'autoclaw')`;
+    await sql`INSERT INTO chat_messages (user_id, project_id, conversation_id, role, content, agent_type) VALUES (${userId}, ${project_id || null}, ${convId}, 'assistant', ${reply}, 'autoclaw')`;
     return NextResponse.json({ reply });
 
   } catch (err) {

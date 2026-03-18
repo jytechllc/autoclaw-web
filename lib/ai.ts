@@ -228,8 +228,27 @@ export async function chatWithAI(messages: ChatMessage[], maxTokens = 500, byok?
   }
 
   // Auto mode: BYOK keys first, then platform keys
-  // Helper: extract short error reason from provider errors
-  const shortErr = (e: unknown) => e instanceof Error ? e.message.split("\n")[0].slice(0, 120) : String(e);
+  // Collect all provider errors for diagnostics
+  const providerErrors: { provider: string; error: string }[] = [];
+  const extractError = (e: unknown): string => {
+    if (!(e instanceof Error)) return String(e);
+    // Parse structured errors (e.g. "Google error 429: {...json...}")
+    const msg = e.message;
+    const statusMatch = msg.match(/error (\d+):\s*(.*)/s);
+    if (statusMatch) {
+      const status = statusMatch[1];
+      const body = statusMatch[2];
+      // Try to extract a meaningful message from JSON error body
+      try {
+        const parsed = JSON.parse(body);
+        const detail = parsed.error?.message || parsed.message || parsed.error?.status || body.slice(0, 300);
+        return `HTTP ${status}: ${detail}`;
+      } catch {
+        return `HTTP ${status}: ${body.slice(0, 300)}`;
+      }
+    }
+    return msg.slice(0, 300);
+  };
 
   // BYOK keys first (user-provided keys take priority)
   const byokProviders: { key: string | undefined; name: string; call: () => Promise<AIResponse> }[] = [
@@ -245,7 +264,9 @@ export async function chatWithAI(messages: ChatMessage[], maxTokens = 500, byok?
     try {
       return await p.call();
     } catch (e) {
-      console.warn(`[AI fallback] ${p.name} failed: ${shortErr(e)}`);
+      const errMsg = extractError(e);
+      providerErrors.push({ provider: p.name, error: errMsg });
+      console.warn(`[AI fallback] ${p.name} failed: ${errMsg}`);
     }
   }
 
@@ -255,7 +276,9 @@ export async function chatWithAI(messages: ChatMessage[], maxTokens = 500, byok?
       try {
         return await callOpenAICompatible("https://api.cerebras.ai/v1/chat/completions", CEREBRAS_API_KEY, model, "cerebras", messages, maxTokens);
       } catch (e) {
-        console.warn(`[AI fallback] Cerebras ${model} failed: ${shortErr(e)}`);
+        const errMsg = extractError(e);
+        providerErrors.push({ provider: `Cerebras ${model}`, error: errMsg });
+        console.warn(`[AI fallback] Cerebras ${model} failed: ${errMsg}`);
       }
     }
   }
@@ -264,7 +287,9 @@ export async function chatWithAI(messages: ChatMessage[], maxTokens = 500, byok?
     try {
       return await callOpenAICompatible("https://integrate.api.nvidia.com/v1/chat/completions", NVIDIA_API_KEY, "meta/llama-3.1-8b-instruct", "nvidia", messages, maxTokens);
     } catch (e) {
-      console.warn(`[AI fallback] NVIDIA failed: ${shortErr(e)}`);
+      const errMsg = extractError(e);
+      providerErrors.push({ provider: "NVIDIA", error: errMsg });
+      console.warn(`[AI fallback] NVIDIA failed: ${errMsg}`);
     }
   }
 
@@ -272,9 +297,13 @@ export async function chatWithAI(messages: ChatMessage[], maxTokens = 500, byok?
     try {
       return await callGoogle(GOOGLE_AI_API, "gemini-2.0-flash", messages, maxTokens);
     } catch (e) {
-      console.warn(`[AI fallback] Google failed: ${shortErr(e)}`);
+      const errMsg = extractError(e);
+      providerErrors.push({ provider: "Google", error: errMsg });
+      console.warn(`[AI fallback] Google failed: ${errMsg}`);
     }
   }
 
-  throw new Error("No AI provider available");
+  // All providers failed — throw with full error chain
+  const errorChain = providerErrors.map((e) => `${e.provider}: ${e.error}`).join("\n");
+  throw new Error(`All AI providers failed:\n${errorChain}`);
 }

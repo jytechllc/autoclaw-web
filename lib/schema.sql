@@ -70,13 +70,36 @@ CREATE TABLE IF NOT EXISTS agent_reports (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS conversations (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id),
+  project_id INTEGER REFERENCES projects(id),
+  title VARCHAR(255) DEFAULT 'New Chat',
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS chat_messages (
   id SERIAL PRIMARY KEY,
   user_id INTEGER REFERENCES users(id),
   project_id INTEGER REFERENCES projects(id),
+  conversation_id INTEGER REFERENCES conversations(id) ON DELETE CASCADE,
   role VARCHAR(20) NOT NULL,
   content TEXT NOT NULL,
   agent_type VARCHAR(100),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS tool_executions (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id),
+  conversation_id INTEGER REFERENCES conversations(id) ON DELETE CASCADE,
+  tool_name VARCHAR(100) NOT NULL,
+  tool_params JSONB,
+  status VARCHAR(20) DEFAULT 'running',
+  result_summary TEXT,
+  error_message TEXT,
+  duration_ms INTEGER,
   created_at TIMESTAMP DEFAULT NOW()
 );
 
