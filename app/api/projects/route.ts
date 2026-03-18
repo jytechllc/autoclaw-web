@@ -25,7 +25,7 @@ const AGENT_PLANS: Record<string, Record<string, object>> = {
       plan: "Set up cold outreach campaign with personalized templates, build prospect email list, configure follow-up sequences, and launch newsletter.",
       tasks: [
         { name: "Research target audience & ICP", status: "in_progress" },
-        { name: "Build prospect email list (500+ contacts)", status: "pending" },
+        { name: "Build prospect email list", status: "pending" },
         { name: "Create email templates (cold, follow-up, newsletter)", status: "pending" },
         { name: "Configure sending schedule & limits", status: "pending" },
         { name: "Set up tracking (opens, clicks, replies)", status: "pending" },

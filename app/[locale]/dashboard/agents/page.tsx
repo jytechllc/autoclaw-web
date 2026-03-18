@@ -104,6 +104,8 @@ const STEP_LABELS: Record<string, Record<string, string>> = {
     verify_sources: "Verifying data sources",
     search_leads: "Searching for leads",
     enrich_leads: "Enriching lead data",
+    dedup: "Deduplicating contacts",
+    save_enrichment: "Saving enrichment to contacts",
     score_leads: "Scoring leads",
   },
   zh: {
@@ -121,8 +123,10 @@ const STEP_LABELS: Record<string, Record<string, string>> = {
     save_report: "保存报告",
     verify_sources: "验证数据源",
     search_leads: "搜索潜客",
-    enrich_leads: "丰富潜客数据",
-    score_leads: "评分潜客",
+    enrich_leads: "丰富潜在客户数据",
+    dedup: "联系人去重",
+    save_enrichment: "保存丰富数据到联系人",
+    score_leads: "评分潜在客户",
   },
   "zh-TW": {
     load_kb: "載入知識庫",
@@ -139,8 +143,10 @@ const STEP_LABELS: Record<string, Record<string, string>> = {
     save_report: "儲存報告",
     verify_sources: "驗證資料來源",
     search_leads: "搜尋潛客",
-    enrich_leads: "豐富潛客資料",
-    score_leads: "評分潛客",
+    enrich_leads: "豐富潛在客戶資料",
+    dedup: "聯絡人去重",
+    save_enrichment: "儲存豐富資料到聯絡人",
+    score_leads: "評分潛在客戶",
   },
   fr: {
     load_kb: "Chargement de la base de connaissances",
@@ -158,6 +164,8 @@ const STEP_LABELS: Record<string, Record<string, string>> = {
     verify_sources: "Vérification des sources",
     search_leads: "Recherche de prospects",
     enrich_leads: "Enrichissement des données",
+    dedup: "Déduplication des contacts",
+    save_enrichment: "Sauvegarde de l'enrichissement",
     score_leads: "Notation des prospects",
   },
 };
