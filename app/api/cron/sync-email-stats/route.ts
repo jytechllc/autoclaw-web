@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { decrypt } from "@/lib/crypto";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-const BREVO_API_KEY = process.env.BREVO_API_KEY;
 const CRON_SECRET = process.env.CRON_SECRET;
 
 /**
@@ -15,10 +15,6 @@ export async function GET(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
   if (CRON_SECRET && authHeader !== `Bearer ${CRON_SECRET}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  if (!BREVO_API_KEY) {
-    return NextResponse.json({ error: "BREVO_API_KEY not configured" }, { status: 500 });
   }
 
   const sql = getDb();
@@ -42,11 +38,30 @@ export async function GET(req: NextRequest) {
       )
     `;
 
+    // Resolve Brevo API key: env → user BYOK → org BYOK
+    let BREVO_API_KEY = process.env.BREVO_API_KEY || "";
+    if (!BREVO_API_KEY) {
+      const brevoRows = await sql`
+        SELECT api_key FROM (
+          SELECT api_key, 0 as p FROM user_api_keys WHERE service = 'brevo'
+          UNION ALL
+          SELECT api_key, 1 as p FROM org_api_keys WHERE service = 'brevo'
+        ) combined ORDER BY p LIMIT 1
+      `;
+      if (brevoRows.length > 0) {
+        try { BREVO_API_KEY = decrypt(brevoRows[0].api_key as string); } catch { /* skip */ }
+      }
+    }
+
+    if (!BREVO_API_KEY) {
+      return NextResponse.json({ error: "No Brevo API key found (env, user, or org)" }, { status: 500 });
+    }
+
     // Get all users who have sent emails (via contacts table)
     const usersWithEmail = await sql`
       SELECT DISTINCT c.user_id, c.project_id
       FROM contacts c
-      WHERE c.emails_sent > 0 AND c.brevo_id IS NOT NULL
+      WHERE c.emails_sent > 0 OR c.brevo_id IS NOT NULL
     `;
 
     let totalSynced = 0;

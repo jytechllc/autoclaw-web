@@ -501,6 +501,22 @@ export default function ReportsPage() {
   const [reports, setReports] = useState<AgentReport[]>([]);
   const [brevoStats, setBrevoStats] = useState({ emailsSent: 0, delivered: 0, opened: 0, clicked: 0 });
   const [brevoCampaigns, setBrevoCampaigns] = useState<BrevoCampaign[]>([]);
+  const [emailHistory, setEmailHistory] = useState<{ date: string; event: string; email: string; subject: string; from?: string; messageId?: string }[]>([]);
+  const [emailHistoryOpen, setEmailHistoryOpen] = useState(false);
+  const [emailSearch, setEmailSearch] = useState("");
+  const [emailStatusFilter, setEmailStatusFilter] = useState("");
+  const [emailPreview, setEmailPreview] = useState<{ subject: string; from: string; to: string; date: string; body: string } | null>(null);
+  const [emailPreviewLoading, setEmailPreviewLoading] = useState<string | null>(null);
+
+  function fetchEmailHistory(q = "", status = "") {
+    const params = new URLSearchParams({ limit: "50" });
+    if (q) params.set("q", q);
+    if (status) params.set("event", status);
+    fetch(`/api/email-history?${params}`)
+      .then((r) => r.json())
+      .then((d) => setEmailHistory(d.events || []))
+      .catch(() => {});
+  }
   const [gaStats, setGaStats] = useState({ totalUsers: 0, sessions: 0, pageViews: 0 });
   const [gaProjects, setGaProjects] = useState<ProjectTraffic[]>([]);
   const [selectedProjects, setSelectedProjects] = useState<Set<string>>(new Set());
@@ -748,6 +764,157 @@ export default function ReportsPage() {
                 ))}
               </div>
             </section>
+
+            {/* Email History + Stats */}
+            {brevoStats.emailsSent > 0 && (
+              <section className="mb-8">
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-lg font-semibold">{locale === "zh" ? "邮件记录" : locale === "zh-TW" ? "郵件記錄" : locale === "fr" ? "Historique des e-mails" : "Email History"}</h2>
+                  <button
+                    onClick={() => {
+                      if (!emailHistoryOpen) fetchEmailHistory();
+                      setEmailHistoryOpen(!emailHistoryOpen);
+                      setEmailPreview(null);
+                    }}
+                    className="text-xs text-red-600 hover:text-red-800 cursor-pointer"
+                  >
+                    {emailHistoryOpen ? (locale === "zh" || locale === "zh-TW" ? "收起" : "Hide") : (locale === "zh" || locale === "zh-TW" ? "查看详情" : "View Details")}
+                  </button>
+                </div>
+                {emailHistoryOpen && (
+                  <div className="flex flex-wrap items-center gap-2 mb-3">
+                    <div className="relative flex-1 min-w-[200px]">
+                      <input
+                        type="text"
+                        value={emailSearch}
+                        onChange={(e) => setEmailSearch(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") fetchEmailHistory(emailSearch, emailStatusFilter); }}
+                        placeholder={locale === "zh" || locale === "zh-TW" ? "搜索收件人、主题..." : "Search recipient, subject..."}
+                        className="w-full pl-8 pr-3 py-1.5 border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-red-500 focus:border-red-500 outline-none"
+                      />
+                      <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
+                    </div>
+                    <select
+                      value={emailStatusFilter}
+                      onChange={(e) => { setEmailStatusFilter(e.target.value); fetchEmailHistory(emailSearch, e.target.value); }}
+                      className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white cursor-pointer"
+                    >
+                      <option value="">{locale === "zh" || locale === "zh-TW" ? "全部状态" : "All Status"}</option>
+                      <option value="delivered">✅ {locale === "zh" || locale === "zh-TW" ? "已送达" : "Delivered"}</option>
+                      <option value="opened">📬 {locale === "zh" || locale === "zh-TW" ? "已打开" : "Opened"}</option>
+                      <option value="clicked">🔗 {locale === "zh" || locale === "zh-TW" ? "已点击" : "Clicked"}</option>
+                      <option value="sent">📤 {locale === "zh" || locale === "zh-TW" ? "已发送" : "Sent"}</option>
+                      <option value="error">❌ {locale === "zh" || locale === "zh-TW" ? "错误" : "Error"}</option>
+                      <option value="bounced">↩️ {locale === "zh" || locale === "zh-TW" ? "退回" : "Bounced"}</option>
+                    </select>
+                    <button
+                      onClick={() => fetchEmailHistory(emailSearch, emailStatusFilter)}
+                      className="text-xs px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg cursor-pointer"
+                    >
+                      {locale === "zh" || locale === "zh-TW" ? "搜索" : "Search"}
+                    </button>
+                  </div>
+                )}
+                {emailHistoryOpen && (
+                  <div className="bg-white border border-gray-200 rounded-lg overflow-hidden mb-4">
+                    {emailHistory.length === 0 ? (
+                      <p className="text-sm text-gray-400 p-4 text-center">{tc.loading}</p>
+                    ) : (
+                      <div className="flex flex-col lg:flex-row">
+                        {/* Email list */}
+                        <div className="overflow-x-auto max-h-96 overflow-y-auto lg:flex-1">
+                          <table className="w-full text-xs">
+                            <thead className="sticky top-0 bg-gray-50">
+                              <tr className="text-left text-gray-500 border-b">
+                                <th className="py-2 px-3 font-medium">{locale === "zh" || locale === "zh-TW" ? "时间" : "Date"}</th>
+                                <th className="py-2 px-3 font-medium">{locale === "zh" || locale === "zh-TW" ? "状态" : "Status"}</th>
+                                <th className="py-2 px-3 font-medium">{locale === "zh" || locale === "zh-TW" ? "收件人" : "Recipient"}</th>
+                                <th className="py-2 px-3 font-medium">{locale === "zh" || locale === "zh-TW" ? "主题" : "Subject"}</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {emailHistory.map((e, i) => {
+                                const statusColor = e.event === "delivered" ? "text-green-600" : e.event === "opened" ? "text-blue-600" : e.event === "clicked" ? "text-purple-600" : e.event === "error" || e.event === "hardBounce" ? "text-red-500" : "text-gray-500";
+                                const statusLabel = e.event === "requests" ? "Sent" : e.event === "hardBounce" ? "Bounced" : e.event.charAt(0).toUpperCase() + e.event.slice(1);
+                                const isActive = emailPreview && emailPreviewLoading === e.messageId;
+                                return (
+                                  <tr
+                                    key={i}
+                                    className={`border-b border-gray-50 hover:bg-gray-50 cursor-pointer ${isActive ? "bg-red-50" : ""}`}
+                                    onClick={() => {
+                                      if (!e.messageId) return;
+                                      setEmailPreviewLoading(e.messageId);
+                                      fetch(`/api/email-history/content?uuid=${encodeURIComponent(e.messageId)}&email=${encodeURIComponent(e.email)}`)
+                                        .then((r) => r.json())
+                                        .then((d) => { if (!d.error) setEmailPreview(d); else setEmailPreview({ subject: e.subject, from: e.from || "", to: e.email, date: e.date, body: `<p style="color:#999">${locale === "zh" ? "邮件内容不可用" : "Email content not available"}</p>` }); })
+                                        .catch(() => setEmailPreview(null));
+                                    }}
+                                  >
+                                    <td className="py-1.5 px-3 text-gray-500 whitespace-nowrap">{new Date(e.date).toLocaleString(locale, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</td>
+                                    <td className={`py-1.5 px-3 font-medium ${statusColor}`}>{statusLabel}</td>
+                                    <td className="py-1.5 px-3 text-gray-700 font-mono text-[11px]">{e.email}</td>
+                                    <td className="py-1.5 px-3 text-gray-600 max-w-xs truncate">{e.subject}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Email content preview */}
+                        {emailPreview && (
+                          <div className="lg:w-96 border-t lg:border-t-0 lg:border-l border-gray-200 max-h-96 overflow-y-auto">
+                            <div className="p-3 border-b border-gray-100 bg-gray-50">
+                              <div className="flex items-center justify-between">
+                                <h4 className="text-xs font-semibold text-gray-700 truncate">{emailPreview.subject}</h4>
+                                <button onClick={() => setEmailPreview(null)} className="text-gray-400 hover:text-gray-600 cursor-pointer text-xs">✕</button>
+                              </div>
+                              <div className="text-[10px] text-gray-400 mt-1">
+                                <span>{locale === "zh" || locale === "zh-TW" ? "收件人" : "To"}: {emailPreview.to}</span>
+                                {emailPreview.from && <span className="ml-2">{locale === "zh" || locale === "zh-TW" ? "发件人" : "From"}: {emailPreview.from}</span>}
+                              </div>
+                            </div>
+                            <div className="p-3 text-xs text-gray-700 prose prose-xs max-w-none" dangerouslySetInnerHTML={{ __html: emailPreview.body }} />
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Stats bar - below history */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg p-3">
+                    <div className="w-2.5 h-2.5 rounded-full bg-green-500" />
+                    <div>
+                      <div className="text-lg font-bold text-green-700">{brevoStats.delivered}</div>
+                      <div className="text-[11px] text-green-600">{locale === "zh" || locale === "zh-TW" ? "已送达" : "Delivered"}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg p-3">
+                    <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />
+                    <div>
+                      <div className="text-lg font-bold text-blue-700">{brevoStats.opened}</div>
+                      <div className="text-[11px] text-blue-600">{locale === "zh" || locale === "zh-TW" ? "已打开" : "Opened"}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-lg p-3">
+                    <div className="w-2.5 h-2.5 rounded-full bg-purple-500" />
+                    <div>
+                      <div className="text-lg font-bold text-purple-700">{brevoStats.clicked}</div>
+                      <div className="text-[11px] text-purple-600">{locale === "zh" || locale === "zh-TW" ? "已点击" : "Clicked"}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg p-3">
+                    <div className="w-2.5 h-2.5 rounded-full bg-red-500" />
+                    <div>
+                      <div className="text-lg font-bold text-red-700">{Math.max(0, brevoStats.emailsSent - brevoStats.delivered)}</div>
+                      <div className="text-[11px] text-red-600">{locale === "zh" || locale === "zh-TW" ? "错误/退回" : "Error/Bounced"}</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            )}
 
             {(gaProjects.length > 0 || tokenUsage.length > 0) && (
               <div className="mb-8 grid grid-cols-1 2xl:grid-cols-2 gap-6 items-start">

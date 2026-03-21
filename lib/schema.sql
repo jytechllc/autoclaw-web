@@ -104,6 +104,31 @@ CREATE TABLE IF NOT EXISTS tool_executions (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS email_logs (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id),
+  project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+  contact_id INTEGER REFERENCES contacts(id) ON DELETE SET NULL,
+  recipient_email VARCHAR(255) NOT NULL,
+  recipient_name VARCHAR(255),
+  sender_email VARCHAR(255),
+  sender_name VARCHAR(255),
+  subject TEXT,
+  body_html TEXT,
+  message_id VARCHAR(500),
+  provider VARCHAR(50) DEFAULT 'brevo',     -- brevo, sendgrid
+  status VARCHAR(20) DEFAULT 'sent',        -- sent, delivered, opened, clicked, bounced, error
+  opened_at TIMESTAMP,
+  clicked_at TIMESTAMP,
+  bounced_at TIMESTAMP,
+  error_message TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_email_logs_user ON email_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_email_logs_recipient ON email_logs(recipient_email);
+CREATE INDEX IF NOT EXISTS idx_email_logs_status ON email_logs(status);
+CREATE INDEX IF NOT EXISTS idx_email_logs_created ON email_logs(created_at);
+
 CREATE TABLE IF NOT EXISTS email_daily_stats (
   id SERIAL PRIMARY KEY,
   user_id INTEGER REFERENCES users(id),

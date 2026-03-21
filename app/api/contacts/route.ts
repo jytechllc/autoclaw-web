@@ -216,7 +216,14 @@ export async function POST(req: NextRequest) {
   if (action === "import_brevo") {
     // Get user's Brevo API key (BYOK or system)
     let brevoKey = process.env.BREVO_API_KEY || "";
-    const byokRows = await sql`SELECT api_key FROM user_api_keys WHERE user_id = ${userId} AND service = 'brevo'`;
+    const byokRows = await sql`
+      SELECT api_key FROM (
+        SELECT api_key, 0 as priority FROM user_api_keys WHERE user_id = ${userId} AND service = 'brevo'
+        UNION ALL
+        SELECT ok.api_key, 1 as priority FROM org_api_keys ok
+          WHERE ok.service = 'brevo' AND ok.org_id IN (SELECT org_id FROM organization_members WHERE user_id = ${userId})
+      ) combined ORDER BY priority LIMIT 1
+    `;
     if (byokRows.length > 0) {
       try { brevoKey = decrypt(byokRows[0].api_key as string); } catch { /* use system key */ }
     }
@@ -293,7 +300,14 @@ export async function POST(req: NextRequest) {
   if (action === "sync_stats") {
     // Sync engagement stats from Brevo for all contacts
     let brevoKey = process.env.BREVO_API_KEY || "";
-    const byokRows = await sql`SELECT api_key FROM user_api_keys WHERE user_id = ${userId} AND service = 'brevo'`;
+    const byokRows = await sql`
+      SELECT api_key FROM (
+        SELECT api_key, 0 as priority FROM user_api_keys WHERE user_id = ${userId} AND service = 'brevo'
+        UNION ALL
+        SELECT ok.api_key, 1 as priority FROM org_api_keys ok
+          WHERE ok.service = 'brevo' AND ok.org_id IN (SELECT org_id FROM organization_members WHERE user_id = ${userId})
+      ) combined ORDER BY priority LIMIT 1
+    `;
     if (byokRows.length > 0) {
       try { brevoKey = decrypt(byokRows[0].api_key as string); } catch { /* use system key */ }
     }

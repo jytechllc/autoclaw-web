@@ -262,8 +262,9 @@ interface BrevoResult {
   }[];
 }
 
-async function fetchBrevoData(): Promise<BrevoResult> {
-  const apiKey = process.env.BREVO_API_KEY;
+async function fetchBrevoData(brevoByokKey?: string): Promise<BrevoResult> {
+  const apiKey = brevoByokKey || process.env.BREVO_API_KEY;
+  console.log(`[reports] fetchBrevoData: byokKey=${brevoByokKey ? "yes" : "no"} envKey=${process.env.BREVO_API_KEY ? "yes" : "no"} using=${apiKey ? apiKey.substring(0, 12) + "..." : "NONE"}`);
   if (!apiKey)
     return {
       brevoStats: { emailsSent: 0, delivered: 0, opened: 0, clicked: 0 },
@@ -768,6 +769,7 @@ async function fetchContactAnalytics(
   sql: ReturnType<typeof getDb>,
   projectIds: number[],
   isAdmin: boolean,
+  orgUserIds?: number[],
 ): Promise<ContactAnalytics> {
   const empty: ContactAnalytics = {
     total: 0, enriched: 0,
@@ -776,38 +778,30 @@ async function fetchContactAnalytics(
     bySource: [],
   };
   try {
-    const whereClause = isAdmin ? sql`` : sql`WHERE c.project_id = ANY(${projectIds}) OR c.user_id IN (SELECT id FROM users WHERE id = ANY(${projectIds}))`;
+    // Include contacts from org members + user's projects
+    const contactFilter = isAdmin
+      ? sql``
+      : orgUserIds && orgUserIds.length > 0
+        ? sql`WHERE (c.project_id = ANY(${projectIds}) OR c.user_id = ANY(${orgUserIds}))`
+        : sql`WHERE c.project_id = ANY(${projectIds})`;
+    const whereFilter = isAdmin
+      ? sql``
+      : orgUserIds && orgUserIds.length > 0
+        ? sql`AND (project_id = ANY(${projectIds}) OR user_id = ANY(${orgUserIds}))`
+        : sql`AND project_id = ANY(${projectIds})`;
 
     const [totalRow, enrichedRow, industryRows, sizeRows, companyRows, publicRows, sourceRows] = await Promise.all([
-      isAdmin
-        ? sql`SELECT COUNT(*)::int AS cnt FROM contacts`
-        : sql`SELECT COUNT(*)::int AS cnt FROM contacts c ${whereClause}`,
-      isAdmin
-        ? sql`SELECT COUNT(*)::int AS cnt FROM contacts WHERE industry IS NOT NULL AND industry != ''`
-        : sql`SELECT COUNT(*)::int AS cnt FROM contacts c WHERE (industry IS NOT NULL AND industry != '') ${isAdmin ? sql`` : sql`AND (c.project_id = ANY(${projectIds}))`}`,
-      isAdmin
-        ? sql`SELECT industry AS label, COUNT(*)::int AS count FROM contacts WHERE industry IS NOT NULL AND industry != '' GROUP BY industry ORDER BY count DESC LIMIT 10`
-        : sql`SELECT industry AS label, COUNT(*)::int AS count FROM contacts WHERE industry IS NOT NULL AND industry != '' AND project_id = ANY(${projectIds}) GROUP BY industry ORDER BY count DESC LIMIT 10`,
-      isAdmin
-        ? sql`SELECT company_size AS label, COUNT(*)::int AS count FROM contacts WHERE company_size IS NOT NULL AND company_size != '' GROUP BY company_size ORDER BY count DESC`
-        : sql`SELECT company_size AS label, COUNT(*)::int AS count FROM contacts WHERE company_size IS NOT NULL AND company_size != '' AND project_id = ANY(${projectIds}) GROUP BY company_size ORDER BY count DESC`,
-      isAdmin
-        ? sql`SELECT company AS label, COUNT(*)::int AS count FROM contacts WHERE company IS NOT NULL AND company != '' GROUP BY company ORDER BY count DESC LIMIT 15`
-        : sql`SELECT company AS label, COUNT(*)::int AS count FROM contacts WHERE company IS NOT NULL AND company != '' AND project_id = ANY(${projectIds}) GROUP BY company ORDER BY count DESC LIMIT 15`,
-      isAdmin
-        ? sql`SELECT
-            SUM(CASE WHEN is_public = true THEN 1 ELSE 0 END)::int AS public,
-            SUM(CASE WHEN is_public = false THEN 1 ELSE 0 END)::int AS private,
-            SUM(CASE WHEN is_public IS NULL THEN 1 ELSE 0 END)::int AS unknown
-          FROM contacts`
-        : sql`SELECT
-            SUM(CASE WHEN is_public = true THEN 1 ELSE 0 END)::int AS public,
-            SUM(CASE WHEN is_public = false THEN 1 ELSE 0 END)::int AS private,
-            SUM(CASE WHEN is_public IS NULL THEN 1 ELSE 0 END)::int AS unknown
-          FROM contacts WHERE project_id = ANY(${projectIds})`,
-      isAdmin
-        ? sql`SELECT source AS label, COUNT(*)::int AS count FROM contacts WHERE source IS NOT NULL GROUP BY source ORDER BY count DESC`
-        : sql`SELECT source AS label, COUNT(*)::int AS count FROM contacts WHERE source IS NOT NULL AND project_id = ANY(${projectIds}) GROUP BY source ORDER BY count DESC`,
+      sql`SELECT COUNT(*)::int AS cnt FROM contacts c ${contactFilter}`,
+      sql`SELECT COUNT(*)::int AS cnt FROM contacts c WHERE (industry IS NOT NULL AND industry != '') ${whereFilter}`,
+      sql`SELECT industry AS label, COUNT(*)::int AS count FROM contacts WHERE industry IS NOT NULL AND industry != '' ${whereFilter} GROUP BY industry ORDER BY count DESC LIMIT 10`,
+      sql`SELECT company_size AS label, COUNT(*)::int AS count FROM contacts WHERE company_size IS NOT NULL AND company_size != '' ${whereFilter} GROUP BY company_size ORDER BY count DESC`,
+      sql`SELECT company AS label, COUNT(*)::int AS count FROM contacts WHERE company IS NOT NULL AND company != '' ${whereFilter} GROUP BY company ORDER BY count DESC LIMIT 15`,
+      sql`SELECT
+          SUM(CASE WHEN is_public = true THEN 1 ELSE 0 END)::int AS public,
+          SUM(CASE WHEN is_public = false THEN 1 ELSE 0 END)::int AS private,
+          SUM(CASE WHEN is_public IS NULL THEN 1 ELSE 0 END)::int AS unknown
+        FROM contacts WHERE 1=1 ${whereFilter}`,
+      sql`SELECT source AS label, COUNT(*)::int AS count FROM contacts WHERE source IS NOT NULL ${whereFilter} GROUP BY source ORDER BY count DESC`,
     ]);
 
     return {
@@ -969,6 +963,15 @@ export async function GET(request: Request) {
   const userProjectNames = userProjects.map((p) => p.name as string);
   const projectIds = userProjects.map((p) => p.id as number);
 
+  // Get all org member user IDs for shared data visibility
+  const orgMemberRows = await sql`
+    SELECT DISTINCT om2.user_id FROM organization_members om1
+    JOIN organization_members om2 ON om1.org_id = om2.org_id
+    WHERE om1.user_id = ${userId}
+  `;
+  const orgUserIds = orgMemberRows.map((r) => r.user_id as number);
+  if (!orgUserIds.includes(userId as number)) orgUserIds.push(userId as number);
+
   // Build GA property → project mapping
   const propertyProjectMap: Record<string, string> = {};
   for (const p of userProjects) {
@@ -977,6 +980,33 @@ export async function GET(request: Request) {
       propertyProjectMap[pid] = p.name as string;
     }
   }
+
+  // Load user/org Brevo BYOK key
+  let brevoByokKey: string | undefined;
+  try {
+    const brevoRows = await sql`
+      SELECT api_key FROM (
+        SELECT api_key, 0 as priority FROM user_api_keys WHERE service = 'brevo' AND user_id = ${userId}
+        UNION ALL
+        SELECT ok.api_key, 1 as priority FROM org_api_keys ok
+          WHERE ok.service = 'brevo' AND ok.org_id IN (SELECT org_id FROM organization_members WHERE user_id = ${userId})
+      ) combined ORDER BY priority LIMIT 1
+    `;
+    if (brevoRows.length > 0) {
+      const { decrypt } = await import("@/lib/crypto");
+      try {
+        const decrypted = decrypt(brevoRows[0].api_key as string);
+        console.log(`[reports] Brevo BYOK decrypt: prefix=${decrypted.substring(0, 15)}... valid=${decrypted.startsWith("xkeysib-")}`);
+        if (decrypted.startsWith("xkeysib-") || decrypted.length > 30) {
+          brevoByokKey = decrypted;
+        }
+      } catch (e) {
+        console.warn(`[reports] Brevo BYOK decrypt failed:`, e instanceof Error ? e.message : e);
+      }
+    } else {
+      console.log("[reports] No Brevo BYOK key found in user_api_keys or org_api_keys");
+    }
+  } catch { /* ignore */ }
 
   // ── Run ALL data sources concurrently ──
   const [
@@ -991,14 +1021,14 @@ export async function GET(request: Request) {
     contactAnalytics,
   ] = await Promise.all([
     readOpenClawData(),
-    fetchBrevoData(),
+    fetchBrevoData(brevoByokKey),
     fetchGaData(propertyProjectMap),
     fetchTokenUsage(sql, userId as number, projectIds, isAdmin, isEnterprise),
     fetchDbAgentReports(sql),
     fetchTaskStatusCounts(sql, projectIds, isAdmin),
     fetchTaskStatusByProject(sql, projectIds, isAdmin),
     fetchDbKpisByProject(sql, projectIds, isAdmin),
-    fetchContactAnalytics(sql, projectIds, isAdmin),
+    fetchContactAnalytics(sql, projectIds, isAdmin, orgUserIds),
   ]);
 
   const { jobs, summaries } = openClawData;
@@ -1118,20 +1148,26 @@ export async function GET(request: Request) {
 
   // ── Filter Brevo campaigns by user projects ──
   if (!isAdmin) {
-    brevoCampaigns = brevoCampaigns.filter(
+    const filteredCampaigns = brevoCampaigns.filter(
       (c) =>
         c.project !== "General" &&
         matchesUserProject(c.project, userProjectNames),
     );
-    brevoStats = brevoCampaigns.reduce(
-      (acc, c) => ({
-        emailsSent: acc.emailsSent + c.sent,
-        delivered: acc.delivered + c.delivered,
-        opened: acc.opened + c.opened,
-        clicked: acc.clicked + c.clicked,
-      }),
-      { emailsSent: 0, delivered: 0, opened: 0, clicked: 0 },
-    );
+    // Only override global stats if user has matching campaigns
+    // Otherwise keep the API-level stats (org-shared Brevo data)
+    if (filteredCampaigns.length > 0) {
+      brevoCampaigns = filteredCampaigns;
+      brevoStats = filteredCampaigns.reduce(
+        (acc, c) => ({
+          emailsSent: acc.emailsSent + c.sent,
+          delivered: acc.delivered + c.delivered,
+          opened: acc.opened + c.opened,
+          clicked: acc.clicked + c.clicked,
+        }),
+        { emailsSent: 0, delivered: 0, opened: 0, clicked: 0 },
+      );
+    }
+    // If no matching campaigns, keep original brevoStats from API (org-shared)
   }
 
   // ── Enrich server agents with Brevo campaign data ──
