@@ -3,7 +3,8 @@
 import React from "react";
 import Link from "next/link";
 import type { Dictionary } from "@/lib/i18n";
-import type { UserProfile } from "@auth0/nextjs-auth0/client";
+// UserProfile type from auth0 — inline to avoid import error with newer SDK versions
+type UserProfile = { email?: string | null; name?: string | null; [key: string]: unknown };
 
 interface Project {
   id: number;
