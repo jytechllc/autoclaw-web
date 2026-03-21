@@ -194,7 +194,7 @@ export async function POST(req: NextRequest) {
       }
       if (totalSpendCents >= dailyLimitCents) {
         const reply = userPlan === "starter"
-          ? `You've reached your **$1.00 daily chat limit** on the Starter plan. Upgrade to Growth ($49/mo) for a higher limit, or bring your own AI key (BYOK) in Settings to use your own quota.`
+          ? `You've reached your **$1.00 daily chat limit** on the Starter plan. Upgrade to Growth ($99/mo) for a higher limit, or bring your own AI key (BYOK) in Settings to use your own quota.`
           : `You've reached your daily chat limit. Please try again tomorrow or upgrade your plan.`;
         await sql`INSERT INTO chat_messages (user_id, project_id, conversation_id, role, content, agent_type, model) VALUES (${userId}, ${project_id || null}, ${convId}, 'assistant', ${reply}, 'autoclaw', ${usedModel || null})`;
         return NextResponse.json({ reply });
@@ -237,7 +237,7 @@ export async function POST(req: NextRequest) {
         const agentsToAdd = newAgents.slice(0, Math.max(0, slotsAvailable));
 
         if (slotsAvailable <= 0) {
-          reply = `You've reached the **${agentLimit} agent limit** on your **${userPlan}** plan. Upgrade to add more agents:\n\n- **Growth** ($49/mo) — up to 10 agents\n- **Scale** ($149/mo) — unlimited agents`;
+          reply = `You've reached the **${agentLimit} agent limit** on your **${userPlan}** plan. Upgrade to add more agents:\n\n- **Growth** ($99/mo) — up to 10 agents\n- **Scale** ($388/mo) — unlimited agents`;
         } else {
           for (const agent of agentsToAdd) {
             const config = AGENT_PLANS[agent.type] || {};
@@ -397,7 +397,7 @@ export async function POST(req: NextRequest) {
           const blocked = newAgents.slice(Math.max(0, slotsAvailable));
 
           if (slotsAvailable <= 0 && newAgents.length > 0) {
-            reply = `You've reached the **${agentLimit} agent limit** on your **${userPlan}** plan. Upgrade to add more:\n\n- **Growth** ($49/mo) — up to 10 agents\n- **Scale** ($149/mo) — unlimited agents`;
+            reply = `You've reached the **${agentLimit} agent limit** on your **${userPlan}** plan. Upgrade to add more:\n\n- **Growth** ($99/mo) — up to 10 agents\n- **Scale** ($388/mo) — unlimited agents`;
           } else {
             for (const agentType of agentsToAdd) {
               const config = AGENT_PLANS[agentType] || {};

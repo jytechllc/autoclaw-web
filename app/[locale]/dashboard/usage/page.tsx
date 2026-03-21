@@ -354,8 +354,8 @@ const PLAN_DAILY_LIMITS: Record<string, number> = {
 
 const PLAN_LABELS: Record<string, string> = {
   starter: "Starter",
-  growth: "Growth ($49/mo)",
-  scale: "Scale ($149/mo)",
+  growth: "Growth ($99/mo)",
+  scale: "Scale ($388/mo)",
   enterprise: "Enterprise",
 };
 

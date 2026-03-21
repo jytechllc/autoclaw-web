@@ -104,6 +104,22 @@ CREATE TABLE IF NOT EXISTS tool_executions (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS email_daily_stats (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id),
+  project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+  stat_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  emails_sent INTEGER DEFAULT 0,
+  emails_opened INTEGER DEFAULT 0,
+  emails_clicked INTEGER DEFAULT 0,
+  hard_bounces INTEGER DEFAULT 0,
+  soft_bounces INTEGER DEFAULT 0,
+  unique_opens INTEGER DEFAULT 0,
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(user_id, project_id, stat_date)
+);
+CREATE INDEX IF NOT EXISTS idx_email_daily_stats_user_date ON email_daily_stats(user_id, stat_date);
+
 CREATE TABLE IF NOT EXISTS enrichment_usage (
   id SERIAL PRIMARY KEY,
   user_id INTEGER REFERENCES users(id),
