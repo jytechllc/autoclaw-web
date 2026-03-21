@@ -789,8 +789,8 @@ export default function SettingsPage() {
                 { service: "apollo" as const, name: ts.byokApollo, hint: ts.byokApolloHint, tier: "freemium" as const, tierInfo: ts.byokApolloTier },
                 { service: "apify" as const, name: ts.byokApify, hint: ts.byokApifyHint, tier: "freemium" as const, tierInfo: ts.byokApifyTier },
                 { service: "hunter" as const, name: ts.byokHunter, hint: ts.byokHunterHint, tier: "freemium" as const, tierInfo: ts.byokHunterTier },
-                { service: "snov_api_id" as const, name: ts.byokSnovId || "Snov.io ID", hint: ts.byokSnovIdHint || "Client ID from snov.io", tier: "freemium" as const, tierInfo: ts.byokSnovTier || "Free: 50 credits/mo" },
-                { service: "snov_api_secret" as const, name: ts.byokSnovSecret || "Snov.io Secret", hint: ts.byokSnovSecretHint || "Client Secret from snov.io", tier: "freemium" as const, tierInfo: ts.byokSnovTier || "Free: 50 credits/mo" },
+                { service: "snov_api_id" as const, name: ts.byokSnovApiId || "Snov.io ID", hint: ts.byokSnovHint || "Client ID from snov.io", tier: "freemium" as const, tierInfo: ts.byokSnovTier || "Free: 50 credits/mo" },
+                { service: "snov_api_secret" as const, name: ts.byokSnovApiSecret || "Snov.io Secret", hint: ts.byokSnovHint || "Client Secret from snov.io", tier: "freemium" as const, tierInfo: ts.byokSnovTier || "Free: 50 credits/mo" },
               ] : []),
             ] as { service: string; name: string; hint: string; tier: "free" | "freemium" | "paid"; tierInfo: string }[]).map((svc) => {
               const existing = apiKeys.find((k) => k.service === svc.service);
