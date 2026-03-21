@@ -37,7 +37,7 @@ export async function executeTool(
     case "prospect_multi":
       return handleProspectMulti(toolParams, toolSummary, ctx.enrichKeys);
     case "search_google":
-      return handleSearchGoogle(toolParams, toolSummary, apifyToken);
+      return handleSearchGoogle(toolParams, toolSummary, ctx);
     case "crawl_website":
       return handleCrawlWebsite(toolParams, apifyToken);
     case "search_leads_apify":
@@ -155,14 +155,16 @@ async function handleProspectMulti(toolParams: Record<string, unknown>, toolSumm
   return parts.join("\n\n");
 }
 
-async function handleSearchGoogle(toolParams: Record<string, unknown>, toolSummary: string, apifyToken: string): Promise<string> {
-  if (!apifyToken) {
-    return "**Apify API key not configured.** Please add your Apify API token in Settings > API Keys (service: apify), or ask your admin to set the APIFY_API_TOKEN environment variable.";
+async function handleSearchGoogle(toolParams: Record<string, unknown>, toolSummary: string, ctx: ToolContext): Promise<string> {
+  const { apifyToken, byok } = ctx;
+  const tavilyKey = byok.tavily;
+  if (!apifyToken && !tavilyKey) {
+    return "**Search not configured.** Please add a Tavily API key (free, 1000/mo) or Apify token in Settings > API Keys.";
   }
   const queries = (toolParams.queries as string[]) || [];
   if (queries.length === 0) return "Please provide at least one search query.";
   try {
-    const searchResult = await searchGoogleApify(apifyToken, queries.slice(0, 5));
+    const searchResult = await searchGoogleApify(apifyToken, queries.slice(0, 5), tavilyKey);
     return `**${toolSummary || "Google Search Results"}**\n\n${searchResult}`;
   } catch (err) {
     return `Google search failed: ${err instanceof Error ? err.message : "Unknown error"}. Please try again.`;
@@ -185,20 +187,28 @@ async function handleCrawlWebsite(toolParams: Record<string, unknown>, apifyToke
 
 async function handleSearchLeadsApify(toolParams: Record<string, unknown>, toolSummary: string, ctx: ToolContext): Promise<string> {
   const { apifyToken, sendStep, userPlan, projects, byok, selectedModel } = ctx;
-  if (!apifyToken) {
-    return "**Apify API key not configured.** Please add your Apify API token in Settings > API Keys (service: apify), or ask your admin to set the APIFY_API_TOKEN environment variable.";
+  const tavilyKey = byok.tavily || process.env.TAVILY_API_KEY || "";
+  if (!apifyToken && !tavilyKey) {
+    return "**Search not configured.** Please add a Tavily API key (free, 1000/mo) or Apify token in Settings > API Keys.";
   }
   const isPaid = userPlan !== "starter";
 
-  try {
-    const leads = await searchLeadsApify(apifyToken, {
-      keywords: toolParams.keywords as string[],
-      job_titles: toolParams.job_titles as string[],
-      industries: toolParams.industries as string[],
-    });
+  let leads: Lead[] = [];
 
+  // Step 1: Try Apify lead search (if available)
+  if (apifyToken) {
+    try {
+      leads = await searchLeadsApify(apifyToken, {
+        keywords: toolParams.keywords as string[],
+        job_titles: toolParams.job_titles as string[],
+        industries: toolParams.industries as string[],
+      });
+    } catch (err) {
+      console.warn(`[tools] Apify lead search failed: ${err instanceof Error ? err.message : err}`);
+    }
+
+    // Fallback 1a: Try lead_finder if Apify is available and first search returned nothing
     if (leads.length === 0) {
-      // Fallback 1: Try search_lead_finder if job_titles provided
       const fallbackJobTitles = toolParams.job_titles as string[] | undefined;
       if (fallbackJobTitles && fallbackJobTitles.length > 0) {
         try {
@@ -209,30 +219,41 @@ async function handleSearchLeadsApify(toolParams: Record<string, unknown>, toolS
             industries: (toolParams.industries as string[]) || [],
           });
           if (lfLeads.length > 0) {
-            const displayLeads = isPaid ? lfLeads : lfLeads.slice(0, 10);
-            const leadTable = formatLeadTable(displayLeads, "lead_finder");
-            let result = `**${toolSummary || "Lead Search (via Lead Finder fallback)"}**\n\n_Direct lead search returned no results. Fallback: Lead Finder found ${lfLeads.length} contacts._\n\n| Name | Email | Phone | Title | Company | LinkedIn |\n|------|-------|-------|-------|---------|----------|\n${leadTable}`;
-            if (!isPaid && lfLeads.length > 10) {
-              result += `\n\n_Showing 10 of ${lfLeads.length} results. Upgrade to **Growth** or **Scale** to see all results._`;
-            }
-            const projectList = projects.map((p) => `**${p.name}** (ID: ${p.id})`).join(", ");
-            result += `\n\n---\n**Next steps:**\n- Save these contacts: **"save contacts to project [name]"**${projectList ? `\n- Your projects: ${projectList}` : ""}\n- Enrich data: **"enrich contacts"**`;
-            return result;
+            leads = lfLeads;
           }
-        } catch { /* lead finder fallback failed, continue to Google fallback */ }
+        } catch { /* lead finder fallback failed */ }
       }
+    }
+  }
 
-      // Fallback 2: Google Search → AI extract company domains → prospect
-      const fallbackKeywords = [...(toolParams.keywords as string[] || []), ...(toolParams.industries as string[] || [])];
-      if (fallbackKeywords.length > 0) {
-        try {
-          sendStep("fallback_google");
-          const googleQueries = fallbackKeywords.slice(0, 2).map(k => `top ${k} companies Europe list`);
-          googleQueries.push(fallbackKeywords.join(" ") + " manufacturers suppliers directory");
-          const googleResults = await searchGoogleApify(apifyToken, googleQueries);
+  // Return Apify/LeadFinder results if found
+  if (leads.length > 0) {
+    const displayLeads = isPaid ? leads : leads.slice(0, 10);
+    const hasLinkedIn = leads.some((l) => l.linkedinUrl);
+    const leadTable = formatLeadTable(displayLeads, hasLinkedIn ? "lead_finder" : "standard");
+    let result = `**${toolSummary || "Lead Search"}**\n\nFound **${leads.length}** contacts.\n\n${hasLinkedIn ? "| Name | Email | Phone | Title | Company | LinkedIn |\n|------|-------|-------|-------|---------|----------|" : "| Email | Name | Phone | Position | Source |\n|-------|------|-------|----------|--------|"}\n${leadTable}`;
+    if (!isPaid && leads.length > 10) {
+      result += `\n\n_Showing 10 of ${leads.length} results. Upgrade to **Growth** or **Scale** to see all results._`;
+    }
+    const projectList = projects.map((p) => `**${p.name}** (ID: ${p.id})`).join(", ");
+    result += `\n\n---\n**Next steps:**\n- Save these contacts: **"save contacts to project [name]"**${projectList ? `\n- Your projects: ${projectList}` : ""}\n- Enrich data: **"enrich contacts"**`;
+    return result;
+  }
 
-          sendStep("fallback_prospect");
-          const extractPrompt = `From the following Google search results, extract REAL company website domains (e.g. "sonnen.de", "fluence.com").
+  // Step 2: Tavily/Google search → AI extract domains → prospect contacts
+  const fallbackKeywords = [...(toolParams.keywords as string[] || []), ...(toolParams.industries as string[] || [])];
+  if (fallbackKeywords.length === 0) {
+    return `**${toolSummary || "Lead Search"}**\n\nNo leads or companies found.\n\nTry:\n- Broadening your keywords\n- Using **search_google** to research the industry first`;
+  }
+
+  try {
+    sendStep("fallback_google");
+    const googleQueries = fallbackKeywords.slice(0, 2).map(k => `top ${k} companies Europe list`);
+    googleQueries.push(fallbackKeywords.join(" ") + " manufacturers suppliers directory");
+    const googleResults = await searchGoogleApify(apifyToken, googleQueries, tavilyKey);
+
+    sendStep("fallback_prospect");
+    const extractPrompt = `From the following Google search results, extract REAL company website domains (e.g. "sonnen.de", "fluence.com").
 Only include actual company domains, NOT social media, news sites, directories, or generic sites.
 
 Search results:
@@ -240,85 +261,94 @@ ${googleResults.substring(0, 2000)}
 
 Return a JSON array of domains, e.g. ["sonnen.de", "fluence.com", "byd.com"]
 Return ONLY the JSON array, nothing else.`;
-          let extractedDomains: string[] = [];
-          try {
-            const extractResult = await chatWithAI([
-              { role: "system", content: "You are a data extraction assistant. Return ONLY valid JSON arrays." },
-              { role: "user", content: extractPrompt },
-            ], 300, byok, selectedModel);
-            const jsonMatch = extractResult.content.match(/\[[\s\S]*\]/);
-            if (jsonMatch) {
-              extractedDomains = (JSON.parse(jsonMatch[0]) as string[])
-                .filter(d => typeof d === "string" && d.includes(".") && d.length > 3 && d.length < 50)
-                .slice(0, 8);
-            }
-          } catch { /* extraction failed */ }
+    let extractedDomains: string[] = [];
+    try {
+      const extractResult = await chatWithAI([
+        { role: "system", content: "You are a data extraction assistant. Return ONLY valid JSON arrays." },
+        { role: "user", content: extractPrompt },
+      ], 300, byok, selectedModel);
+      const jsonMatch = extractResult.content.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        extractedDomains = (JSON.parse(jsonMatch[0]) as string[])
+          .filter(d => typeof d === "string" && d.includes(".") && d.length > 3 && d.length < 50)
+          .slice(0, 8);
+      }
+    } catch { /* extraction failed */ }
 
-          if (extractedDomains.length > 0) {
-            sendStep("fallback_prospect");
-            const domainResults: { domain: string; leads: Lead[] }[] = [];
-            for (const domain of extractedDomains.slice(0, 3)) {
-              try {
-                const { leads: domLeads } = await prospectDomain(domain, ctx.enrichKeys, { skipBrevo: true, onStep: ctx.sendStep });
-                if (domLeads.length > 0) domainResults.push({ domain, leads: domLeads });
-              } catch { /* skip */ }
-            }
-
-            if (domainResults.length > 0) {
-              const allFoundLeads = domainResults.flatMap(r => r.leads);
-              const leadTable = allFoundLeads.slice(0, 20).map(l => {
-                const name = [l.firstName, l.lastName].filter(Boolean).join(" ") || "—";
-                return `| ${l.email} | ${name} | ${l.company || "—"} | ${l.position || "—"} |`;
-              }).join("\n");
-
-              let result = `**${toolSummary || "Search Results"}**\n\n_Direct lead search returned no results. Fallback: Google Search → found ${extractedDomains.length} company domains → prospected contacts._\n\n**Discovered companies:** ${extractedDomains.join(", ")}\n\nFound **${allFoundLeads.length}** contacts:\n\n| Email | Name | Company | Position |\n|-------|------|---------|----------|\n${leadTable}`;
-              result += nextStepsHint(projects);
-              return result;
-            } else {
-              return `**${toolSummary || "Search Results"}**\n\nDirect lead search returned no results. Google Search found these companies: **${extractedDomains.join(", ")}**, but no public contacts were found.\n\nTry:\n- Search specific domains: "find contacts at ${extractedDomains[0]}"\n- Activate **Lead Prospecting** agent for deeper research`;
-            }
-          } else {
-            return `**${toolSummary || "Search Results"}**\n\nNo leads or companies found. Google Search also returned no relevant company domains.\n\nTry:\n- Broadening your keywords\n- Using **search_google** to research the industry first`;
-          }
-        } catch {
-          return `**${toolSummary || "Apify Lead Search"}**\n\nNo leads found, and Google fallback also failed. Try broadening your keywords or job titles.`;
-        }
+    if (extractedDomains.length > 0) {
+      sendStep("fallback_prospect");
+      const domainResults: { domain: string; leads: Lead[] }[] = [];
+      for (const domain of extractedDomains.slice(0, 3)) {
+        try {
+          const { leads: domLeads } = await prospectDomain(domain, ctx.enrichKeys, { skipBrevo: true, onStep: ctx.sendStep });
+          if (domLeads.length > 0) domainResults.push({ domain, leads: domLeads });
+        } catch { /* skip */ }
       }
 
-      return `**${toolSummary || "Apify Lead Search"}**\n\nNo leads found. Try providing more specific keywords or job titles.`;
-    }
+      if (domainResults.length > 0) {
+        const allFoundLeads = domainResults.flatMap(r => r.leads);
+        const leadTable = allFoundLeads.slice(0, 20).map(l => {
+          const name = [l.firstName, l.lastName].filter(Boolean).join(" ") || "—";
+          return `| ${l.email} | ${name} | ${l.company || "—"} | ${l.position || "—"} |`;
+        }).join("\n");
 
-    // Leads found
-    const displayLeads = isPaid ? leads : leads.slice(0, 10);
-    const leadTable = displayLeads.map((l) => {
-      const name = [l.firstName, l.lastName].filter(Boolean).join(" ") || "—";
-      return `| ${l.email} | ${name} | ${l.company || "—"} | ${l.position || "—"} |`;
-    }).join("\n");
-
-    let result = `**${toolSummary || "Apify Lead Search"}**\n\nFound **${leads.length}** contacts:\n\n| Email | Name | Company | Position |\n|-------|------|---------|----------|\n${leadTable}`;
-    if (!isPaid && leads.length > 10) {
-      result += `\n\n_Showing 10 of ${leads.length} results. Upgrade to **Growth** or **Scale** to see all results._`;
+        let result = `**${toolSummary || "Search Results"}**\n\nFound ${extractedDomains.length} company domains → prospected contacts.\n\n**Discovered companies:** ${extractedDomains.join(", ")}\n\nFound **${allFoundLeads.length}** contacts:\n\n| Email | Name | Company | Position |\n|-------|------|---------|----------|\n${leadTable}`;
+        result += nextStepsHint(projects);
+        return result;
+      }
+      return `**${toolSummary || "Search Results"}**\n\nFound these companies: **${extractedDomains.join(", ")}**, but no public contacts were found.\n\nTry:\n- Search specific domains: "find contacts at ${extractedDomains[0]}"\n- Activate **Lead Prospecting** agent for deeper research`;
     }
-    const projectList = projects.map((p) => `**${p.name}** (ID: ${p.id})`).join(", ");
-    result += `\n\n---\n**Next steps:**\n- Save these contacts: **"save contacts to project [name]"**${projectList ? `\n- Your projects: ${projectList}` : ""}\n- Enrich data: **"enrich contacts"**`;
-    return result;
-  } catch (err) {
-    return `Apify lead search failed: ${err instanceof Error ? err.message : "Unknown error"}. Please try again.`;
+    return `**${toolSummary || "Search Results"}**\n\nNo relevant company domains found.\n\nTry:\n- Broadening your keywords\n- Using **search_google** to research the industry first`;
+  } catch {
+    return `**${toolSummary || "Lead Search"}**\n\nSearch failed. Try broadening your keywords or job titles.`;
   }
 }
 
 async function handleSearchGoogleMaps(toolParams: Record<string, unknown>, toolSummary: string, ctx: ToolContext): Promise<string> {
-  const { apifyToken, sendStep, projects, enrichKeys, userPlan } = ctx;
+  const { apifyToken, sendStep, projects, enrichKeys, userPlan, byok } = ctx;
   const isPaid = userPlan !== "starter";
-  if (!apifyToken) {
-    return "**Apify API key not configured.** Please add your Apify API token in Settings > API Keys (service: apify), or ask your admin to set the APIFY_API_TOKEN environment variable.";
-  }
-  try {
-    sendStep("search_google_maps");
-    const query = toolParams.query as string;
-    const maxResults = (toolParams.max_results as number) || 10;
-    const results = await searchGoogleMaps(apifyToken, query, maxResults);
+  const query = toolParams.query as string;
+  const maxResults = (toolParams.max_results as number) || 10;
 
+  let results: { name: string; website: string; phone: string; address: string; category: string }[] = [];
+  const tavilyKey = byok.tavily || process.env.TAVILY_API_KEY || "";
+
+  // Primary: Tavily web search (fast, reliable)
+  if (tavilyKey) {
+    sendStep("search_google");
+    try {
+      const searchResult = await searchGoogleApify(apifyToken, [`${query} businesses companies`, `${query} directory list`], tavilyKey);
+      const urlRegex = /\(([^)]+)\)/g;
+      const titleRegex = /\*\*([^*]+)\*\*/g;
+      let match;
+      while ((match = titleRegex.exec(searchResult)) !== null) {
+        const title = match[1];
+        const urlMatch = urlRegex.exec(searchResult);
+        const url = urlMatch ? urlMatch[1] : "";
+        if (title && !title.includes("Search:")) {
+          results.push({ name: title, website: url, phone: "", address: "", category: "" });
+        }
+      }
+    } catch (err) {
+      console.warn(`[tools] Tavily search failed: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  // Fallback: Apify Google Maps (slower, but returns phone/address/category)
+  if (results.length === 0 && apifyToken) {
+    try {
+      sendStep("search_google_maps");
+      results = await searchGoogleMaps(apifyToken, query, maxResults);
+    } catch (err) {
+      console.warn(`[tools] Google Maps Apify failed: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  if (!tavilyKey && !apifyToken) {
+    return "**Search not configured.** Please add a Tavily API key (free, 1000/mo) or Apify token in Settings > API Keys.";
+  }
+
+  try {
     if (results.length === 0) {
       return `**Google Maps search: "${query}"**\n\nNo businesses found. Try broadening your search terms or checking the location.`;
     }

@@ -5,6 +5,8 @@ import { useParams } from "next/navigation";
 import { getDictionary, type Locale } from "@/lib/i18n";
 import DashboardShell from "@/components/DashboardShell";
 import { useUser } from "@auth0/nextjs-auth0/client";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface KBDocument {
   id: number;
@@ -712,7 +714,9 @@ export default function KnowledgePage() {
                                 </div>
                               </div>
                             ) : (
-                              <p className="text-xs text-gray-700 whitespace-pre-wrap wrap-break-word leading-relaxed">{chunk.content}</p>
+                              <div className="text-xs text-gray-700 leading-relaxed prose prose-xs prose-gray max-w-none prose-headings:text-sm prose-headings:font-semibold prose-headings:mt-3 prose-headings:mb-1 prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-table:text-xs prose-pre:text-[11px] prose-pre:bg-gray-50 prose-pre:p-2 prose-a:text-red-600">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{chunk.content}</ReactMarkdown>
+                              </div>
                             )}
                           </div>
                         ))}

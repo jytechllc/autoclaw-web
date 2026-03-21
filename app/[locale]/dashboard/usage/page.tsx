@@ -423,6 +423,7 @@ export default function UsagePage() {
   const [org, setOrg] = useState<OrgInfo | null>(null);
   const [enrichOrg, setEnrichOrg] = useState<EnrichmentQuota[]>([]);
   const [enrichPersonal, setEnrichPersonal] = useState<EnrichmentQuota[]>([]);
+  const [enrichUsage, setEnrichUsage] = useState<{ provider: string; total_calls: number; total_results: number; errors: number; quota_exceeded: number }[]>([]);
   const [storage, setStorage] = useState<StorageUsage | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -431,6 +432,7 @@ export default function UsagePage() {
       if (data) {
         setEnrichOrg(data.org || []);
         setEnrichPersonal(data.personal || []);
+        setEnrichUsage(data.usage || []);
       }
     });
   }
@@ -452,6 +454,7 @@ export default function UsagePage() {
       if (enrichData) {
         setEnrichOrg(enrichData.org || []);
         setEnrichPersonal(enrichData.personal || []);
+        setEnrichUsage(enrichData.usage || []);
       }
       if (storageData) setStorage(storageData);
       setLoading(false);
@@ -571,6 +574,37 @@ export default function UsagePage() {
                     <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">{t.enrichPersonal}</h3>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {enrichPersonal.map((svc) => renderEnrichCard(svc, t, locale))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Internal usage stats (last 30 days) */}
+                {enrichUsage.length > 0 && (
+                  <div>
+                    <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">{t.enrichUsageTitle || "Your Usage (30 days)"}</h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-left text-gray-400 border-b border-gray-100">
+                            <th className="py-1.5 pr-3">{t.enrichService}</th>
+                            <th className="py-1.5 pr-3 text-right">{t.enrichUsageCalls || "Calls"}</th>
+                            <th className="py-1.5 pr-3 text-right">{t.enrichUsageResults || "Results"}</th>
+                            <th className="py-1.5 pr-3 text-right">{t.enrichUsageErrors || "Errors"}</th>
+                            <th className="py-1.5 text-right">{t.enrichUsageExceeded || "Quota Hit"}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {enrichUsage.map((u) => (
+                            <tr key={u.provider} className="border-b border-gray-50">
+                              <td className="py-1.5 pr-3 font-medium text-gray-700 capitalize">{u.provider}</td>
+                              <td className="py-1.5 pr-3 text-right text-gray-600">{u.total_calls}</td>
+                              <td className="py-1.5 pr-3 text-right text-gray-600">{u.total_results}</td>
+                              <td className="py-1.5 pr-3 text-right">{u.errors > 0 ? <span className="text-red-500">{u.errors}</span> : <span className="text-gray-400">0</span>}</td>
+                              <td className="py-1.5 text-right">{u.quota_exceeded > 0 ? <span className="text-red-500">{u.quota_exceeded}</span> : <span className="text-gray-400">0</span>}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
                 )}

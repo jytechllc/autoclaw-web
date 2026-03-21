@@ -118,14 +118,20 @@ export async function POST(req: NextRequest) {
         : sql`SELECT role, content FROM chat_messages WHERE user_id = ${userId} AND project_id IS NULL AND conversation_id IS NULL ORDER BY created_at DESC LIMIT 6`;
 
     const [byokRows, todayUsage, , projects, recentHistory] = await sql.transaction([
-      sql`SELECT DISTINCT ON (service) service, api_key FROM user_api_keys
-        WHERE service IN ('openai', 'anthropic', 'google', 'alibaba', 'cerebras', 'apify', 'brevo', 'sendgrid', 'hunter', 'apollo', 'snov_id', 'snov_secret')
-        AND (user_id = ${userId} OR user_id IN (
-          SELECT om2.user_id FROM organization_members om1
-          JOIN organization_members om2 ON om1.org_id = om2.org_id
-          WHERE om1.user_id = ${userId} AND om2.role = 'admin'
-        ))
-        ORDER BY service, CASE WHEN user_id = ${userId} THEN 0 ELSE 1 END`,
+      sql`SELECT DISTINCT ON (service) service, api_key, label FROM (
+          SELECT service, api_key, label, user_id, 0 as priority FROM user_api_keys
+            WHERE service IN ('openai', 'anthropic', 'google', 'alibaba', 'cerebras', 'apify', 'tavily', 'brevo', 'sendgrid', 'hunter', 'apollo', 'snov_id', 'snov_secret')
+            AND (user_id = ${userId} OR user_id IN (
+              SELECT om2.user_id FROM organization_members om1
+              JOIN organization_members om2 ON om1.org_id = om2.org_id
+              WHERE om1.user_id = ${userId} AND om2.role = 'admin'
+            ))
+          UNION ALL
+          SELECT ok.service, ok.api_key, ok.label, 0 as user_id, 1 as priority FROM org_api_keys ok
+            WHERE ok.service IN ('openai', 'anthropic', 'google', 'alibaba', 'cerebras', 'apify', 'tavily', 'brevo', 'sendgrid', 'hunter', 'apollo', 'snov_id', 'snov_secret')
+            AND ok.org_id IN (SELECT org_id FROM organization_members WHERE user_id = ${userId})
+        ) combined
+        ORDER BY service, priority, CASE WHEN user_id = ${userId} THEN 0 ELSE 1 END`,
       sql`SELECT provider, SUM(prompt_tokens)::int as prompt_tokens, SUM(completion_tokens)::int as completion_tokens
         FROM token_usage WHERE user_id = ${userId} AND source = 'chat' AND created_at::date = CURRENT_DATE GROUP BY provider`,
       sql`INSERT INTO chat_messages (user_id, project_id, conversation_id, role, content) VALUES (${userId}, ${project_id || null}, ${convId}, 'user', ${redactedMessage})`,
@@ -141,8 +147,9 @@ export async function POST(req: NextRequest) {
     ]);
     // conversation update deferred to final transaction
 
-    // Parse BYOK keys
+    // Parse BYOK keys and plan tiers
     const byok: ByokKeys = {};
+    const enrichPlans: Record<string, string> = {};
     let apifyToken = process.env.APIFY_API_TOKEN || "";
     let brevoApiKey = process.env.BREVO_API_KEY || "";
     let sendgridApiKey = process.env.SENDGRID_API_KEY || "";
@@ -153,20 +160,27 @@ export async function POST(req: NextRequest) {
     for (const row of byokRows) {
       try {
         const key = decrypt(row.api_key as string);
+        const label = (row.label as string) || "";
         if (row.service === "openai") byok.openai = key;
         else if (row.service === "anthropic") byok.anthropic = key;
         else if (row.service === "google") byok.google = key;
         else if (row.service === "alibaba") byok.alibaba = key;
         else if (row.service === "cerebras") byok.cerebras = key;
         else if (row.service === "apify") apifyToken = key;
+        else if (row.service === "tavily") byok.tavily = key;
         else if (row.service === "brevo") brevoApiKey = key;
         else if (row.service === "sendgrid") sendgridApiKey = key;
         else if (row.service === "hunter") hunterKey = key;
         else if (row.service === "apollo") apolloKey = key;
         else if (row.service === "snov_id") snovId = key;
         else if (row.service === "snov_secret") snovSecret = key;
+        // Extract plan tier from label (format: "plan:free", "plan:basic", etc.)
+        if (label.startsWith("plan:")) {
+          enrichPlans[row.service as string] = label.slice(5);
+        }
       } catch { /* skip */ }
     }
+    console.log(`[chat] BYOK keys loaded: apollo=${apolloKey ? "yes" : "no"} plan=${enrichPlans.apollo || "none"} tavily=${byok.tavily ? "yes" : "no"} hunter=${hunterKey ? "yes" : "no"} apify=${apifyToken ? "yes" : "no"}`);
 
     let usedModel: string | undefined;
 
@@ -488,17 +502,66 @@ export async function POST(req: NextRequest) {
         reply = `Please provide one or more domains to search. Examples:\n\n- "Find leads for stripe.com"\n- "Prospect hubspot.com, intercom.com, calendly.com"\n- "Search domain bumrungrad.com"`;
       } else if (domains.length === 1) {
         try {
-          const directEnrichKeys: LeadEnrichKeys = { hunter: hunterKey || undefined, apollo: apolloKey || undefined, snovId: snovId || undefined, snovSecret: snovSecret || undefined };
-          const result = await prospectDomain(domains[0], directEnrichKeys, { skipBrevo: true });
+          const domain = domains[0];
+          const directEnrichKeys: LeadEnrichKeys = { hunter: hunterKey || undefined, apollo: apolloKey || undefined, snovId: snovId || undefined, snovSecret: snovSecret || undefined, plans: Object.keys(enrichPlans).length > 0 ? enrichPlans : undefined };
+          const result = await prospectDomain(domain, directEnrichKeys, { skipBrevo: true });
+
+          // Record enrichment usage
+          for (const s of result.stats) {
+            sql`INSERT INTO enrichment_usage (user_id, provider, domain, results_count, status, error_message)
+              VALUES (${userId}, ${s.provider}, ${domain}, ${s.count}, ${s.error ? (s.error.includes("429") || s.error.includes("exceeded") ? "quota_exceeded" : "error") : "ok"}, ${s.error || null})
+            `.catch(() => {});
+          }
+
+          // Supplement with user's contacts database
+          let contactsCount = 0;
+          try {
+            const domainPattern = `%@${domain}`;
+            const contactRows = await sql`
+              SELECT email, first_name, last_name, company, position, phone
+              FROM contacts WHERE user_id = ${userId} AND email ILIKE ${domainPattern} LIMIT 20
+            `;
+            const existingEmails = new Set(result.leads.map((l: { email: string }) => l.email.toLowerCase()));
+            for (const row of contactRows) {
+              const email = (row.email as string).toLowerCase();
+              if (!existingEmails.has(email)) {
+                result.leads.push({
+                  email,
+                  firstName: (row.first_name as string) || "",
+                  lastName: (row.last_name as string) || "",
+                  company: (row.company as string) || domain,
+                  position: (row.position as string) || "",
+                  phone: (row.phone as string) || undefined,
+                  source: "contacts" as "hunter",
+                  verified: true,
+                });
+                contactsCount++;
+              }
+            }
+          } catch { /* ignore contacts lookup */ }
+
+          // Search knowledge base for relevant info about the domain
+          let kbContext = "";
+          try {
+            const kbResults = await searchKnowledgeBase(sql, domain, { userId, topK: 3 });
+            if (kbResults.length > 0) {
+              kbContext = `\n\n---\n**From your knowledge base:**\n` + kbResults.map((r: { title?: string; content: string }) =>
+                `- **${r.title || "Note"}**: ${r.content.substring(0, 200)}${r.content.length > 200 ? "..." : ""}`
+              ).join("\n");
+            }
+          } catch { /* ignore KB lookup */ }
+
           if (result.leads.length === 0) {
-            reply = `**Lead search: ${domains[0]}**\n\nNo public contacts found for this domain. This can happen when:\n- The domain has few public-facing employees\n- Email addresses are well-protected\n- It's a small or personal website\n\nTry searching for **competitor or target customer domains** instead.`;
+            reply = `**Lead search: ${domain}**\n\nNo public contacts found for this domain. This can happen when:\n- The domain has few public-facing employees\n- Email addresses are well-protected\n- It's a small or personal website\n\nTry searching for **competitor or target customer domains** instead.${kbContext}`;
           } else {
+            const sources = `Apollo: ${result.apolloCount}, Hunter: ${result.hunterCount}, Snov: ${result.snovCount}${contactsCount > 0 ? `, Contacts: ${contactsCount}` : ""}`;
             const displayLeads = isPaid ? result.leads : result.leads.slice(0, 10);
             const leadTable = formatLeadTable(displayLeads);
-            reply = `**Lead search: ${domains[0]}**\n\nFound **${result.leads.length}** contacts (Apollo: ${result.apolloCount}, Hunter: ${result.hunterCount}, Snov: ${result.snovCount})\n\n| Email | Name | Position | Source |\n|-------|------|----------|--------|\n${leadTable}`;
+            reply = `**Lead search: ${domain}**\n\nFound **${result.leads.length}** contacts (${sources})\n\n| Email | Name | Phone | Position | Source |\n|-------|------|-------|----------|--------|\n${leadTable}`;
             if (!isPaid && result.leads.length > 10) {
               reply += `\n\n_Showing 10 of ${result.leads.length} results. Upgrade to **Growth** or **Scale** to see all contacts._`;
             }
+            reply += kbContext;
             reply += nextStepsHint(projects);
           }
         } catch {
@@ -506,7 +569,7 @@ export async function POST(req: NextRequest) {
         }
       } else {
         try {
-          const multiEnrichKeys: LeadEnrichKeys = { hunter: hunterKey || undefined, apollo: apolloKey || undefined, snovId: snovId || undefined, snovSecret: snovSecret || undefined };
+          const multiEnrichKeys: LeadEnrichKeys = { hunter: hunterKey || undefined, apollo: apolloKey || undefined, snovId: snovId || undefined, snovSecret: snovSecret || undefined, plans: Object.keys(enrichPlans).length > 0 ? enrichPlans : undefined };
           const result = await prospectMultipleDomains(domains.slice(0, 5), multiEnrichKeys);
           const parts: string[] = [`**Lead search across ${result.results.length} domains**\n`];
           for (const r of result.results) {
@@ -536,7 +599,7 @@ export async function POST(req: NextRequest) {
         || message.match(/(?:保存.*到|保存到)\s*[""]?(.+?)[""]?\s*(?:项目)?\s*$/);
       const projectName = projectNameMatch?.[1]?.trim();
 
-      const enrichKeys: LeadEnrichKeys = { hunter: hunterKey || undefined, apollo: apolloKey || undefined, snovId: snovId || undefined, snovSecret: snovSecret || undefined };
+      const enrichKeys: LeadEnrichKeys = { hunter: hunterKey || undefined, apollo: apolloKey || undefined, snovId: snovId || undefined, snovSecret: snovSecret || undefined, plans: Object.keys(enrichPlans).length > 0 ? enrichPlans : undefined };
       const toolCtx: ToolContext = {
         sql, userId, userPlan, projects, agents, project_id: project_id || null,
         byok, selectedModel: selectedModel || "", apifyToken, brevoApiKey, sendgridApiKey, enrichKeys, sendStep: () => {},
@@ -710,7 +773,7 @@ export async function POST(req: NextRequest) {
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
               };
 
-              const enrichKeys: LeadEnrichKeys = { hunter: hunterKey || undefined, apollo: apolloKey || undefined, snovId: snovId || undefined, snovSecret: snovSecret || undefined };
+              const enrichKeys: LeadEnrichKeys = { hunter: hunterKey || undefined, apollo: apolloKey || undefined, snovId: snovId || undefined, snovSecret: snovSecret || undefined, plans: Object.keys(enrichPlans).length > 0 ? enrichPlans : undefined };
               const toolCtx: ToolContext = {
                 sql, userId, userPlan, projects, agents, project_id: project_id || null,
                 byok, selectedModel: selectedModel || "", apifyToken, brevoApiKey, sendgridApiKey, enrichKeys, sendStep,

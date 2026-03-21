@@ -87,6 +87,7 @@ export default function ByokSection({
           { service: "brevo", name: ts.byokBravo, hint: ts.byokBrevoHint, tier: "free" as const, tierInfo: ts.byokBrevoTier },
           { service: "sendgrid", name: ts.byokSendGrid, hint: ts.byokSendGridHint, tier: "free" as const, tierInfo: ts.byokSendGridTier },
           ...(userPlan !== "starter" ? [
+            { service: "tavily" as const, name: "Tavily", hint: ts.byokTavilyHint || "AI-optimized web search. Get key at tavily.com.", tier: "freemium" as const, tierInfo: ts.byokTavilyTier || "Free: 1000 searches/mo. Pro: $20/mo." },
             { service: "apollo" as const, name: ts.byokApollo, hint: ts.byokApolloHint, tier: "freemium" as const, tierInfo: ts.byokApolloTier },
             { service: "apify" as const, name: ts.byokApify, hint: ts.byokApifyHint, tier: "freemium" as const, tierInfo: ts.byokApifyTier },
             { service: "hunter" as const, name: ts.byokHunter, hint: ts.byokHunterHint, tier: "freemium" as const, tierInfo: ts.byokHunterTier },
@@ -96,6 +97,15 @@ export default function ByokSection({
         ] as { service: string; name: string; hint: string; tier: "free" | "freemium" | "paid"; tierInfo: string }[]).map((svc) => {
           const existing = apiKeys.find((k) => k.service === svc.service);
           const isEditing = byokEditing === svc.service;
+          const isEnrichment = ["apollo", "apify", "hunter", "snov_api_id", "snov_api_secret"].includes(svc.service);
+          const planTiers: Record<string, { value: string; label: string }[]> = {
+            apollo: [{ value: "free", label: "Free" }, { value: "basic", label: "Basic ($49/mo)" }, { value: "professional", label: "Professional ($79/mo)" }, { value: "organization", label: "Organization ($119/mo)" }],
+            hunter: [{ value: "free", label: "Free (25/mo)" }, { value: "starter", label: "Starter ($49/mo)" }, { value: "growth", label: "Growth ($149/mo)" }, { value: "business", label: "Business ($499/mo)" }],
+            apify: [{ value: "free", label: "Free ($5/mo)" }, { value: "personal", label: "Personal ($49/mo)" }, { value: "team", label: "Team ($499/mo)" }],
+            snov_api_id: [{ value: "free", label: "Free (50 credits)" }, { value: "starter", label: "Starter ($39/mo)" }, { value: "pro", label: "Pro ($99/mo)" }],
+          };
+          const tierOptions = planTiers[svc.service];
+          const currentPlanTier = existing?.label?.startsWith("plan:") ? existing.label.slice(5) : undefined;
 
           return (
             <div key={svc.service} className="border border-gray-200 rounded-lg p-4">
@@ -108,13 +118,18 @@ export default function ByokSection({
                   <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${svc.tier === "free" ? "bg-blue-100 text-blue-700" : svc.tier === "freemium" ? "bg-purple-100 text-purple-700" : "bg-orange-100 text-orange-700"}`}>
                     {svc.tier === "free" ? ts.byokTierFree : svc.tier === "freemium" ? ts.byokTierFreemium : ts.byokTierPaid}
                   </span>
+                  {isEnrichment && currentPlanTier && (
+                    <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 capitalize">
+                      {currentPlanTier}
+                    </span>
+                  )}
                 </div>
                 {!isEditing && (
                   <button
                     onClick={() => {
                       setByokEditing(svc.service);
                       setByokKeyInput("");
-                      setByokLabelInput(existing?.label || "");
+                      setByokLabelInput(existing?.label || (isEnrichment ? "plan:free" : ""));
                     }}
                     className="text-xs text-red-600 hover:text-red-800 transition-colors cursor-pointer"
                   >
@@ -168,23 +183,36 @@ export default function ByokSection({
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none font-mono"
                     autoFocus
                   />
-                  <input
-                    type="text"
-                    value={byokLabelInput}
-                    onChange={(e) => setByokLabelInput(e.target.value)}
-                    placeholder={ts.byokLabel}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
-                  />
+                  {isEnrichment && tierOptions ? (
+                    <select
+                      value={byokLabelInput.startsWith("plan:") ? byokLabelInput.slice(5) : byokLabelInput || "free"}
+                      onChange={(e) => setByokLabelInput(`plan:${e.target.value}`)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none bg-white cursor-pointer"
+                    >
+                      {tierOptions.map((t) => (
+                        <option key={t.value} value={t.value}>{t.label}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={byokLabelInput}
+                      onChange={(e) => setByokLabelInput(e.target.value)}
+                      placeholder={ts.byokLabel}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
+                    />
+                  )}
                   <div className="flex gap-2">
                     <button
                       onClick={async () => {
-                        if (!byokKeyInput) return;
+                        if (!byokKeyInput && !isEnrichment) return;
                         setByokSaving(true);
+                        const label = isEnrichment && byokLabelInput.startsWith("plan:") ? byokLabelInput : byokLabelInput || null;
                         try {
                           const res = await fetch("/api/api-keys", {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ action: "upsert", service: svc.service, api_key: byokKeyInput, label: byokLabelInput || null }),
+                            body: JSON.stringify({ action: "upsert", service: svc.service, api_key: byokKeyInput || "__keep__", label }),
                           });
                           if (res.ok) {
                             setByokMsg(ts.byokSaved);

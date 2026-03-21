@@ -83,6 +83,7 @@ export default function OrgKeysSection({ orgs, orgKeys, setOrgKeys, apiKeys, col
             { service: "blob_token", name: ts.byokBlobToken, hint: ts.byokBlobTokenHint, tier: "free" as const, tierInfo: ts.byokBlobTokenTier },
             { service: "brevo", name: ts.byokBravo, hint: ts.byokBrevoHint, tier: "free" as const, tierInfo: ts.byokBrevoTier },
             { service: "sendgrid", name: ts.byokSendGrid, hint: ts.byokSendGridHint, tier: "free" as const, tierInfo: ts.byokSendGridTier },
+            { service: "tavily", name: ts.byokTavily || "Tavily", hint: ts.byokTavilyHint || "AI-optimized web search. Get key at tavily.com.", tier: "freemium" as const, tierInfo: ts.byokTavilyTier || "Free: 1000 searches/mo. Pro: $20/mo." },
             { service: "apollo", name: ts.byokApollo || "Apollo", hint: ts.byokApolloHint, tier: "freemium" as const, tierInfo: ts.byokApolloTier },
             { service: "apify", name: ts.byokApify || "Apify", hint: ts.byokApifyHint, tier: "freemium" as const, tierInfo: ts.byokApifyTier },
             { service: "hunter", name: ts.byokHunter || "Hunter", hint: ts.byokHunterHint, tier: "freemium" as const, tierInfo: ts.byokHunterTier },
@@ -156,6 +157,16 @@ export default function OrgKeysSection({ orgs, orgKeys, setOrgKeys, apiKeys, col
                 const personalKey = apiKeys.find((k) => k.service === svc.service);
                 const editKey = `org_${activeOrgId}_${svc.service}`;
                 const isEditing = orgKeyEditing === editKey;
+                const isEnrichment = ["apollo", "apify", "hunter", "tavily", "snov_id", "snov_secret"].includes(svc.service);
+                const planTiers: Record<string, { value: string; label: string }[]> = {
+                  apollo: [{ value: "free", label: "Free" }, { value: "basic", label: "Basic ($49/mo)" }, { value: "professional", label: "Professional ($79/mo)" }, { value: "organization", label: "Organization ($119/mo)" }],
+                  hunter: [{ value: "free", label: "Free (25/mo)" }, { value: "starter", label: "Starter ($49/mo)" }, { value: "growth", label: "Growth ($149/mo)" }, { value: "business", label: "Business ($499/mo)" }],
+                  apify: [{ value: "free", label: "Free ($5/mo)" }, { value: "personal", label: "Personal ($49/mo)" }, { value: "team", label: "Team ($499/mo)" }],
+                  tavily: [{ value: "free", label: "Free (1000/mo)" }, { value: "pro", label: "Pro ($20/mo)" }],
+                  snov_api_id: [{ value: "free", label: "Free (50 credits)" }, { value: "starter", label: "Starter ($39/mo)" }, { value: "pro", label: "Pro ($99/mo)" }],
+                };
+                const tierOptions = planTiers[svc.service];
+                const currentPlanTier = existing?.label?.startsWith("plan:") ? existing.label.slice(5) : undefined;
 
                 return (
                   <div key={svc.service} className="border border-gray-200 rounded-lg p-4">
@@ -165,6 +176,11 @@ export default function OrgKeysSection({ orgs, orgKeys, setOrgKeys, apiKeys, col
                         <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${existing ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-500"}`}>
                           {existing ? ts.byokMasked : ts.byokNotSet}
                         </span>
+                        {isEnrichment && currentPlanTier && (
+                          <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 capitalize">
+                            {currentPlanTier}
+                          </span>
+                        )}
                         <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${svc.tier === "free" ? "bg-blue-100 text-blue-700" : svc.tier === "freemium" ? "bg-purple-100 text-purple-700" : "bg-orange-100 text-orange-700"}`}>
                           {svc.tier === "free" ? ts.byokTierFree : svc.tier === "freemium" ? ts.byokTierFreemium : ts.byokTierPaid}
                         </span>
@@ -200,7 +216,7 @@ export default function OrgKeysSection({ orgs, orgKeys, setOrgKeys, apiKeys, col
                             </button>
                           )}
                           <button
-                            onClick={() => { setOrgKeyEditing(editKey); setOrgKeyInput(""); setOrgKeyLabelInput(existing?.label || ""); }}
+                            onClick={() => { setOrgKeyEditing(editKey); setOrgKeyInput(""); setOrgKeyLabelInput(existing?.label || (isEnrichment ? "plan:free" : "")); }}
                             className="text-xs text-red-600 hover:text-red-800 transition-colors cursor-pointer"
                           >
                             {existing ? ts.edit : ts.byokSave}
@@ -246,16 +262,28 @@ export default function OrgKeysSection({ orgs, orgKeys, setOrgKeys, apiKeys, col
                           placeholder={ts.byokPlaceholder}
                           className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
                         />
+                        {isEnrichment && tierOptions ? (
+                          <select
+                            value={orgKeyLabelInput.startsWith("plan:") ? orgKeyLabelInput.slice(5) : orgKeyLabelInput || "free"}
+                            onChange={(e) => setOrgKeyLabelInput(`plan:${e.target.value}`)}
+                            className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white cursor-pointer"
+                          >
+                            {tierOptions.map((t) => (
+                              <option key={t.value} value={t.value}>{t.label}</option>
+                            ))}
+                          </select>
+                        ) : null}
                         <div className="flex items-center gap-2">
                           <button
                             disabled={orgKeySaving || !orgKeyInput}
                             onClick={async () => {
                               setOrgKeySaving(true);
+                              const label = isEnrichment && orgKeyLabelInput.startsWith("plan:") ? orgKeyLabelInput : orgKeyLabelInput || null;
                               try {
                                 await fetch("/api/api-keys", {
                                   method: "POST",
                                   headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({ action: "org_upsert", org_id: activeOrgId, service: svc.service, api_key: orgKeyInput, label: orgKeyLabelInput || null }),
+                                  body: JSON.stringify({ action: "org_upsert", org_id: activeOrgId, service: svc.service, api_key: orgKeyInput, label }),
                                 });
                                 setOrgKeyMsg(ts.orgKeysSaved || "Saved!");
                                 setOrgKeyEditing(null);

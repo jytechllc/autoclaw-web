@@ -10,6 +10,8 @@ export interface LeadEnrichKeys {
   apollo?: string;
   snovId?: string;
   snovSecret?: string;
+  /** Plan tiers from user settings, e.g. { apollo: "free", hunter: "starter" } */
+  plans?: Record<string, string>;
 }
 
 const BREVO_LIST_ID = 8; // MedTravel Leads list
@@ -90,66 +92,94 @@ async function searchSnov(domain: string, byokId?: string, byokSecret?: string):
   })) };
 }
 
-async function searchApollo(domain: string, byokKey?: string): Promise<EnrichResult> {
+async function searchApollo(domain: string, byokKey?: string, plan?: string): Promise<EnrichResult> {
   const key = byokKey || APOLLO_API_KEY;
   if (!key) { console.log("[enrichment] Apollo: no key configured"); return { leads: [] }; }
+  // If plan not set, try people search anyway — auto-detect paid vs free
+  const isPaid = !plan || plan !== "free";
+  console.log(`[enrichment] Apollo: key=${key ? key.substring(0, 8) + "..." : "none"} plan=${plan || "auto"} isPaid=${isPaid}`);
   try {
-    // Try paid API first (mixed_people/search)
-    const res = await fetch("https://api.apollo.io/v1/mixed_people/search", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Api-Key": key },
-      body: JSON.stringify({ q_organization_domains: domain, per_page: 10 }),
-    });
-    const data = await res.json();
+    // Try mixed_people/search (works on paid plans, auto-falls back for free)
+    if (isPaid) {
+      // Step 1: Search for people at this domain
+      const res = await fetch("https://api.apollo.io/v1/mixed_people/api_search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Api-Key": key },
+        body: JSON.stringify({
+          q_organization_domains: domain,
+          per_page: 10,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && !data.error && data.people?.length > 0) {
+        const people = data.people as Record<string, unknown>[];
+        console.log(`[enrichment] Apollo search returned ${people.length} people for ${domain}, revealing emails...`);
 
-    if (res.ok && !data.error && data.people?.length > 0) {
-      const people = data.people as Record<string, unknown>[];
-      console.log(`[enrichment] Apollo search returned ${people.length} people for ${domain}`);
-      return { leads: people.map((p) => {
-        const phones = p.phone_numbers as Array<{ sanitized_number?: string }> | undefined;
-        const phone = phones?.[0]?.sanitized_number || undefined;
-        return {
-          email: (p.email as string) || "",
-          firstName: (p.first_name as string) || "",
-          lastName: (p.last_name as string) || "",
-          company: (p.organization_name as string) || domain,
-          position: (p.title as string) || "",
-          phone,
-          source: "apollo" as const,
-          verified: Boolean(p.email),
-        };
-      }).filter((l: Lead) => l.email) };
+        // Step 2: Reveal/enrich each person to get email, phone, etc.
+        const leads: Lead[] = [];
+        for (const p of people) {
+          const personId = p.id as string;
+          if (!personId) continue;
+          try {
+            const revealRes = await fetch("https://api.apollo.io/v1/people/match", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "X-Api-Key": key },
+              body: JSON.stringify({ id: personId, reveal_personal_emails: false }),
+            });
+            if (revealRes.ok) {
+              const revealData = await revealRes.json();
+              const person = revealData.person || revealData;
+              if (person && !revealData.error) {
+                const email = (person.email as string) || "";
+                const firstName = (person.first_name as string) || "";
+                const lastName = (person.last_name as string) || "";
+                if (email || firstName) {
+                  const phones = person.phone_numbers as Array<{ sanitized_number?: string; raw_number?: string; number?: string }> | undefined;
+                  const directPhone = (person.phone as string) || (person.mobile_phone as string) || (person.corporate_phone as string) || "";
+                  const phone = phones?.[0]?.sanitized_number || phones?.[0]?.raw_number || phones?.[0]?.number || directPhone || undefined;
+                  if (process.env.NODE_ENV === "development") console.log(`[enrichment] Apollo reveal: ${firstName} ${lastName} email=${email} phone=${phone || "none"}`);
+                  leads.push({
+                    email,
+                    firstName,
+                    lastName,
+                    company: (person.organization_name as string) || domain,
+                    position: (person.title as string) || "",
+                    phone,
+                    source: "apollo" as const,
+                    verified: Boolean(email),
+                    linkedinUrl: (person.linkedin_url as string) || undefined,
+                  });
+                }
+              }
+            }
+          } catch { /* skip individual reveal failures */ }
+        }
+        console.log(`[enrichment] Apollo revealed ${leads.length}/${people.length} contacts with data for ${domain}`);
+        return { leads };
+      }
+      if (data.error) console.warn(`[enrichment] Apollo search (${plan}) error: ${data.error}`);
     }
 
-    // Paid API unavailable — fallback to organizations/enrich (free plan compatible)
-    console.warn(`[enrichment] Apollo search unavailable (${data.error || `HTTP ${res.status}`}), trying organizations/enrich for ${domain}`);
+    // Free plan or paid search returned nothing: use organizations/enrich
     const enrichRes = await fetch(`https://api.apollo.io/v1/organizations/enrich?domain=${encodeURIComponent(domain)}`, {
       headers: { "X-Api-Key": key },
     });
-    if (!enrichRes.ok) { const err = `HTTP ${enrichRes.status}`; console.warn(`[enrichment] Apollo org/enrich failed: ${err}`); return { leads: [], error: `search: ${data.error || res.status}, enrich: ${err}` }; }
+    if (!enrichRes.ok) { const err = `HTTP ${enrichRes.status}`; console.warn(`[enrichment] Apollo org/enrich failed: ${err}`); return { leads: [], error: err }; }
     const enrichData = await enrichRes.json();
     if (enrichData.error) { console.warn(`[enrichment] Apollo org/enrich error: ${enrichData.error}`); return { leads: [], error: enrichData.error }; }
 
     const org = enrichData.organization;
     if (!org) return { leads: [], error: "No org data" };
 
-    // organizations/enrich returns company info but not individual contacts
-    // Extract whatever contact info is available (phone, generic emails, etc.)
     const leads: Lead[] = [];
     const orgName = (org.name as string) || domain;
     const phone = (org.primary_phone as Record<string, string>)?.sanitized_number || (org.phone as string) || undefined;
+    const cleanDomain = domain.replace(/^www\./, "");
 
-    // Some orgs have a publicly listed email pattern or generic contact
-    const publicEmails: string[] = [];
-    if (org.publicly_traded_exchange) {
-      // For public companies, try common patterns
-      const cleanDomain = domain.replace(/^www\./, "");
-      publicEmails.push(`info@${cleanDomain}`, `contact@${cleanDomain}`);
-    }
-
-    if (publicEmails.length > 0 || phone) {
+    // Build a lead from org-level contact info
+    if (phone) {
       leads.push({
-        email: publicEmails[0] || "",
+        email: `info@${cleanDomain}`,
         firstName: "",
         lastName: "",
         company: orgName,
@@ -160,8 +190,8 @@ async function searchApollo(domain: string, byokKey?: string): Promise<EnrichRes
       });
     }
 
-    console.log(`[enrichment] Apollo org/enrich for ${domain}: ${orgName}, phone=${phone || "none"}, leads=${leads.length}`);
-    return { leads, error: leads.length === 0 ? "Free plan: org info only, no contacts" : undefined };
+    console.log(`[enrichment] Apollo org/enrich (${plan || "free"}) for ${domain}: ${orgName}, phone=${phone || "none"}, leads=${leads.length}`);
+    return { leads };
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     console.error(`[enrichment] Apollo error for ${domain}:`, errMsg);
@@ -237,7 +267,7 @@ export async function searchCompanies(opts: {
             peopleBody.person_titles = opts.titles;
           }
 
-          const peopleRes = await fetch("https://api.apollo.io/v1/mixed_people/search", {
+          const peopleRes = await fetch("https://api.apollo.io/v1/mixed_people/api_search", {
             method: "POST",
             headers: { "Content-Type": "application/json", "X-Api-Key": APOLLO_API_KEY },
             body: JSON.stringify(peopleBody),
@@ -319,12 +349,19 @@ async function importToBrevo(leads: Lead[]): Promise<number> {
   return imported;
 }
 
+export interface EnrichStats {
+  provider: string;
+  count: number;
+  error?: string;
+}
+
 export async function prospectDomain(domain: string, enrichKeys?: LeadEnrichKeys, options?: { skipBrevo?: boolean; onStep?: (key: string) => void }): Promise<{
   leads: Lead[];
   imported: number;
   hunterCount: number;
   snovCount: number;
   apolloCount: number;
+  stats: EnrichStats[];
 }> {
   const step = options?.onStep || (() => {});
   // Only call providers that have keys configured (saves subrequests)
@@ -335,7 +372,7 @@ export async function prospectDomain(domain: string, enrichKeys?: LeadEnrichKeys
   const hasSnov = (enrichKeys?.snovId || SNOV_API_ID) && (enrichKeys?.snovSecret || SNOV_API_SECRET);
   console.log(`[enrichment] prospectDomain(${domain}) — Apollo:${!!hasApollo} Hunter:${!!hasHunter} Snov:${!!hasSnov} (byok: apollo=${!!enrichKeys?.apollo} hunter=${!!enrichKeys?.hunter} snov=${!!enrichKeys?.snovId})`);
 
-  if (hasApollo) { calls.push(searchApollo(domain, enrichKeys?.apollo)); providers.push("apollo"); }
+  if (hasApollo) { calls.push(searchApollo(domain, enrichKeys?.apollo, enrichKeys?.plans?.apollo)); providers.push("apollo"); }
   if (hasHunter) { calls.push(searchHunter(domain, enrichKeys?.hunter)); providers.push("hunter"); }
   if (hasSnov) { calls.push(searchSnov(domain, enrichKeys?.snovId, enrichKeys?.snovSecret)); providers.push("snov"); }
 
@@ -361,12 +398,18 @@ export async function prospectDomain(domain: string, enrichKeys?: LeadEnrichKeys
   const leads = dedupeLeads(apolloLeads, hunterLeads, snovLeads);
   // Skip Brevo import during chat tool execution to reduce subrequests
   const imported = options?.skipBrevo ? 0 : await importToBrevo(leads);
+  const stats: EnrichStats[] = [];
+  if (hasApollo) stats.push({ provider: "apollo", count: apolloLeads.length, error: apolloResult.error });
+  if (hasHunter) stats.push({ provider: "hunter", count: hunterLeads.length, error: hunterResult.error });
+  if (hasSnov) stats.push({ provider: "snov", count: snovLeads.length, error: snovResult.error });
+
   return {
     leads,
     imported,
     apolloCount: apolloLeads.length,
     hunterCount: hunterLeads.length,
     snovCount: snovLeads.length,
+    stats,
   };
 }
 
@@ -450,10 +493,22 @@ async function runApifyActor<T = Record<string, unknown>>(
 }
 
 /**
- * Search Google via Apify google-search-scraper.
+ * Search the web using Tavily API (fast, no Apify actor wait).
+ * Falls back to Apify google-search-scraper if no Tavily key.
  * Returns formatted text of search results.
  */
-export async function searchGoogleApify(apiToken: string, queries: string[]): Promise<string> {
+export async function searchGoogleApify(apiToken: string, queries: string[], tavilyByokKey?: string): Promise<string> {
+  // Prefer Tavily (fast, 1000 free searches/mo) over Apify Google scraper
+  const tavilyKey = tavilyByokKey || process.env.TAVILY_API_KEY;
+  if (tavilyKey) {
+    return searchTavily(tavilyKey, queries);
+  }
+
+  if (!apiToken) {
+    throw new Error("No search API configured. Please add a Tavily API key (free at tavily.com) in Settings > API Keys.");
+  }
+
+  // Fallback to Apify google-search-scraper
   const items = await runApifyActor<{
     searchQuery?: { term?: string };
     organicResults?: { title?: string; description?: string; url?: string }[];
@@ -469,6 +524,44 @@ export async function searchGoogleApify(apiToken: string, queries: string[]): Pr
     if (item.searchQuery?.term) parts.push(`\n[Search: ${item.searchQuery.term}]`);
     for (const r of (item.organicResults || []).slice(0, 5)) {
       parts.push(`- **${r.title || ""}** (${r.url || ""}): ${r.description || ""}`);
+    }
+  }
+  return parts.join("\n").substring(0, 3000) || "No search results found.";
+}
+
+/**
+ * Search using Tavily API — fast web search optimized for AI/LLM use.
+ * Free tier: 1000 searches/mo. API docs: https://docs.tavily.com
+ */
+async function searchTavily(apiKey: string, queries: string[]): Promise<string> {
+  const parts: string[] = [];
+  // Run queries sequentially (Tavily is fast, ~1-2s per query)
+  for (const query of queries.slice(0, 5)) {
+    try {
+      const res = await fetch("https://api.tavily.com/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          api_key: apiKey,
+          query,
+          max_results: 5,
+          include_answer: false,
+        }),
+      });
+      if (!res.ok) {
+        console.warn(`[search] Tavily failed for "${query}": HTTP ${res.status}`);
+        continue;
+      }
+      const data = await res.json();
+      const results = data.results || [];
+      if (results.length > 0) {
+        parts.push(`\n[Search: ${query}]`);
+        for (const r of results.slice(0, 5)) {
+          parts.push(`- **${r.title || ""}** (${r.url || ""}): ${r.content?.substring(0, 200) || ""}`);
+        }
+      }
+    } catch (err) {
+      console.warn(`[search] Tavily error for "${query}":`, err);
     }
   }
   return parts.join("\n").substring(0, 3000) || "No search results found.";

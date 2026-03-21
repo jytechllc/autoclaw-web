@@ -209,6 +209,7 @@ export const BYOK_SERVICES: Record<string, string> = {
   snov_id: "snov_id",
   snov_secret: "snov_secret",
   snov: "snov_id",
+  tavily: "tavily",
   vercel: "vercel",
   "twitter_api_key": "twitter_api_key",
   "twitter_api_secret": "twitter_api_secret",

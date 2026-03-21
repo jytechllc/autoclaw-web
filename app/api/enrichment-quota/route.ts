@@ -221,12 +221,27 @@ export async function GET() {
 
     await Promise.all(checks);
 
-    const order = ["hunter", "apollo", "snov", "apify"];
+    const order = ["hunter", "apollo", "snov", "apify", "tavily"];
     const sort = (a: ServiceQuota, b: ServiceQuota) => order.indexOf(a.service) - order.indexOf(b.service);
     orgServices.sort(sort);
     personalServices.sort(sort);
 
-    return NextResponse.json({ org: orgServices, personal: personalServices });
+    // Internal usage stats (last 30 days from enrichment_usage table)
+    let internalUsage: { provider: string; total_calls: number; total_results: number; errors: number; quota_exceeded: number }[] = [];
+    try {
+      internalUsage = (await sql`
+        SELECT provider,
+          COUNT(*)::int as total_calls,
+          COALESCE(SUM(results_count), 0)::int as total_results,
+          COUNT(*) FILTER (WHERE status = 'error')::int as errors,
+          COUNT(*) FILTER (WHERE status = 'quota_exceeded')::int as quota_exceeded
+        FROM enrichment_usage
+        WHERE user_id = ${userId} AND created_at > NOW() - INTERVAL '30 days'
+        GROUP BY provider ORDER BY provider
+      `) as typeof internalUsage;
+    } catch { /* table may not exist yet */ }
+
+    return NextResponse.json({ org: orgServices, personal: personalServices, usage: internalUsage });
   } catch (err) {
     console.error("[GET /api/enrichment-quota]", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

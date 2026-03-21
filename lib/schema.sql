@@ -104,6 +104,20 @@ CREATE TABLE IF NOT EXISTS tool_executions (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS enrichment_usage (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id),
+  provider VARCHAR(50) NOT NULL,      -- apollo, hunter, snov, tavily, apify
+  domain VARCHAR(255),                -- searched domain
+  results_count INTEGER DEFAULT 0,    -- number of leads returned
+  credits_used INTEGER DEFAULT 1,     -- estimated credits consumed
+  status VARCHAR(20) DEFAULT 'ok',    -- ok, error, quota_exceeded
+  error_message TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_enrichment_usage_user ON enrichment_usage(user_id);
+CREATE INDEX IF NOT EXISTS idx_enrichment_usage_created ON enrichment_usage(created_at);
+
 CREATE TABLE IF NOT EXISTS audit_logs (
   id SERIAL PRIMARY KEY,
   user_id INTEGER REFERENCES users(id),
