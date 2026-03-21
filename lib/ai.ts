@@ -13,6 +13,7 @@ interface AIResponse {
   provider: string;
   model: string;
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+  fallbackWarning?: string;
 }
 
 export interface ByokKeys {
@@ -250,56 +251,35 @@ export async function chatWithAI(messages: ChatMessage[], maxTokens = 500, byok?
     return msg.slice(0, 300);
   };
 
-  // BYOK keys first (user-provided keys take priority)
-  const byokProviders: { key: string | undefined; name: string; call: () => Promise<AIResponse> }[] = [
-    { key: byok?.openai, name: "BYOK OpenAI", call: () => callOpenAICompatible("https://api.openai.com/v1/chat/completions", byok!.openai!, "gpt-4o-mini", "openai", messages, maxTokens) },
-    { key: byok?.anthropic, name: "BYOK Anthropic", call: () => callAnthropic(byok!.anthropic!, "claude-sonnet-4-20250514", messages, maxTokens) },
-    { key: byok?.google, name: "BYOK Google", call: () => callGoogle(byok!.google!, "gemini-2.0-flash", messages, maxTokens) },
-    { key: byok?.alibaba, name: "BYOK Alibaba", call: () => callOpenAICompatible(`${ALIBABA_AI_BASE_URL}/chat/completions`, byok!.alibaba!, "qwen-turbo", "alibaba", messages, maxTokens) },
-    { key: byok?.cerebras, name: "BYOK Cerebras", call: () => callOpenAICompatible("https://api.cerebras.ai/v1/chat/completions", byok!.cerebras!, "qwen-3-235b-a22b-instruct-2507", "cerebras", messages, maxTokens) },
-  ];
+  // Build ordered provider list: most reliable first, limit fallbacks to reduce subrequests
+  const providers: { name: string; call: () => Promise<AIResponse> }[] = [];
 
-  for (const p of byokProviders) {
-    if (!p.key) continue;
+  // Platform keys first — prefer larger models that follow tool_call format reliably
+  if (CEREBRAS_API_KEY) {
+    providers.push({ name: "Cerebras qwen-3-235b", call: () => callOpenAICompatible("https://api.cerebras.ai/v1/chat/completions", CEREBRAS_API_KEY, "qwen-3-235b-a22b-instruct-2507", "cerebras", messages, maxTokens) });
+  }
+  if (GOOGLE_AI_API) providers.push({ name: "Google", call: () => callGoogle(GOOGLE_AI_API, "gemini-2.0-flash", messages, maxTokens) });
+
+  // BYOK keys as fallback
+  if (byok?.openai) providers.push({ name: "BYOK OpenAI", call: () => callOpenAICompatible("https://api.openai.com/v1/chat/completions", byok.openai!, "gpt-4o-mini", "openai", messages, maxTokens) });
+  if (byok?.anthropic) providers.push({ name: "BYOK Anthropic", call: () => callAnthropic(byok.anthropic!, "claude-sonnet-4-20250514", messages, maxTokens) });
+  if (byok?.google) providers.push({ name: "BYOK Google", call: () => callGoogle(byok.google!, "gemini-2.0-flash", messages, maxTokens) });
+  if (byok?.alibaba) providers.push({ name: "BYOK Alibaba", call: () => callOpenAICompatible(`${ALIBABA_AI_BASE_URL}/chat/completions`, byok.alibaba!, "qwen-turbo", "alibaba", messages, maxTokens) });
+
+  // Try at most 2 providers to stay within subrequest limits (called 4× in orchestrator = max 8 API calls)
+  const MAX_FALLBACKS = 2;
+  for (const p of providers.slice(0, MAX_FALLBACKS)) {
     try {
-      return await p.call();
+      const result = await p.call();
+      // If we had to fallback, attach warning info
+      if (providerErrors.length > 0) {
+        result.fallbackWarning = providerErrors.map(e => `${e.provider}: ${e.error}`).join("; ");
+      }
+      return result;
     } catch (e) {
       const errMsg = extractError(e);
       providerErrors.push({ provider: p.name, error: errMsg });
       console.warn(`[AI fallback] ${p.name} failed: ${errMsg}`);
-    }
-  }
-
-  // Platform keys (Cerebras gpt-oss-120b → llama-3.3-70b → NVIDIA → Google Gemini Flash)
-  if (CEREBRAS_API_KEY) {
-    for (const model of ["gpt-oss-120b", "llama-3.3-70b"]) {
-      try {
-        return await callOpenAICompatible("https://api.cerebras.ai/v1/chat/completions", CEREBRAS_API_KEY, model, "cerebras", messages, maxTokens);
-      } catch (e) {
-        const errMsg = extractError(e);
-        providerErrors.push({ provider: `Cerebras ${model}`, error: errMsg });
-        console.warn(`[AI fallback] Cerebras ${model} failed: ${errMsg}`);
-      }
-    }
-  }
-
-  if (NVIDIA_API_KEY) {
-    try {
-      return await callOpenAICompatible("https://integrate.api.nvidia.com/v1/chat/completions", NVIDIA_API_KEY, "meta/llama-3.1-8b-instruct", "nvidia", messages, maxTokens);
-    } catch (e) {
-      const errMsg = extractError(e);
-      providerErrors.push({ provider: "NVIDIA", error: errMsg });
-      console.warn(`[AI fallback] NVIDIA failed: ${errMsg}`);
-    }
-  }
-
-  if (GOOGLE_AI_API) {
-    try {
-      return await callGoogle(GOOGLE_AI_API, "gemini-2.0-flash", messages, maxTokens);
-    } catch (e) {
-      const errMsg = extractError(e);
-      providerErrors.push({ provider: "Google", error: errMsg });
-      console.warn(`[AI fallback] Google failed: ${errMsg}`);
     }
   }
 

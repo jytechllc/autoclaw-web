@@ -95,13 +95,13 @@ async function handleSearchCompanies(toolParams: Record<string, unknown>, toolSu
 async function handleProspectDomain(toolParams: Record<string, unknown>, toolSummary: string, isPaid: boolean, enrichKeys?: LeadEnrichKeys): Promise<string> {
   const domain = toolParams.domain as string;
   if (!domain) return "";
-  const result = await prospectDomain(domain, enrichKeys);
+  const result = await prospectDomain(domain, enrichKeys, { skipBrevo: true });
   if (result.leads.length === 0) {
     return `**Lead search: ${domain}**\n\nNo public contacts found for this domain.`;
   }
   const displayLeads = isPaid ? result.leads : result.leads.slice(0, 10);
   const leadTable = formatLeadTable(displayLeads);
-  return `**Lead search: ${domain}**\n\nFound **${result.leads.length}** contacts (Apollo: ${result.apolloCount}, Hunter: ${result.hunterCount}, Snov: ${result.snovCount})\n\n| Email | Name | Position | Source |\n|-------|------|----------|--------|\n${leadTable}`;
+  return `**Lead search: ${domain}**\n\nFound **${result.leads.length}** contacts (Apollo: ${result.apolloCount}, Hunter: ${result.hunterCount}, Snov: ${result.snovCount})\n\n| Email | Name | Phone | Position | Source |\n|-------|------|-------|----------|--------|\n${leadTable}`;
 }
 
 async function handleProspectMulti(toolParams: Record<string, unknown>, toolSummary: string, enrichKeys?: LeadEnrichKeys): Promise<string> {
@@ -176,7 +176,7 @@ async function handleSearchLeadsApify(toolParams: Record<string, unknown>, toolS
           if (lfLeads.length > 0) {
             const displayLeads = isPaid ? lfLeads : lfLeads.slice(0, 10);
             const leadTable = formatLeadTable(displayLeads, "lead_finder");
-            let result = `**${toolSummary || "Lead Search (via Lead Finder fallback)"}**\n\n_Direct lead search returned no results. Fallback: Lead Finder found ${lfLeads.length} contacts._\n\n| Name | Email | Title | Company | LinkedIn |\n|------|-------|-------|---------|----------|\n${leadTable}`;
+            let result = `**${toolSummary || "Lead Search (via Lead Finder fallback)"}**\n\n_Direct lead search returned no results. Fallback: Lead Finder found ${lfLeads.length} contacts._\n\n| Name | Email | Phone | Title | Company | LinkedIn |\n|------|-------|-------|-------|---------|----------|\n${leadTable}`;
             if (!isPaid && lfLeads.length > 10) {
               result += `\n\n_Showing 10 of ${lfLeads.length} results. Upgrade to **Growth** or **Scale** to see all results._`;
             }
@@ -224,7 +224,7 @@ Return ONLY the JSON array, nothing else.`;
             const domainResults: { domain: string; leads: Lead[] }[] = [];
             for (const domain of extractedDomains.slice(0, 3)) {
               try {
-                const { leads: domLeads } = await prospectDomain(domain, ctx.enrichKeys);
+                const { leads: domLeads } = await prospectDomain(domain, ctx.enrichKeys, { skipBrevo: true });
                 if (domLeads.length > 0) domainResults.push({ domain, leads: domLeads });
               } catch { /* skip */ }
             }
@@ -300,14 +300,14 @@ async function handleSearchGoogleMaps(toolParams: Record<string, unknown>, toolS
       .filter((r) => r.website)
       .map((r) => { try { return new URL(r.website).hostname.replace(/^www\./, ""); } catch { return ""; } })
       .filter((d) => d && d.includes("."));
-    const uniqueDomains = [...new Set(domains)].slice(0, 5);
+    const uniqueDomains = [...new Set(domains)].slice(0, 2); // Limit to 2 to stay within subrequest limits
 
     if (uniqueDomains.length > 0 && hasEnrichKeys) {
       sendStep("enrich_domains");
       const allLeads: Lead[] = [];
       for (const domain of uniqueDomains) {
         try {
-          const { leads } = await prospectDomain(domain, enrichKeys);
+          const { leads } = await prospectDomain(domain, enrichKeys, { skipBrevo: true });
           allLeads.push(...leads);
         } catch { /* skip failed domains */ }
       }
@@ -359,7 +359,7 @@ async function handleSearchLeadFinder(toolParams: Record<string, unknown>, toolS
     const displayLeads = isPaid ? leads : leads.slice(0, 10);
     const leadTable = formatLeadTable(displayLeads, "lead_finder");
 
-    let result = `**${toolSummary || "Lead Finder Search"}**\n\nFound **${leads.length}** contacts:\n\n| Name | Email | Title | Company | LinkedIn |\n|------|-------|-------|---------|----------|\n${leadTable}`;
+    let result = `**${toolSummary || "Lead Finder Search"}**\n\nFound **${leads.length}** contacts:\n\n| Name | Email | Phone | Title | Company | LinkedIn |\n|------|-------|-------|-------|---------|----------|\n${leadTable}`;
     if (!isPaid && leads.length > 10) {
       result += `\n\n_Showing 10 of ${leads.length} results. Upgrade to **Growth** or **Scale** to see all results._`;
     }

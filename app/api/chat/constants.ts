@@ -24,7 +24,7 @@ export const AGENT_PLANS: Record<string, { plan: string; tasks: { name: string; 
     plan: "Audit existing website SEO, research high-value keywords, create content calendar, and produce optimized blog posts.",
     tasks: [
       { name: "Crawl website & audit current SEO health", status: "in_progress" },
-      { name: "Keyword research (50+ target keywords)", status: "pending" },
+      { name: "Keyword research", status: "pending" },
       { name: "Competitor content analysis", status: "pending" },
       { name: "Create monthly content calendar", status: "pending" },
       { name: "Write first 3 SEO-optimized blog posts", status: "pending" },
@@ -181,17 +181,17 @@ export function nextStepsHint(projects: ProjectRow[]) {
   return hint;
 }
 
-export function formatLeadTable(leads: { email: string; firstName?: string; lastName?: string; position?: string; source?: string; company?: string; confidence?: number; verified?: boolean; linkedinUrl?: string }[], format: "standard" | "lead_finder" = "standard") {
+export function formatLeadTable(leads: { email: string; firstName?: string; lastName?: string; position?: string; phone?: string; source?: string; company?: string; confidence?: number; verified?: boolean; linkedinUrl?: string }[], format: "standard" | "lead_finder" = "standard") {
   if (format === "lead_finder") {
     return leads.map((l) => {
       const name = [l.firstName, l.lastName].filter(Boolean).join(" ") || "—";
-      return `| ${name} | ${l.email || "—"} | ${l.position || "—"} | ${l.company || "—"} | ${l.linkedinUrl || "—"} |`;
+      return `| ${name} | ${l.email || "—"} | ${l.phone || "—"} | ${l.position || "—"} | ${l.company || "—"} | ${l.linkedinUrl || "—"} |`;
     }).join("\n");
   }
   return leads.map((l) => {
     const name = [l.firstName, l.lastName].filter(Boolean).join(" ") || "—";
     const badge = l.verified ? " [verified]" : l.confidence && l.confidence > 80 ? ` [${l.confidence}%]` : "";
-    return `| ${l.email} | ${name} | ${l.position || "—"} | ${l.source || "—"}${badge} |`;
+    return `| ${l.email} | ${name} | ${l.phone || "—"} | ${l.position || "—"} | ${l.source || "—"}${badge} |`;
   }).join("\n");
 }
 
@@ -418,17 +418,19 @@ When a user says "帮我找客户", "find me customers", "帮 xxx.com 找客户"
 - If user has multiple projects: ask which project, do NOT call any tool.
 - If user has no projects: ask them to describe their business, do NOT call any tool.
 
-**IMPORTANT — Be decisive, take action:**
-- If you have enough context, CALL A TOOL immediately. Do NOT propose a plan and ask for confirmation.
+**CRITICAL RULE — NEVER ask for confirmation, NEVER propose a plan, NEVER list steps. JUST EXECUTE:**
+- When the user mentions ANY business/company/lead search request, you MUST respond with ONLY a tool_call block. No other text.
+- Do NOT say "I suggest...", "You can...", "Would you like...", "Let me help you with...". Just call the tool.
+- Do NOT explain what tools are available. Do NOT show example commands. Just execute.
 - If the user confirmed a previously proposed plan (e.g., "好的", "yes", "开始"), CALL the tool now.
 - Remember: you can chain multiple tools across steps. Just start with the first one.
 
-If you determine a tool should be called, respond with ONLY a JSON block in this exact format (no other text):
+You MUST respond with ONLY this JSON block (no other text before or after):
 \`\`\`tool_call
 {"tool": "tool_name", "params": {...}, "summary": "brief description of what you're searching for"}
 \`\`\`
 
-If no tool is needed, respond normally with helpful text.
+Only respond with normal text if the user is asking a general question that does NOT require searching.
 
 Examples of when to call tools:
 - "欧洲储能工厂和安装商" → search_google_maps with query="energy storage companies installers Europe"

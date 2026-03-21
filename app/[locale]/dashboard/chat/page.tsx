@@ -15,6 +15,7 @@ interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   agent_type?: string;
+  model?: string;
   created_at: string;
 }
 
@@ -261,6 +262,7 @@ export default function ChatPage() {
         const reader = res.body?.getReader();
         const decoder = new TextDecoder();
         let finalReply = "";
+        let finalModel = "";
         if (reader) {
           while (true) {
             const { done, value } = await reader.read();
@@ -291,6 +293,10 @@ export default function ChatPage() {
                       });
                     }
                   }
+                  if (evt.type === "warning") {
+                    // System warning (e.g. quota exceeded, fallback)
+                    setToolSteps((prev) => [...prev, { label: evt.message, done: true, error: false }]);
+                  }
                   if (evt.type === "step_error") {
                     // Tool failed — mark last step as error with detail
                     setToolSteps((prev) => {
@@ -306,6 +312,7 @@ export default function ChatPage() {
                   }
                   if (evt.type === "done") {
                     finalReply = evt.reply;
+                    finalModel = evt.model;
                     setToolStatus("");
                     setToolSteps([]);
                   }
@@ -315,12 +322,12 @@ export default function ChatPage() {
           }
         }
         if (finalReply) {
-          setMessages((prev) => [...prev, { id: Date.now() + 1, role: "assistant", content: finalReply, agent_type: "autoclaw", created_at: new Date().toISOString() }]);
+          setMessages((prev) => [...prev, { id: Date.now() + 1, role: "assistant", content: finalReply, agent_type: "autoclaw", model: finalModel || undefined, created_at: new Date().toISOString() }]);
         }
       } else {
         const data = await res.json();
         if (data.reply) {
-          setMessages((prev) => [...prev, { id: Date.now() + 1, role: "assistant", content: data.reply, agent_type: "autoclaw", created_at: new Date().toISOString() }]);
+          setMessages((prev) => [...prev, { id: Date.now() + 1, role: "assistant", content: data.reply, agent_type: "autoclaw", model: data.model, created_at: new Date().toISOString() }]);
         }
       }
     } catch {
@@ -525,6 +532,9 @@ export default function ChatPage() {
                   {/* Action bar for assistant messages */}
                   {msg.role === "assistant" && (
                     <div className="flex items-center gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {msg.model && (
+                        <span className="text-[10px] text-gray-400 px-1.5 py-0.5 bg-gray-100 rounded mr-1">{msg.model}</span>
+                      )}
                       {/* Copy */}
                       <button
                         type="button"

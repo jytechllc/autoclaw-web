@@ -20,6 +20,7 @@ export interface Lead {
   lastName: string;
   company: string;
   position: string;
+  phone?: string;
   source: "hunter" | "snov" | "apollo" | "apify";
   confidence?: number;
   verified?: boolean;
@@ -263,21 +264,31 @@ async function importToBrevo(leads: Lead[]): Promise<number> {
   return imported;
 }
 
-export async function prospectDomain(domain: string, enrichKeys?: LeadEnrichKeys): Promise<{
+export async function prospectDomain(domain: string, enrichKeys?: LeadEnrichKeys, options?: { skipBrevo?: boolean }): Promise<{
   leads: Lead[];
   imported: number;
   hunterCount: number;
   snovCount: number;
   apolloCount: number;
 }> {
-  const [apolloLeads, hunterLeads, snovLeads] = await Promise.all([
-    searchApollo(domain, enrichKeys?.apollo),
-    searchHunter(domain, enrichKeys?.hunter),
-    searchSnov(domain, enrichKeys?.snovId, enrichKeys?.snovSecret),
-  ]);
-  // Apollo first (richest data), then Hunter, then Snov as fallback
+  // Only call providers that have keys configured (saves subrequests)
+  const calls: Promise<Lead[]>[] = [];
+  const hasApollo = enrichKeys?.apollo || APOLLO_API_KEY;
+  const hasHunter = enrichKeys?.hunter || HUNTER_API_KEY;
+  const hasSnov = (enrichKeys?.snovId || SNOV_API_ID) && (enrichKeys?.snovSecret || SNOV_API_SECRET);
+
+  if (hasApollo) calls.push(searchApollo(domain, enrichKeys?.apollo));
+  if (hasHunter) calls.push(searchHunter(domain, enrichKeys?.hunter));
+  if (hasSnov) calls.push(searchSnov(domain, enrichKeys?.snovId, enrichKeys?.snovSecret));
+
+  const results = await Promise.all(calls);
+  const apolloLeads = hasApollo ? results.shift() || [] : [];
+  const hunterLeads = hasHunter ? results.shift() || [] : [];
+  const snovLeads = hasSnov ? results.shift() || [] : [];
+
   const leads = dedupeLeads(apolloLeads, hunterLeads, snovLeads);
-  const imported = await importToBrevo(leads);
+  // Skip Brevo import during chat tool execution to reduce subrequests
+  const imported = options?.skipBrevo ? 0 : await importToBrevo(leads);
   return {
     leads,
     imported,
@@ -297,7 +308,7 @@ export async function prospectMultipleDomains(domains: string[], enrichKeys?: Le
   let totalImported = 0;
 
   for (const domain of domains) {
-    const { leads, imported } = await prospectDomain(domain, enrichKeys);
+    const { leads, imported } = await prospectDomain(domain, enrichKeys, { skipBrevo: true });
     results.push({ domain, leads, imported });
     totalLeads += leads.length;
     totalImported += imported;
@@ -495,7 +506,7 @@ export async function searchLeadFinder(
       industries: opts.industries,
       maxResults: opts.maxResults || 20,
     },
-    { waitForFinish: 120, itemsLimit: 200 },
+    { waitForFinish: 45, itemsLimit: 200 },
   );
 
   return items
@@ -511,6 +522,7 @@ export async function searchLeadFinder(
         lastName,
         company: String(item.company_name || ""),
         position: String(item.title || ""),
+        phone: item.phone ? String(item.phone) : item.phone_number ? String(item.phone_number) : undefined,
         source: "apify" as const,
         confidence: 75,
         verified: false,
@@ -532,7 +544,7 @@ export async function enrichCompanyDomains(
     apiToken,
     "ryanclinton~b2b-lead-gen-suite",
     { urls },
-    { waitForFinish: 120, itemsLimit: 200 },
+    { waitForFinish: 45, itemsLimit: 200 },
   );
 
   return items.map((item) => ({

@@ -2,7 +2,7 @@ import { auth0 } from "@/lib/auth0";
 import { NextRequest, NextResponse } from "next/server";
 import { locales, defaultLocale, isValidLocale } from "@/lib/i18n";
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Auth0 routes - handle directly
