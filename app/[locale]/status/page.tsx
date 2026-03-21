@@ -173,24 +173,70 @@ export default function StatusPage() {
                 { name: "Cloudflare Worker (Free)", cost: 0 },
                 { name: "Brevo (Free 300/day)", cost: 0 },
               ];
+              const enrichCosts = [
+                { name: "Hunter.io", cost: 0, paidCost: 49, paidLabel: "Starter (500 searches)" },
+                { name: "Apollo.io", cost: 0, paidCost: 49, paidLabel: "Basic (unlimited)" },
+                { name: "Snov.io", cost: 0, paidCost: 30, paidLabel: "Starter (1K credits)" },
+                { name: "Apify", cost: 0, paidCost: 49, paidLabel: "Personal" },
+              ];
               const fixedTotal = fixedCosts.reduce((s, c) => s + c.cost, 0);
+              const enrichCurrentTotal = enrichCosts.reduce((s, c) => s + c.cost, 0);
+              const enrichPaidTotal = enrichCosts.reduce((s, c) => s + c.paidCost, 0);
               const platformTotal = vercelGross + githubGross;
               const totalAI = aiCost + byokAiCost;
-              const totalMonthly = fixedTotal + totalAI + platformTotal;
+              const totalMonthly = fixedTotal + enrichCurrentTotal + totalAI + platformTotal;
+              const totalAnnual = totalMonthly * 12;
+              const totalMonthlyPaid = fixedTotal + enrichPaidTotal + totalAI + platformTotal;
+              const totalAnnualPaid = totalMonthlyPaid * 12;
 
               return (
                 <div className="bg-white rounded-lg border border-red-200 p-6">
                   <h2 className="text-sm font-semibold mb-4">{ts.monthlyCostOverview || "Monthly Cost Overview"}</h2>
-                  {/* Grand total */}
-                  <div className="text-center mb-4 pb-4 border-b border-gray-100">
-                    <p className="text-4xl font-bold text-red-600">${totalMonthly.toFixed(2)}</p>
-                    <p className="text-xs text-gray-500 mt-1">{ts.estTotal || "Estimated Total Cost / Month"}</p>
+                  {/* Grand total — current (free enrichment) vs upgraded */}
+                  <div className="mb-4 pb-4 border-b border-gray-100">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {/* Current */}
+                      <div className="text-center p-4 bg-gray-50 rounded-lg">
+                        <p className="text-xs text-gray-400 mb-2">{ts.enrichFree || "Current (Free Enrichment)"}</p>
+                        <div className="flex items-center justify-center gap-4">
+                          <div>
+                            <p className="text-3xl font-bold text-red-600">${totalMonthly.toFixed(2)}</p>
+                            <p className="text-[10px] text-gray-400">{ts.estTotal || "/ Month"}</p>
+                          </div>
+                          <div className="text-gray-300">→</div>
+                          <div>
+                            <p className="text-3xl font-bold text-red-800">${totalAnnual.toFixed(2)}</p>
+                            <p className="text-[10px] text-gray-400">{ts.estAnnual || "/ Year"}</p>
+                          </div>
+                        </div>
+                      </div>
+                      {/* Upgraded */}
+                      <div className="text-center p-4 bg-red-50 rounded-lg border border-red-100">
+                        <p className="text-xs text-red-400 mb-2">{ts.enrichUpgraded || "If Enrichment Upgraded"}</p>
+                        <div className="flex items-center justify-center gap-4">
+                          <div>
+                            <p className="text-3xl font-bold text-red-600">${totalMonthlyPaid.toFixed(2)}</p>
+                            <p className="text-[10px] text-gray-400">{ts.estTotal || "/ Month"}</p>
+                          </div>
+                          <div className="text-gray-300">→</div>
+                          <div>
+                            <p className="text-3xl font-bold text-red-800">${totalAnnualPaid.toFixed(2)}</p>
+                            <p className="text-[10px] text-gray-400">{ts.estAnnual || "/ Year"}</p>
+                          </div>
+                        </div>
+                        <p className="text-[10px] text-red-300 mt-1">+${enrichPaidTotal}/mo enrichment</p>
+                      </div>
+                    </div>
                   </div>
                   {/* Breakdown */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center mb-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 text-center mb-4">
                     <div>
                       <p className="text-lg font-bold">${fixedTotal}</p>
                       <p className="text-xs text-gray-500">{ts.fixedCosts || "Subscriptions"}</p>
+                    </div>
+                    <div>
+                      <p className="text-lg font-bold">${enrichCurrentTotal}<span className="text-xs text-gray-400 font-normal"> / ${enrichPaidTotal}</span></p>
+                      <p className="text-xs text-gray-500">{ts.enrichCosts || "Enrichment"}</p>
                     </div>
                     <div>
                       <p className="text-lg font-bold">{formatCost(totalAI * 100)}</p>
@@ -216,12 +262,29 @@ export default function StatusPage() {
                     </div>
                   )}
                   {/* Fixed cost tags */}
-                  <div className="flex flex-wrap gap-2">
-                    {fixedCosts.map((c) => (
-                      <span key={c.name} className={`text-xs px-2 py-1 rounded-full ${c.cost > 0 ? "bg-gray-100 text-gray-600" : "bg-green-50 text-green-600"}`}>
-                        {c.name}: {c.cost > 0 ? `$${c.cost}/mo` : "Free"}
-                      </span>
-                    ))}
+                  <div className="mb-3">
+                    <p className="text-xs text-gray-400 mb-1.5">{ts.fixedCosts || "Subscriptions"}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {fixedCosts.map((c) => (
+                        <span key={c.name} className={`text-xs px-2 py-1 rounded-full ${c.cost > 0 ? "bg-gray-100 text-gray-600" : "bg-green-50 text-green-600"}`}>
+                          {c.name}: {c.cost > 0 ? `$${c.cost}/mo` : "Free"}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Enrichment cost tags */}
+                  <div>
+                    <p className="text-xs text-gray-400 mb-1.5">{ts.enrichCosts || "Enrichment Services"}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {enrichCosts.map((c) => (
+                        <span key={c.name} className={`text-xs px-2 py-1 rounded-full ${c.cost > 0 ? "bg-blue-50 text-blue-600" : "bg-green-50 text-green-600"}`} title={`${c.paidLabel}: $${c.paidCost}/mo`}>
+                          {c.name}: {c.cost > 0 ? `$${c.cost}/mo` : "Free"}
+                        </span>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-gray-300 mt-1.5">
+                      {ts.enrichUpgradeHint || "Hover for upgrade options. If upgraded: Hunter $49 + Apollo $49 + Snov $30 + Apify $49 = $177/mo ($2,124/yr)"}
+                    </p>
                   </div>
                 </div>
               );

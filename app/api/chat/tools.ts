@@ -33,7 +33,7 @@ export async function executeTool(
     case "search_companies":
       return handleSearchCompanies(toolParams, toolSummary, ctx);
     case "prospect_domain":
-      return handleProspectDomain(toolParams, toolSummary, isPaid, ctx.enrichKeys);
+      return handleProspectDomain(toolParams, toolSummary, isPaid, ctx);
     case "prospect_multi":
       return handleProspectMulti(toolParams, toolSummary, ctx.enrichKeys);
     case "search_google":
@@ -76,7 +76,7 @@ async function handleSearchCompanies(toolParams: Record<string, unknown>, toolSu
   const displayCompanies = isPaid ? companies : companies.slice(0, 5);
   const companyRows = displayCompanies.map((c) => {
     const contacts = c.contacts.length > 0
-      ? c.contacts.map((ct) => `${ct.firstName} ${ct.lastName} (${ct.position}) — ${ct.email}`).join("; ")
+      ? c.contacts.map((ct) => `${ct.firstName} ${ct.lastName} (${ct.position}) — ${ct.email}${ct.phone ? ` | ${ct.phone}` : ""}`).join("; ")
       : "—";
     return `| ${c.name} | ${c.domain || "—"} | ${c.industry || "—"} | ${c.location || "—"} | ${c.employeeCount || "—"} | ${contacts} |`;
   }).join("\n");
@@ -92,16 +92,51 @@ async function handleSearchCompanies(toolParams: Record<string, unknown>, toolSu
   return result;
 }
 
-async function handleProspectDomain(toolParams: Record<string, unknown>, toolSummary: string, isPaid: boolean, enrichKeys?: LeadEnrichKeys): Promise<string> {
+async function handleProspectDomain(toolParams: Record<string, unknown>, toolSummary: string, isPaid: boolean, ctx: ToolContext): Promise<string> {
   const domain = toolParams.domain as string;
   if (!domain) return "";
-  const result = await prospectDomain(domain, enrichKeys, { skipBrevo: true });
+  const result = await prospectDomain(domain, ctx.enrichKeys, { skipBrevo: true, onStep: ctx.sendStep });
+
+  // Fallback: supplement with user's own contacts database
+  let contactsCount = 0;
+  if (result.leads.length < 5) {
+    ctx.sendStep("enrich_contacts_db");
+    try {
+      const domainPattern = `%@${domain}`;
+      const rows = await ctx.sql`
+        SELECT email, first_name, last_name, company, position, phone, source
+        FROM contacts
+        WHERE user_id = ${ctx.userId} AND email ILIKE ${domainPattern}
+        LIMIT 20
+      `;
+      const existingEmails = new Set(result.leads.map((l) => l.email.toLowerCase()));
+      for (const row of rows) {
+        const email = (row.email as string).toLowerCase();
+        if (!existingEmails.has(email)) {
+          result.leads.push({
+            email,
+            firstName: (row.first_name as string) || "",
+            lastName: (row.last_name as string) || "",
+            company: (row.company as string) || domain,
+            position: (row.position as string) || "",
+            phone: (row.phone as string) || undefined,
+            source: "contacts" as const,
+            confidence: undefined,
+            verified: true,
+          });
+          contactsCount++;
+        }
+      }
+    } catch { /* ignore contacts lookup failure */ }
+  }
+
   if (result.leads.length === 0) {
     return `**Lead search: ${domain}**\n\nNo public contacts found for this domain.`;
   }
   const displayLeads = isPaid ? result.leads : result.leads.slice(0, 10);
   const leadTable = formatLeadTable(displayLeads);
-  return `**Lead search: ${domain}**\n\nFound **${result.leads.length}** contacts (Apollo: ${result.apolloCount}, Hunter: ${result.hunterCount}, Snov: ${result.snovCount})\n\n| Email | Name | Phone | Position | Source |\n|-------|------|-------|----------|--------|\n${leadTable}`;
+  const sources = `Apollo: ${result.apolloCount}, Hunter: ${result.hunterCount}, Snov: ${result.snovCount}${contactsCount > 0 ? `, Contacts: ${contactsCount}` : ""}`;
+  return `**Lead search: ${domain}**\n\nFound **${result.leads.length}** contacts (${sources})\n\n| Email | Name | Phone | Position | Source |\n|-------|------|-------|----------|--------|\n${leadTable}`;
 }
 
 async function handleProspectMulti(toolParams: Record<string, unknown>, toolSummary: string, enrichKeys?: LeadEnrichKeys): Promise<string> {
@@ -112,7 +147,7 @@ async function handleProspectMulti(toolParams: Record<string, unknown>, toolSumm
   for (const r of result.results) {
     const leadList = r.leads.slice(0, 5).map((l) => {
       const name = [l.firstName, l.lastName].filter(Boolean).join(" ");
-      return `  - ${l.email}${name ? ` (${name})` : ""}${l.position ? ` — ${l.position}` : ""}`;
+      return `  - ${l.email}${name ? ` (${name})` : ""}${l.position ? ` — ${l.position}` : ""}${l.phone ? ` | ${l.phone}` : ""}`;
     }).join("\n");
     parts.push(`**${r.domain}** — ${r.leads.length} contacts\n${leadList}`);
   }
@@ -224,7 +259,7 @@ Return ONLY the JSON array, nothing else.`;
             const domainResults: { domain: string; leads: Lead[] }[] = [];
             for (const domain of extractedDomains.slice(0, 3)) {
               try {
-                const { leads: domLeads } = await prospectDomain(domain, ctx.enrichKeys, { skipBrevo: true });
+                const { leads: domLeads } = await prospectDomain(domain, ctx.enrichKeys, { skipBrevo: true, onStep: ctx.sendStep });
                 if (domLeads.length > 0) domainResults.push({ domain, leads: domLeads });
               } catch { /* skip */ }
             }
@@ -307,7 +342,7 @@ async function handleSearchGoogleMaps(toolParams: Record<string, unknown>, toolS
       const allLeads: Lead[] = [];
       for (const domain of uniqueDomains) {
         try {
-          const { leads } = await prospectDomain(domain, enrichKeys, { skipBrevo: true });
+          const { leads } = await prospectDomain(domain, enrichKeys, { skipBrevo: true, onStep: sendStep });
           allLeads.push(...leads);
         } catch { /* skip failed domains */ }
       }
@@ -316,10 +351,10 @@ async function handleSearchGoogleMaps(toolParams: Record<string, unknown>, toolS
         const displayLeads = isPaid ? allLeads : allLeads.slice(0, 15);
         const leadTable = displayLeads.map((l) => {
           const name = [l.firstName, l.lastName].filter(Boolean).join(" ") || "—";
-          return `| ${l.email} | ${name} | ${l.company || "—"} | ${l.position || "—"} | ${l.source} |`;
+          return `| ${l.email} | ${name} | ${l.phone || "—"} | ${l.company || "—"} | ${l.position || "—"} | ${l.source} |`;
         }).join("\n");
 
-        result += `\n\n---\n\n**Decision Maker Contacts (${allLeads.length} found):**\n\n| Email | Name | Company | Position | Source |\n|-------|------|---------|----------|--------|\n${leadTable}`;
+        result += `\n\n---\n\n**Decision Maker Contacts (${allLeads.length} found):**\n\n| Email | Name | Phone | Company | Position | Source |\n|-------|------|-------|---------|----------|--------|\n${leadTable}`;
 
         if (!isPaid && allLeads.length > 15) {
           result += `\n\n_Showing 15 of ${allLeads.length} contacts. Upgrade to see all._`;

@@ -21,36 +21,39 @@ export interface Lead {
   company: string;
   position: string;
   phone?: string;
-  source: "hunter" | "snov" | "apollo" | "apify";
+  source: "hunter" | "snov" | "apollo" | "apify" | "contacts";
   confidence?: number;
   verified?: boolean;
   linkedinUrl?: string;
 }
 
-async function searchHunter(domain: string, byokKey?: string): Promise<Lead[]> {
+interface EnrichResult { leads: Lead[]; error?: string }
+
+async function searchHunter(domain: string, byokKey?: string): Promise<EnrichResult> {
   const key = byokKey || HUNTER_API_KEY;
-  if (!key) return [];
+  if (!key) { console.log("[enrichment] Hunter: no key configured"); return { leads: [] }; }
   const res = await fetch(
     `https://api.hunter.io/v2/domain-search?domain=${encodeURIComponent(domain)}&limit=10&api_key=${key}`
   );
-  if (!res.ok) return [];
+  if (!res.ok) { const err = `HTTP ${res.status}`; console.warn(`[enrichment] Hunter failed for ${domain}: ${err}`); return { leads: [], error: err }; }
   const data = await res.json();
   const emails = data.data?.emails || [];
-  return emails.map((e: Record<string, unknown>) => ({
+  return { leads: emails.map((e: Record<string, unknown>) => ({
     email: e.value as string,
     firstName: (e.first_name as string) || "",
     lastName: (e.last_name as string) || "",
     company: (data.data?.organization as string) || domain,
     position: (e.position as string) || "",
+    phone: (e.phone_number as string) || undefined,
     source: "hunter" as const,
     confidence: e.confidence as number,
-  }));
+  })) };
 }
 
 async function getSnovToken(byokId?: string, byokSecret?: string): Promise<string | null> {
   const id = byokId || SNOV_API_ID;
   const secret = byokSecret || SNOV_API_SECRET;
-  if (!id || !secret) return null;
+  if (!id || !secret) { console.log("[enrichment] Snov: no credentials configured"); return null; }
   const res = await fetch("https://api.snov.io/v1/oauth/access_token", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -60,21 +63,23 @@ async function getSnovToken(byokId?: string, byokSecret?: string): Promise<strin
       client_secret: secret,
     }),
   });
-  if (!res.ok) return null;
+  if (!res.ok) { console.warn(`[enrichment] Snov auth failed: HTTP ${res.status}`); return null; }
   const data = await res.json();
+  if (!data.access_token) console.warn("[enrichment] Snov: no access_token in response");
   return data.access_token || null;
 }
 
-async function searchSnov(domain: string, byokId?: string, byokSecret?: string): Promise<Lead[]> {
+async function searchSnov(domain: string, byokId?: string, byokSecret?: string): Promise<EnrichResult> {
   const token = await getSnovToken(byokId, byokSecret);
-  if (!token) return [];
+  if (!token) return { leads: [], error: "Auth failed" };
   const res = await fetch(
     `https://api.snov.io/v2/domain-emails-with-info?access_token=${token}&domain=${encodeURIComponent(domain)}&type=all&limit=10`
   );
-  if (!res.ok) return [];
+  if (!res.ok) { const err = `HTTP ${res.status}`; console.warn(`[enrichment] Snov failed for ${domain}: ${err}`); return { leads: [], error: err }; }
   const data = await res.json();
+  if (data.errors) { const err = JSON.stringify(data.errors); console.warn(`[enrichment] Snov error for ${domain}: ${err}`); return { leads: [], error: err.substring(0, 100) }; }
   const emails = data.data || [];
-  return emails.map((e: Record<string, unknown>) => ({
+  return { leads: emails.map((e: Record<string, unknown>) => ({
     email: (e.email as string) || "",
     firstName: "",
     lastName: "",
@@ -82,35 +87,85 @@ async function searchSnov(domain: string, byokId?: string, byokSecret?: string):
     position: "",
     source: "snov" as const,
     verified: e.status === "verified",
-  }));
+  })) };
 }
 
-async function searchApollo(domain: string, byokKey?: string): Promise<Lead[]> {
+async function searchApollo(domain: string, byokKey?: string): Promise<EnrichResult> {
   const key = byokKey || APOLLO_API_KEY;
-  if (!key) return [];
+  if (!key) { console.log("[enrichment] Apollo: no key configured"); return { leads: [] }; }
   try {
+    // Try paid API first (mixed_people/search)
     const res = await fetch("https://api.apollo.io/v1/mixed_people/search", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Api-Key": key },
-      body: JSON.stringify({
-        q_organization_domains: domain,
-        per_page: 10,
-      }),
+      body: JSON.stringify({ q_organization_domains: domain, per_page: 10 }),
     });
-    if (!res.ok) return [];
     const data = await res.json();
-    const people = data.people || [];
-    return people.map((p: Record<string, unknown>) => ({
-      email: (p.email as string) || "",
-      firstName: (p.first_name as string) || "",
-      lastName: (p.last_name as string) || "",
-      company: (p.organization_name as string) || domain,
-      position: (p.title as string) || "",
-      source: "apollo" as const,
-      verified: Boolean(p.email),
-    })).filter((l: Lead) => l.email);
-  } catch {
-    return [];
+
+    if (res.ok && !data.error && data.people?.length > 0) {
+      const people = data.people as Record<string, unknown>[];
+      console.log(`[enrichment] Apollo search returned ${people.length} people for ${domain}`);
+      return { leads: people.map((p) => {
+        const phones = p.phone_numbers as Array<{ sanitized_number?: string }> | undefined;
+        const phone = phones?.[0]?.sanitized_number || undefined;
+        return {
+          email: (p.email as string) || "",
+          firstName: (p.first_name as string) || "",
+          lastName: (p.last_name as string) || "",
+          company: (p.organization_name as string) || domain,
+          position: (p.title as string) || "",
+          phone,
+          source: "apollo" as const,
+          verified: Boolean(p.email),
+        };
+      }).filter((l: Lead) => l.email) };
+    }
+
+    // Paid API unavailable — fallback to organizations/enrich (free plan compatible)
+    console.warn(`[enrichment] Apollo search unavailable (${data.error || `HTTP ${res.status}`}), trying organizations/enrich for ${domain}`);
+    const enrichRes = await fetch(`https://api.apollo.io/v1/organizations/enrich?domain=${encodeURIComponent(domain)}`, {
+      headers: { "X-Api-Key": key },
+    });
+    if (!enrichRes.ok) { const err = `HTTP ${enrichRes.status}`; console.warn(`[enrichment] Apollo org/enrich failed: ${err}`); return { leads: [], error: `search: ${data.error || res.status}, enrich: ${err}` }; }
+    const enrichData = await enrichRes.json();
+    if (enrichData.error) { console.warn(`[enrichment] Apollo org/enrich error: ${enrichData.error}`); return { leads: [], error: enrichData.error }; }
+
+    const org = enrichData.organization;
+    if (!org) return { leads: [], error: "No org data" };
+
+    // organizations/enrich returns company info but not individual contacts
+    // Extract whatever contact info is available (phone, generic emails, etc.)
+    const leads: Lead[] = [];
+    const orgName = (org.name as string) || domain;
+    const phone = (org.primary_phone as Record<string, string>)?.sanitized_number || (org.phone as string) || undefined;
+
+    // Some orgs have a publicly listed email pattern or generic contact
+    const publicEmails: string[] = [];
+    if (org.publicly_traded_exchange) {
+      // For public companies, try common patterns
+      const cleanDomain = domain.replace(/^www\./, "");
+      publicEmails.push(`info@${cleanDomain}`, `contact@${cleanDomain}`);
+    }
+
+    if (publicEmails.length > 0 || phone) {
+      leads.push({
+        email: publicEmails[0] || "",
+        firstName: "",
+        lastName: "",
+        company: orgName,
+        position: "General Contact",
+        phone,
+        source: "apollo" as const,
+        verified: false,
+      });
+    }
+
+    console.log(`[enrichment] Apollo org/enrich for ${domain}: ${orgName}, phone=${phone || "none"}, leads=${leads.length}`);
+    return { leads, error: leads.length === 0 ? "Free plan: org info only, no contacts" : undefined };
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error(`[enrichment] Apollo error for ${domain}:`, errMsg);
+    return { leads: [], error: errMsg };
   }
 }
 
@@ -264,27 +319,44 @@ async function importToBrevo(leads: Lead[]): Promise<number> {
   return imported;
 }
 
-export async function prospectDomain(domain: string, enrichKeys?: LeadEnrichKeys, options?: { skipBrevo?: boolean }): Promise<{
+export async function prospectDomain(domain: string, enrichKeys?: LeadEnrichKeys, options?: { skipBrevo?: boolean; onStep?: (key: string) => void }): Promise<{
   leads: Lead[];
   imported: number;
   hunterCount: number;
   snovCount: number;
   apolloCount: number;
 }> {
+  const step = options?.onStep || (() => {});
   // Only call providers that have keys configured (saves subrequests)
-  const calls: Promise<Lead[]>[] = [];
+  const calls: Promise<EnrichResult>[] = [];
+  const providers: string[] = [];
   const hasApollo = enrichKeys?.apollo || APOLLO_API_KEY;
   const hasHunter = enrichKeys?.hunter || HUNTER_API_KEY;
   const hasSnov = (enrichKeys?.snovId || SNOV_API_ID) && (enrichKeys?.snovSecret || SNOV_API_SECRET);
+  console.log(`[enrichment] prospectDomain(${domain}) — Apollo:${!!hasApollo} Hunter:${!!hasHunter} Snov:${!!hasSnov} (byok: apollo=${!!enrichKeys?.apollo} hunter=${!!enrichKeys?.hunter} snov=${!!enrichKeys?.snovId})`);
 
-  if (hasApollo) calls.push(searchApollo(domain, enrichKeys?.apollo));
-  if (hasHunter) calls.push(searchHunter(domain, enrichKeys?.hunter));
-  if (hasSnov) calls.push(searchSnov(domain, enrichKeys?.snovId, enrichKeys?.snovSecret));
+  if (hasApollo) { calls.push(searchApollo(domain, enrichKeys?.apollo)); providers.push("apollo"); }
+  if (hasHunter) { calls.push(searchHunter(domain, enrichKeys?.hunter)); providers.push("hunter"); }
+  if (hasSnov) { calls.push(searchSnov(domain, enrichKeys?.snovId, enrichKeys?.snovSecret)); providers.push("snov"); }
+
+  if (providers.length > 0) step("enrich_providers:" + providers.join(","));
 
   const results = await Promise.all(calls);
-  const apolloLeads = hasApollo ? results.shift() || [] : [];
-  const hunterLeads = hasHunter ? results.shift() || [] : [];
-  const snovLeads = hasSnov ? results.shift() || [] : [];
+  const apolloResult = hasApollo ? results.shift() || { leads: [] } : { leads: [] };
+  const hunterResult = hasHunter ? results.shift() || { leads: [] } : { leads: [] };
+  const snovResult = hasSnov ? results.shift() || { leads: [] } : { leads: [] };
+  const apolloLeads = apolloResult.leads;
+  const hunterLeads = hunterResult.leads;
+  const snovLeads = snovResult.leads;
+
+  console.log(`[enrichment] prospectDomain(${domain}) results — Apollo:${apolloLeads.length}${apolloResult.error ? ` (${apolloResult.error})` : ""} Hunter:${hunterLeads.length}${hunterResult.error ? ` (${hunterResult.error})` : ""} Snov:${snovLeads.length}${snovResult.error ? ` (${snovResult.error})` : ""}`);
+
+  // Report per-provider results (include errors)
+  const parts: string[] = [];
+  if (hasApollo) parts.push(`Apollo: ${apolloLeads.length}${apolloResult.error ? ` ⚠${apolloResult.error}` : ""}`);
+  if (hasHunter) parts.push(`Hunter: ${hunterLeads.length}${hunterResult.error ? ` ⚠${hunterResult.error}` : ""}`);
+  if (hasSnov) parts.push(`Snov: ${snovLeads.length}${snovResult.error ? ` ⚠${snovResult.error}` : ""}`);
+  if (parts.length > 0) step("enrich_results:" + parts.join(", "));
 
   const leads = dedupeLeads(apolloLeads, hunterLeads, snovLeads);
   // Skip Brevo import during chat tool execution to reduce subrequests
@@ -322,15 +394,21 @@ export async function prospectMultipleDomains(domains: string[], enrichKeys?: Le
 /**
  * Helper: Run an Apify actor and return the dataset items.
  */
+/**
+ * Start an Apify actor, wait up to `waitForFinish` seconds.
+ * Vercel Pro maxDuration=300s, so individual Apify calls can wait up to ~60s.
+ * Keep each call ≤ 60s to leave room for multi-step orchestration.
+ */
 async function runApifyActor<T = Record<string, unknown>>(
   apiToken: string,
   actorId: string,
   input: Record<string, unknown>,
-  opts: { waitForFinish?: number; itemsLimit?: number } = {},
+  opts: { waitForFinish?: number; itemsLimit?: number; memoryMbytes?: number } = {},
 ): Promise<T[]> {
   const waitSec = opts.waitForFinish ?? 60;
+  const memoryMbytes = opts.memoryMbytes ?? 256;
   const startRes = await fetch(
-    `https://api.apify.com/v2/acts/${actorId}/runs?token=${apiToken}&waitForFinish=${waitSec}`,
+    `https://api.apify.com/v2/acts/${actorId}/runs?token=${apiToken}&waitForFinish=${waitSec}&memory=${memoryMbytes}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -342,28 +420,21 @@ async function runApifyActor<T = Record<string, unknown>>(
     throw new Error(`Apify ${actorId} start error ${startRes.status}: ${text.substring(0, 200)}`);
   }
   const runData = (await startRes.json()) as {
-    data?: { id?: string; status?: string; defaultDatasetId?: string };
+    data?: { id?: string; status?: string; defaultDatasetId?: string; statusMessage?: string };
   };
   const run = runData.data;
   if (!run?.id) throw new Error(`Apify ${actorId}: no run ID returned`);
 
   let datasetId = run.defaultDatasetId;
 
-  if (run.status !== "SUCCEEDED" && run.status !== "FAILED") {
-    const pollRes = await fetch(
-      `https://api.apify.com/v2/actor-runs/${run.id}?token=${apiToken}&waitForFinish=${waitSec}`,
-    );
-    if (pollRes.ok) {
-      const pollData = (await pollRes.json()) as {
-        data?: { status?: string; defaultDatasetId?: string };
-      };
-      if (pollData.data?.status === "FAILED" || pollData.data?.status === "ABORTED") {
-        throw new Error(`Apify ${actorId} run ${pollData.data.status}`);
-      }
-      datasetId = pollData.data?.defaultDatasetId || datasetId;
-    }
-  } else if (run.status === "FAILED") {
-    throw new Error(`Apify ${actorId} run failed`);
+  if (run.status === "FAILED" || run.status === "ABORTED") {
+    throw new Error(`Apify ${actorId} run ${run.status}: ${String(run.statusMessage || "unknown").substring(0, 200)}`);
+  }
+
+  if (run.status !== "SUCCEEDED") {
+    // Actor didn't finish within waitForFinish — return empty rather than block further
+    console.warn(`[apify] ${actorId} status=${run.status} after ${waitSec}s wait, returning empty`);
+    return [];
   }
 
   if (!datasetId) throw new Error(`Apify ${actorId}: no dataset ID`);
@@ -417,7 +488,7 @@ export async function crawlWebsiteApify(apiToken: string, url: string): Promise<
     maxCrawlDepth: 0,
     maxCrawlPages: 3,
     crawlerType: "playwright:firefox",
-  }, { waitForFinish: 120, itemsLimit: 5 });
+  }, { waitForFinish: 60, itemsLimit: 5 });
 
   const parts: string[] = [];
   for (const item of items) {
@@ -478,7 +549,7 @@ export async function searchGoogleMaps(
       maxCrawledPlacesPerSearch: maxResults,
       language: "en",
     },
-    { waitForFinish: 120, itemsLimit: maxResults },
+    { waitForFinish: 60, itemsLimit: maxResults, memoryMbytes: 512 },
   );
 
   return items.map((item) => ({

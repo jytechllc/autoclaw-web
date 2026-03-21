@@ -21,6 +21,28 @@ interface TokenByDate {
   request_count: number;
 }
 
+interface EnrichmentQuota {
+  service: string;
+  scope: "org" | "personal";
+  configured: boolean;
+  used?: number;
+  limit?: number;
+  remaining?: number;
+  plan?: string;
+  resetDate?: string;
+  error?: string;
+  exceeded?: boolean;
+}
+
+interface StorageUsage {
+  plan: string;
+  database: { totalSize: string; tableCount: number; tables: { name: string; rows: number; size: string }[] };
+  knowledgeBase: { docCount: number; chunkCount: number; totalTokens: number };
+  embeddings: { period: string; requestCount: number; tokenCount: number; budget: number };
+  blob: { configured: boolean; totalFiles: number; totalBytes: number; totalSizeMB: string };
+  data: { contacts: number; leads: number; projects: number; agents: number };
+}
+
 interface DailySpend {
   user_id: number;
   email: string;
@@ -115,6 +137,34 @@ const LABELS: Record<string, Record<string, string>> = {
     quotaWarning: "Approaching daily limit",
     addKeys: "Add API Keys",
     upgrade: "Upgrade Plan",
+    enrichTitle: "Enrichment Services",
+    enrichDesc: "External API quota for lead enrichment tools.",
+    enrichService: "Service",
+    enrichPlan: "Plan",
+    enrichUsed: "Used",
+    enrichRemaining: "Remaining",
+    enrichReset: "Resets",
+    enrichNotConfigured: "Not configured",
+    enrichError: "Error fetching quota",
+    enrichUnit: "credits",
+    enrichUnitUsd: "cents (USD)",
+    enrichOrg: "Organization",
+    enrichPersonal: "Personal (BYOK)",
+    enrichExceeded: "Quota exceeded",
+    enrichExceededTip: "This service has exceeded its quota. Update the API key or upgrade the plan.",
+    enrichUpdateKey: "Update Key",
+    storageTitle: "Storage & Usage",
+    storageDb: "Database",
+    storageKb: "Knowledge Base",
+    storageBlob: "Blob Storage",
+    storageEmbeddings: "Embeddings",
+    storageMonthly: "monthly",
+    storageNotConfigured: "Not configured",
+    storageProjects: "Projects",
+    storageAgents: "AI Employees",
+    storageContacts: "Contacts",
+    storageLeads: "Leads",
+    storageDbDetail: "Database table details",
   },
   zh: {
     title: "用量",
@@ -146,6 +196,34 @@ const LABELS: Record<string, Record<string, string>> = {
     quotaWarning: "接近每日限额",
     addKeys: "添加 API 密钥",
     upgrade: "升级套餐",
+    enrichTitle: "数据增强服务",
+    enrichDesc: "线索挖掘工具的外部 API 额度。",
+    enrichService: "服务",
+    enrichPlan: "套餐",
+    enrichUsed: "已使用",
+    enrichRemaining: "剩余",
+    enrichReset: "重置日期",
+    enrichNotConfigured: "未配置",
+    enrichError: "获取额度失败",
+    enrichUnit: "次",
+    enrichUnitUsd: "美分",
+    enrichOrg: "组织",
+    enrichPersonal: "个人 (BYOK)",
+    enrichExceeded: "额度已用完",
+    enrichExceededTip: "该服务额度已耗尽，请更新 API 密钥或升级套餐。",
+    enrichUpdateKey: "更新密钥",
+    storageTitle: "存储与用量",
+    storageDb: "数据库",
+    storageKb: "知识库",
+    storageBlob: "文件存储",
+    storageEmbeddings: "向量化",
+    storageMonthly: "月度",
+    storageNotConfigured: "未配置",
+    storageProjects: "项目",
+    storageAgents: "AI 员工",
+    storageContacts: "联系人",
+    storageLeads: "线索",
+    storageDbDetail: "数据库表详情",
   },
   "zh-TW": {
     title: "用量",
@@ -177,6 +255,34 @@ const LABELS: Record<string, Record<string, string>> = {
     quotaWarning: "接近每日限額",
     addKeys: "添加 API 金鑰",
     upgrade: "升級方案",
+    enrichTitle: "資料增強服務",
+    enrichDesc: "線索挖掘工具的外部 API 額度。",
+    enrichService: "服務",
+    enrichPlan: "方案",
+    enrichUsed: "已使用",
+    enrichRemaining: "剩餘",
+    enrichReset: "重置日期",
+    enrichNotConfigured: "未設定",
+    enrichError: "取得額度失敗",
+    enrichUnit: "次",
+    enrichUnitUsd: "美分",
+    enrichOrg: "組織",
+    enrichPersonal: "個人 (BYOK)",
+    enrichExceeded: "額度已用完",
+    enrichExceededTip: "該服務額度已耗盡，請更新 API 金鑰或升級方案。",
+    enrichUpdateKey: "更新金鑰",
+    storageTitle: "儲存與用量",
+    storageDb: "資料庫",
+    storageKb: "知識庫",
+    storageBlob: "檔案儲存",
+    storageEmbeddings: "向量化",
+    storageMonthly: "月度",
+    storageNotConfigured: "未設定",
+    storageProjects: "專案",
+    storageAgents: "AI 員工",
+    storageContacts: "聯絡人",
+    storageLeads: "線索",
+    storageDbDetail: "資料庫表詳情",
   },
   fr: {
     title: "Utilisation",
@@ -208,6 +314,34 @@ const LABELS: Record<string, Record<string, string>> = {
     quotaWarning: "Approche de la limite journalière",
     addKeys: "Ajouter Clés API",
     upgrade: "Améliorer Forfait",
+    enrichTitle: "Services d'Enrichissement",
+    enrichDesc: "Quota API externe pour les outils d'enrichissement de leads.",
+    enrichService: "Service",
+    enrichPlan: "Forfait",
+    enrichUsed: "Utilisé",
+    enrichRemaining: "Restant",
+    enrichReset: "Réinitialisation",
+    enrichNotConfigured: "Non configuré",
+    enrichError: "Erreur de récupération du quota",
+    enrichUnit: "crédits",
+    enrichUnitUsd: "cents (USD)",
+    enrichOrg: "Organisation",
+    enrichPersonal: "Personnel (BYOK)",
+    enrichExceeded: "Quota dépassé",
+    enrichExceededTip: "Ce service a dépassé son quota. Mettez à jour la clé API ou améliorez le forfait.",
+    enrichUpdateKey: "Mettre à jour",
+    storageTitle: "Stockage & Utilisation",
+    storageDb: "Base de données",
+    storageKb: "Base de connaissances",
+    storageBlob: "Stockage fichiers",
+    storageEmbeddings: "Embeddings",
+    storageMonthly: "mensuel",
+    storageNotConfigured: "Non configuré",
+    storageProjects: "Projets",
+    storageAgents: "Employés IA",
+    storageContacts: "Contacts",
+    storageLeads: "Leads",
+    storageDbDetail: "Détails des tables",
   },
 };
 
@@ -225,6 +359,58 @@ const PLAN_LABELS: Record<string, string> = {
   enterprise: "Enterprise",
 };
 
+function renderEnrichCard(svc: EnrichmentQuota, t: Record<string, string>, locale: string) {
+  const isApify = svc.service === "apify";
+  const unit = isApify ? t.enrichUnitUsd : t.enrichUnit;
+  const pct = svc.limit && svc.limit > 0 ? Math.round(((svc.used ?? 0) / svc.limit) * 100) : 0;
+  const barColor = !svc.configured ? "bg-gray-300" : svc.exceeded ? "bg-red-500" : pct >= 70 ? "bg-yellow-500" : "bg-green-500";
+  const displayUsed = isApify ? `$${((svc.used ?? 0) / 100).toFixed(2)}` : String(svc.used ?? 0);
+  const displayLimit = isApify ? `$${((svc.limit ?? 0) / 100).toFixed(2)}` : String(svc.limit ?? "–");
+
+  return (
+    <div key={`${svc.service}-${svc.scope}`} className={`border rounded-lg p-3 ${svc.exceeded ? "border-red-200 bg-red-50/30" : "border-gray-100"}`}>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-sm font-medium text-gray-800 capitalize">{svc.service}</span>
+        {svc.configured ? (
+          svc.exceeded ? (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-700">{t.enrichExceeded}</span>
+          ) : (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-50 text-green-700">{svc.plan || "Active"}</span>
+          )
+        ) : (
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">{t.enrichNotConfigured}</span>
+        )}
+      </div>
+      {svc.error ? (
+        <p className="text-xs text-red-500">{t.enrichError}: {svc.error}</p>
+      ) : svc.configured ? (
+        <>
+          <div className="w-full bg-gray-100 rounded-full h-2 mb-2">
+            <div className={`h-2 rounded-full transition-all ${barColor}`} style={{ width: `${Math.min(pct, 100)}%` }} />
+          </div>
+          <div className="flex justify-between text-[11px] text-gray-500">
+            <span>{t.enrichUsed}: {displayUsed}</span>
+            <span>{t.enrichRemaining}: {svc.remaining != null ? (isApify ? `$${(svc.remaining / 100).toFixed(2)}` : svc.remaining) : "–"}</span>
+          </div>
+          {svc.limit != null && (
+            <div className="text-[10px] text-gray-400 mt-1">
+              {t.limit}: {displayLimit} {!isApify ? unit : ""}
+              {svc.resetDate && <> · {t.enrichReset}: {svc.resetDate}</>}
+            </div>
+          )}
+          {svc.exceeded && (
+            <a href={`/${locale}/dashboard/settings`} className="inline-block mt-2 text-[11px] px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 transition">
+              {t.enrichUpdateKey}
+            </a>
+          )}
+        </>
+      ) : (
+        <p className="text-xs text-gray-400">{t.enrichNotConfigured}</p>
+      )}
+    </div>
+  );
+}
+
 export default function UsagePage() {
   const params = useParams();
   const locale = (params.locale as Locale) || "en";
@@ -235,20 +421,39 @@ export default function UsagePage() {
   const [byDate, setByDate] = useState<TokenByDate[]>([]);
   const [quota, setQuota] = useState<QuotaInfo | null>(null);
   const [org, setOrg] = useState<OrgInfo | null>(null);
+  const [enrichOrg, setEnrichOrg] = useState<EnrichmentQuota[]>([]);
+  const [enrichPersonal, setEnrichPersonal] = useState<EnrichmentQuota[]>([]);
+  const [storage, setStorage] = useState<StorageUsage | null>(null);
   const [loading, setLoading] = useState(true);
+
+  function refreshEnrichment() {
+    fetch("/api/enrichment-quota").then((r) => r.ok ? r.json() : null).then((data) => {
+      if (data) {
+        setEnrichOrg(data.org || []);
+        setEnrichPersonal(data.personal || []);
+      }
+    });
+  }
 
   useEffect(() => {
     if (!user) return;
     Promise.all([
       fetch("/api/token-usage").then((r) => r.json()),
       fetch("/api/usage-quota").then((r) => r.ok ? r.json() : null),
-    ]).then(([tokenData, quotaData]) => {
+      fetch("/api/enrichment-quota").then((r) => r.ok ? r.json() : null),
+      fetch("/api/storage-usage").then((r) => r.ok ? r.json() : null),
+    ]).then(([tokenData, quotaData, enrichData, storageData]) => {
       setByModel(tokenData.byModel || []);
       setByDate(tokenData.byDate || []);
       if (quotaData) {
         setQuota(quotaData.quota);
         setOrg(quotaData.org || null);
       }
+      if (enrichData) {
+        setEnrichOrg(enrichData.org || []);
+        setEnrichPersonal(enrichData.personal || []);
+      }
+      if (storageData) setStorage(storageData);
       setLoading(false);
     }).catch(() => setLoading(false));
   }, [user]);
@@ -326,6 +531,61 @@ export default function UsagePage() {
               </div>
             )}
 
+            {/* Enrichment Services Quota */}
+            {(enrichOrg.length > 0 || enrichPersonal.length > 0) && (
+              <div className="bg-white border rounded-xl p-5 space-y-5">
+                <div>
+                  <h2 className="font-semibold text-gray-800">{t.enrichTitle}</h2>
+                  <p className="text-xs text-gray-500 mt-0.5">{t.enrichDesc}</p>
+                </div>
+
+                {/* Exceeded warning banner */}
+                {[...enrichOrg, ...enrichPersonal].some((s) => s.exceeded) && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 flex items-start gap-3">
+                    <svg className="w-5 h-5 text-red-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-red-800">{t.enrichExceeded}</p>
+                      <p className="text-xs text-red-600 mt-0.5">{t.enrichExceededTip}</p>
+                    </div>
+                    <a href={`/${locale}/dashboard/settings`} className="shrink-0 text-xs px-3 py-1.5 bg-red-600 text-white hover:bg-red-700 rounded-lg transition">
+                      {t.enrichUpdateKey}
+                    </a>
+                  </div>
+                )}
+
+                {/* Org-level */}
+                {enrichOrg.length > 0 && (
+                  <div>
+                    <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">{t.enrichOrg}</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {enrichOrg.map((svc) => renderEnrichCard(svc, t, locale))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Personal BYOK */}
+                {enrichPersonal.length > 0 && (
+                  <div>
+                    <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">{t.enrichPersonal}</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {enrichPersonal.map((svc) => renderEnrichCard(svc, t, locale))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex justify-end">
+                  <button
+                    onClick={refreshEnrichment}
+                    className="text-xs text-gray-500 hover:text-gray-700 px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 transition cursor-pointer"
+                  >
+                    ↻ {t.enrichReset || "Refresh"}
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Usage by Model */}
             <div className="bg-white border rounded-xl p-5">
               <h2 className="font-semibold text-gray-800 mb-3">{t.personalUsage}</h2>
@@ -390,6 +650,92 @@ export default function UsagePage() {
                     );
                   })}
                 </div>
+              </div>
+            )}
+
+            {/* Storage & Usage */}
+            {storage && (
+              <div className="bg-white border rounded-xl p-5">
+                <h2 className="font-semibold text-gray-800 mb-4">{t.storageTitle}</h2>
+                {/* Summary cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+                  <div className="bg-gray-50 rounded-lg border border-gray-200 p-3">
+                    <p className="text-xs text-gray-400">{t.storageDb}</p>
+                    <p className="text-lg font-bold text-gray-900">{storage.database.totalSize}</p>
+                    <p className="text-xs text-gray-400">{storage.database.tableCount} tables</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg border border-gray-200 p-3">
+                    <p className="text-xs text-gray-400">{t.storageKb}</p>
+                    <p className="text-lg font-bold text-gray-900">{storage.knowledgeBase.docCount} <span className="text-sm font-normal text-gray-400">docs</span></p>
+                    <p className="text-xs text-gray-400">{storage.knowledgeBase.chunkCount} chunks / ~{Math.round(storage.knowledgeBase.totalTokens / 1000)}K tokens</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg border border-gray-200 p-3">
+                    <p className="text-xs text-gray-400">{t.storageBlob}</p>
+                    {storage.blob.configured ? (
+                      <>
+                        <p className="text-lg font-bold text-gray-900">{storage.blob.totalSizeMB} <span className="text-sm font-normal text-gray-400">MB</span></p>
+                        <p className="text-xs text-gray-400">{storage.blob.totalFiles} files</p>
+                      </>
+                    ) : (
+                      <p className="text-sm text-gray-400">{t.storageNotConfigured}</p>
+                    )}
+                  </div>
+                  <div className="bg-gray-50 rounded-lg border border-gray-200 p-3">
+                    <p className="text-xs text-gray-400">{t.storageEmbeddings}</p>
+                    <p className="text-lg font-bold text-gray-900">{(storage.embeddings.requestCount / 1000).toFixed(1)}K</p>
+                    <p className="text-xs text-gray-400">/ {(storage.embeddings.budget / 1000).toFixed(0)}K {t.storageMonthly}</p>
+                    {storage.embeddings.budget > 0 && (
+                      <div className="mt-1.5 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${storage.embeddings.requestCount / storage.embeddings.budget > 0.8 ? "bg-red-500" : "bg-green-500"}`}
+                          style={{ width: `${Math.min(100, (storage.embeddings.requestCount / storage.embeddings.budget) * 100)}%` }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Data counts */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+                  {[
+                    { label: t.storageProjects, value: storage.data.projects },
+                    { label: t.storageAgents, value: storage.data.agents },
+                    { label: t.storageContacts, value: storage.data.contacts },
+                    { label: t.storageLeads, value: storage.data.leads },
+                  ].map((item) => (
+                    <div key={item.label} className="text-center p-2 bg-gray-50 rounded-lg border border-gray-100">
+                      <p className="text-lg font-bold text-gray-900">{item.value.toLocaleString()}</p>
+                      <p className="text-xs text-gray-400">{item.label}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Database tables detail */}
+                {storage.database.tables.length > 0 && (
+                  <details className="text-sm">
+                    <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">{t.storageDbDetail}</summary>
+                    <div className="mt-2 overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-left text-gray-400 border-b border-gray-100">
+                            <th className="py-1.5 pr-4">Table</th>
+                            <th className="py-1.5 pr-4 text-right">Rows</th>
+                            <th className="py-1.5 text-right">Size</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {storage.database.tables.map((tbl) => (
+                            <tr key={tbl.name} className="border-b border-gray-50">
+                              <td className="py-1.5 pr-4 font-mono text-gray-600">{tbl.name}</td>
+                              <td className="py-1.5 pr-4 text-right text-gray-500">{tbl.rows.toLocaleString()}</td>
+                              <td className="py-1.5 text-right text-gray-500">{tbl.size}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </details>
+                )}
               </div>
             )}
           </>

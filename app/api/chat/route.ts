@@ -1,4 +1,4 @@
-export const maxDuration = 60; // Allow up to 60s for Apify tool calls
+export const maxDuration = 300; // Vercel Pro allows up to 300s — needed for Apify multi-step orchestration
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth0 } from "@/lib/auth0";
@@ -628,8 +628,10 @@ export async function POST(req: NextRequest) {
         }
         chatMessages.push({ role: "user", content: message });
 
+        const pass1Start = Date.now();
         const pass1Result = await chatWithAI(chatMessages, 800, byok, selectedModel);
         usedModel = `${pass1Result.provider}/${pass1Result.model}`;
+        const pass1Ms = Date.now() - pass1Start;
 
         // Collect token usage to batch-insert at the end (avoids per-step subrequests)
         const pendingUsage: { provider: string; model: string; prompt: number; completion: number; total: number }[] = [];
@@ -662,8 +664,29 @@ export async function POST(req: NextRequest) {
           const encoder = new TextEncoder();
           const stream = new ReadableStream({
             async start(controller) {
+              const enrichProviderLabels: Record<string, Record<string, string>> = {
+                en: { apollo: "Enriching via Apollo...", hunter: "Enriching via Hunter...", snov: "Enriching via Snov..." },
+                zh: { apollo: "正在通过 Apollo 增强...", hunter: "正在通过 Hunter 增强...", snov: "正在通过 Snov 增强..." },
+                "zh-TW": { apollo: "正在透過 Apollo 增強...", hunter: "正在透過 Hunter 增強...", snov: "正在透過 Snov 增強..." },
+                fr: { apollo: "Enrichissement via Apollo...", hunter: "Enrichissement via Hunter...", snov: "Enrichissement via Snov..." },
+              };
+              const enrichResultLabels: Record<string, string> = {
+                en: "Enrichment results", zh: "增强结果", "zh-TW": "增強結果", fr: "Résultats d'enrichissement",
+              };
+              const eProv = enrichProviderLabels[locale] || enrichProviderLabels.en;
+              const eResLabel = enrichResultLabels[locale] || enrichResultLabels.en;
+
               const sendStep = (key: string) => {
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "step", message: tLabels[key] || key })}\n\n`));
+                addTrace("step", key);
+                if (key.startsWith("enrich_providers:")) {
+                  const providers = key.slice(17).split(",");
+                  const msg = providers.map((p) => eProv[p] || p).join(" ");
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "step", message: msg })}\n\n`));
+                } else if (key.startsWith("enrich_results:")) {
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "step", message: `${eResLabel}: ${key.slice(15)}` })}\n\n`));
+                } else {
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "step", message: tLabels[key] || key })}\n\n`));
+                }
               };
               const sendError = (toolLabel: string, errorMsg: string) => {
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "step_error", tool: toolLabel, error: errorMsg })}\n\n`));
@@ -671,8 +694,20 @@ export async function POST(req: NextRequest) {
               const sendWarning = (msg: string) => {
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "warning", message: msg })}\n\n`));
               };
+              const isDev = process.env.NODE_ENV === "development";
+              const debugTrace: { ts: number; event: string; detail?: string; ms?: number }[] = [];
+              const traceStart = Date.now();
+              const addTrace = (event: string, detail?: string) => {
+                debugTrace.push({ ts: Date.now() - traceStart, event, detail });
+              };
+              addTrace("start", `user=${email} plan=${userPlan} model=${selectedModel || "auto"}`);
+              addTrace("pass1_ai", `model=${pass1Result.model} provider=${pass1Result.provider} tokens=${pass1Result.usage?.total_tokens || 0} ms=${pass1Ms} has_tool=${!!firstToolMatch}`);
+
               const sendDone = (finalReply: string, model?: string) => {
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "done", reply: finalReply, model })}\n\n`));
+                addTrace("done", `total=${Date.now() - traceStart}ms`);
+                const payload: Record<string, unknown> = { type: "done", reply: finalReply, model };
+                if (isDev) payload.debug = debugTrace;
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
               };
 
               const enrichKeys: LeadEnrichKeys = { hunter: hunterKey || undefined, apollo: apolloKey || undefined, snovId: snovId || undefined, snovSecret: snovSecret || undefined };
@@ -719,11 +754,15 @@ export async function POST(req: NextRequest) {
 
                   let toolResult: string;
                   let toolError: string | null = null;
+                  const toolStart = Date.now();
+                  addTrace("tool_start", `${toolName} params=${JSON.stringify(toolParams).substring(0, 200)}`);
                   try {
                     toolResult = await executeTool(toolName, toolParams, toolSummary, toolCtx);
+                    addTrace("tool_done", `${toolName} result_len=${toolResult.length} ms=${Date.now() - toolStart}`);
                   } catch (toolErr) {
                     toolError = toolErr instanceof Error ? toolErr.message : "Tool execution failed";
                     toolResult = "";
+                    addTrace("tool_error", `${toolName} error=${toolError} ms=${Date.now() - toolStart}`);
                     sendError(tLabels[toolName] || toolName, toolError);
                   }
 
@@ -744,7 +783,9 @@ export async function POST(req: NextRequest) {
 
                   // Ask AI for next step
                   sendStep("orchestrating");
+                  const aiStart = Date.now();
                   const nextResult = await chatWithAI(orchMessages, 800, byok, selectedModel);
+                  addTrace("ai_call", `model=${nextResult.model} provider=${nextResult.provider} tokens=${nextResult.usage?.total_tokens || 0} ms=${Date.now() - aiStart}`);
 
                   if (nextResult.fallbackWarning) {
                     sendWarning(nextResult.fallbackWarning.includes("429") ? "⚠️ AI quota exceeded, switched to backup model" : "⚠️ AI service issue, switched to backup model");

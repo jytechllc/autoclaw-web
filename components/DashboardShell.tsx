@@ -64,12 +64,17 @@ export default function DashboardShell({ children, user, plan, fullHeight }: Pro
       label: tc.finance,
       children: [
         { href: `/${locale}/dashboard/billing`, label: tc.billing },
-        { href: `/${locale}/dashboard/usage`, label: tc.usage },
         { href: `/${locale}/dashboard/income`, label: tc.income },
       ],
     },
-    { href: `/${locale}/dashboard/settings`, label: tc.settings },
-    { href: `/${locale}/dashboard/docs`, label: tc.docs },
+    {
+      label: tc.system,
+      children: [
+        { href: `/${locale}/dashboard/usage`, label: tc.usage },
+        { href: `/${locale}/dashboard/settings`, label: tc.settings },
+        { href: `/${locale}/dashboard/docs`, label: tc.docs },
+      ],
+    },
   ];
 
   const isActive = (href: string) => pathname === href;

@@ -96,8 +96,9 @@ CREATE TABLE IF NOT EXISTS tool_executions (
   conversation_id INTEGER REFERENCES conversations(id) ON DELETE CASCADE,
   tool_name VARCHAR(100) NOT NULL,
   tool_params JSONB,
-  status VARCHAR(20) DEFAULT 'running',
+  status VARCHAR(20) DEFAULT 'running',    -- pending, running, done, error
   result_summary TEXT,
+  result_data JSONB,                        -- structured result for async tools (Apify etc.)
   error_message TEXT,
   duration_ms INTEGER,
   created_at TIMESTAMP DEFAULT NOW()

@@ -191,6 +191,8 @@ export default function ChatPage() {
 
   const [toolStatus, setToolStatus] = useState<string>("");
   const [toolSteps, setToolSteps] = useState<{ label: string; done: boolean; error?: boolean; errorDetail?: string }[]>([]);
+  const [debugTrace, setDebugTrace] = useState<{ ts: number; event: string; detail?: string }[] | null>(null);
+  const isDev = typeof window !== "undefined" && window.location.hostname === "localhost";
 
   interface ToolExecution {
     id: number; tool_name: string; status: string;
@@ -239,10 +241,26 @@ export default function ChatPage() {
     }
   }
 
+  async function autoNameConversation(convId: number, firstMessage: string) {
+    // Truncate to a reasonable title length
+    const title = firstMessage.length > 50
+      ? firstMessage.slice(0, 50).trimEnd() + "…"
+      : firstMessage;
+    try {
+      await fetch("/api/conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "rename", conversation_id: convId, title }),
+      });
+    } catch { /* ignore */ }
+  }
+
   async function doSendMessage(userMsg: string) {
+    const isFirstMessage = messages.length === 0 && activeConvId !== null;
     setSending(true);
     setToolStatus("");
     setToolSteps([]);
+    setDebugTrace(null);
     const tempMsg: ChatMessage = { id: Date.now(), role: "user", content: userMsg, created_at: new Date().toISOString() };
     setMessages((prev) => [...prev, tempMsg]);
     try {
@@ -315,6 +333,7 @@ export default function ChatPage() {
                     finalModel = evt.model;
                     setToolStatus("");
                     setToolSteps([]);
+                    if (evt.debug) setDebugTrace(evt.debug);
                   }
                 } catch { /* skip */ }
               }
@@ -336,6 +355,10 @@ export default function ChatPage() {
       setSending(false);
       setToolStatus("");
       refreshQuota();
+      // Auto-name the conversation based on the first user message
+      if (isFirstMessage && activeConvId) {
+        await autoNameConversation(activeConvId, userMsg);
+      }
       fetchConversations();
     }
   }
@@ -636,6 +659,30 @@ export default function ChatPage() {
                       {t.status === "done" && t.result_summary && (
                         <span className="text-gray-400 truncate max-w-[200px]" title={t.result_summary}>{t.result_summary.slice(0, 60)}...</span>
                       )}
+                    </div>
+                  ))}
+                </div>
+              </details>
+            </div>
+          )}
+          {/* Debug trace (localhost only) */}
+          {isDev && debugTrace && debugTrace.length > 0 && !sending && (
+            <div className="border-t border-orange-200 px-4 py-2 bg-orange-50/50">
+              <details className="text-xs">
+                <summary className="cursor-pointer text-orange-600 hover:text-orange-800 select-none font-mono">
+                  🐛 Debug Trace ({debugTrace.length} events, {debugTrace[debugTrace.length - 1]?.ts || 0}ms total)
+                </summary>
+                <div className="mt-2 space-y-0.5 max-h-48 overflow-y-auto font-mono">
+                  {debugTrace.map((entry, i) => (
+                    <div key={i} className="flex gap-2 text-[11px] leading-relaxed">
+                      <span className="text-orange-400 shrink-0 w-14 text-right">{entry.ts}ms</span>
+                      <span className={`shrink-0 w-20 ${
+                        entry.event.includes("error") ? "text-red-600 font-semibold" :
+                        entry.event.includes("done") ? "text-green-600" :
+                        entry.event.includes("ai_call") || entry.event.includes("pass1") ? "text-blue-600" :
+                        "text-gray-700"
+                      }`}>{entry.event}</span>
+                      <span className="text-gray-500 break-all">{entry.detail || ""}</span>
                     </div>
                   ))}
                 </div>
