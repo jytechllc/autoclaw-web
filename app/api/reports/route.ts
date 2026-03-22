@@ -1037,6 +1037,8 @@ export async function GET(request: Request) {
   const { gaStats, gaProjects } = gaData;
   const { tokenUsage, tokenSummary } = tokenData;
 
+  // Local email stats will be applied after campaign filtering (see below)
+
   // Build report for each job (only jobs that have run)
   const allReports = jobs
     .filter((j) => j.state?.lastRunAtMs)
@@ -1169,6 +1171,29 @@ export async function GET(request: Request) {
     }
     // If no matching campaigns, keep original brevoStats from API (org-shared)
   }
+
+  // Override brevoStats with local email_logs (most accurate, per-user/org filtered)
+  try {
+    const localStats = await sql`
+      SELECT
+        COUNT(*)::int as sent,
+        COUNT(*) FILTER (WHERE status = 'delivered')::int as delivered,
+        COUNT(*) FILTER (WHERE status = 'opened')::int as opened,
+        COUNT(*) FILTER (WHERE status IN ('clicks', 'clicked'))::int as clicked
+      FROM email_logs
+      WHERE user_id = ${userId}
+        OR user_id IN (SELECT om2.user_id FROM organization_members om1 JOIN organization_members om2 ON om1.org_id = om2.org_id WHERE om1.user_id = ${userId})
+        OR project_id IN (SELECT DISTINCT p.id FROM projects p LEFT JOIN project_members pm ON pm.project_id = p.id WHERE p.user_id = ${userId} OR pm.user_id = ${userId} OR p.org_id IN (SELECT org_id FROM organization_members WHERE user_id = ${userId}))
+    `;
+    if (localStats.length > 0 && localStats[0].sent > 0) {
+      brevoStats = {
+        emailsSent: localStats[0].sent,
+        delivered: localStats[0].delivered,
+        opened: localStats[0].opened,
+        clicked: localStats[0].clicked,
+      };
+    }
+  } catch { /* email_logs table may not exist */ }
 
   // ── Enrich server agents with Brevo campaign data ──
   if (brevoCampaigns.length > 0) {

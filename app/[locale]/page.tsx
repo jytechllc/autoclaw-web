@@ -151,10 +151,12 @@ export default function Home() {
     { company: "GPULaw", industry: "Legal Tech / SaaS", agents: 1, results: t.caseGpuLaw },
   ];
 
+  const isChineseLocale = locale === "zh" || locale === "zh-TW";
+
   const pricingPlans = [
     { name: t.planStarter, price: t.planStarterPrice, period: "", description: t.planStarterDesc, features: [t.feat2Agents, t.feat100Emails, t.feat1Project, t.featFreeModels, t.featBYOK, t.featCommunity, t.featBasicTemplates], cta: t.ctaStarterFree, highlight: false, plan: "starter", disabled: false, minCommitment: false },
-    { name: t.planGrowth, price: t.planGrowthPrice, period: t.perMonth, description: t.planGrowthDesc, features: [t.feat10Agents, t.feat2000Emails, t.feat5Projects, t.featCrm, t.featSeoContent, t.featSocialAuto, t.featPriority], cta: t.ctaStartTrial, highlight: true, plan: "growth", disabled: false, minCommitment: true },
-    { name: t.planScale, price: t.planScalePrice, period: t.perMonth, description: t.planScaleDesc, features: [t.featUnlimitedAgents, t.feat10000Emails, t.featUnlimitedProjects, t.featCustomAgent, t.featMultiChannel, t.featAdvAnalytics, t.featDedicated, t.featWhiteLabel], cta: t.ctaGetStarted, highlight: false, plan: "scale", disabled: false, minCommitment: true },
+    { name: t.planGrowth, price: t.planGrowthPrice, period: t.perMonth, description: t.planGrowthDesc, features: [t.feat10Agents, t.feat2000Emails, t.feat5Projects, t.featCrm, t.featSeoContent, t.featSocialAuto, t.featPriority], cta: isChineseLocale ? t.ctaContactSales : t.ctaStartTrial, highlight: true, plan: "growth", disabled: false, minCommitment: true },
+    { name: t.planScale, price: t.planScalePrice, period: t.perMonth, description: t.planScaleDesc, features: [t.featUnlimitedAgents, t.feat10000Emails, t.featUnlimitedProjects, t.featCustomAgent, t.featMultiChannel, t.featAdvAnalytics, t.featDedicated, t.featWhiteLabel], cta: isChineseLocale ? t.ctaContactSales : t.ctaGetStarted, highlight: false, plan: "scale", disabled: false, minCommitment: true },
     { name: t.planEnterprise, price: t.planEnterprisePrice, period: "", description: t.planEnterpriseDesc, features: [t.featEverythingScale, t.featDedicatedInfra, t.featCustomTraining, t.featSla, t.featSso, t.featOnPrem, t.featCustomApi, t.featAccountManager, t.featVolumeEmail], cta: t.ctaContactSales, highlight: false, plan: "enterprise", disabled: false, minCommitment: true },
   ];
 
@@ -402,8 +404,9 @@ export default function Home() {
                     disabled={plan.disabled}
                     onClick={async () => {
                       if (plan.disabled) return;
-                      if (plan.plan === "enterprise") {
-                        window.location.href = locale === "en" ? "mailto:jay.lin@jytech.us?subject=AutoClaw Enterprise Plan Inquiry" : "tel:+8617318011997";
+                      const isChina = locale === "zh" || locale === "zh-TW";
+                      if (plan.plan === "enterprise" || (isChina && (plan.plan === "growth" || plan.plan === "scale"))) {
+                        window.location.href = isChina ? "tel:+8617318011997" : "mailto:jay.lin@jytech.us?subject=AutoClaw " + plan.name + " Plan Inquiry";
                       } else if (plan.plan === "starter") {
                         window.location.href = `/auth/login?returnTo=/${locale}/dashboard/reports`;
                       } else {

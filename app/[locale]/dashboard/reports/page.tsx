@@ -800,12 +800,12 @@ export default function ReportsPage() {
                       className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white cursor-pointer"
                     >
                       <option value="">{locale === "zh" || locale === "zh-TW" ? "全部状态" : "All Status"}</option>
+                      <option value="requests">📤 {locale === "zh" || locale === "zh-TW" ? "已发送" : "Sent"}</option>
                       <option value="delivered">✅ {locale === "zh" || locale === "zh-TW" ? "已送达" : "Delivered"}</option>
                       <option value="opened">📬 {locale === "zh" || locale === "zh-TW" ? "已打开" : "Opened"}</option>
-                      <option value="clicked">🔗 {locale === "zh" || locale === "zh-TW" ? "已点击" : "Clicked"}</option>
-                      <option value="sent">📤 {locale === "zh" || locale === "zh-TW" ? "已发送" : "Sent"}</option>
+                      <option value="clicks">🔗 {locale === "zh" || locale === "zh-TW" ? "已点击" : "Clicked"}</option>
                       <option value="error">❌ {locale === "zh" || locale === "zh-TW" ? "错误" : "Error"}</option>
-                      <option value="bounced">↩️ {locale === "zh" || locale === "zh-TW" ? "退回" : "Bounced"}</option>
+                      <option value="hardBounce">↩️ {locale === "zh" || locale === "zh-TW" ? "退回" : "Bounced"}</option>
                     </select>
                     <button
                       onClick={() => fetchEmailHistory(emailSearch, emailStatusFilter)}
@@ -828,14 +828,16 @@ export default function ReportsPage() {
                               <tr className="text-left text-gray-500 border-b">
                                 <th className="py-2 px-3 font-medium">{locale === "zh" || locale === "zh-TW" ? "时间" : "Date"}</th>
                                 <th className="py-2 px-3 font-medium">{locale === "zh" || locale === "zh-TW" ? "状态" : "Status"}</th>
-                                <th className="py-2 px-3 font-medium">{locale === "zh" || locale === "zh-TW" ? "收件人" : "Recipient"}</th>
+                                <th className="py-2 px-3 font-medium">{locale === "zh" || locale === "zh-TW" ? "发件人" : "From"}</th>
+                                <th className="py-2 px-3 font-medium">{locale === "zh" || locale === "zh-TW" ? "收件人" : "To"}</th>
                                 <th className="py-2 px-3 font-medium">{locale === "zh" || locale === "zh-TW" ? "主题" : "Subject"}</th>
                               </tr>
                             </thead>
                             <tbody>
                               {emailHistory.map((e, i) => {
-                                const statusColor = e.event === "delivered" ? "text-green-600" : e.event === "opened" ? "text-blue-600" : e.event === "clicked" ? "text-purple-600" : e.event === "error" || e.event === "hardBounce" ? "text-red-500" : "text-gray-500";
-                                const statusLabel = e.event === "requests" ? "Sent" : e.event === "hardBounce" ? "Bounced" : e.event.charAt(0).toUpperCase() + e.event.slice(1);
+                                const statusColor = e.event === "delivered" ? "text-green-600" : e.event === "opened" ? "text-blue-600" : e.event === "clicks" || e.event === "clicked" ? "text-purple-600" : e.event === "error" || e.event === "hardBounce" || e.event === "softBounce" ? "text-red-500" : e.event === "requests" ? "text-gray-600" : "text-gray-500";
+                                const statusLabels: Record<string, string> = { requests: "Sent", delivered: "Delivered", opened: "Opened", clicks: "Clicked", clicked: "Clicked", error: "Error", hardBounce: "Bounced", softBounce: "Soft Bounce" };
+                                const statusLabel = statusLabels[e.event] || e.event;
                                 const isActive = emailPreview && emailPreviewLoading === e.messageId;
                                 return (
                                   <tr
@@ -852,6 +854,7 @@ export default function ReportsPage() {
                                   >
                                     <td className="py-1.5 px-3 text-gray-500 whitespace-nowrap">{new Date(e.date).toLocaleString(locale, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</td>
                                     <td className={`py-1.5 px-3 font-medium ${statusColor}`}>{statusLabel}</td>
+                                    <td className="py-1.5 px-3 text-gray-500 text-[11px] truncate max-w-[120px]">{(e.from || "").replace(/@.*/, "")}</td>
                                     <td className="py-1.5 px-3 text-gray-700 font-mono text-[11px]">{e.email}</td>
                                     <td className="py-1.5 px-3 text-gray-600 max-w-xs truncate">{e.subject}</td>
                                   </tr>

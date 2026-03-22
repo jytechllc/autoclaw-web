@@ -348,11 +348,56 @@ export default function AgentsPage() {
 
   const { user, isLoading: userLoading } = useUser();
   const WORKER_MODELS = [
+    "cerebras/qwen-3-235b",
     "cerebras/gpt-oss-120b",
     "anthropic/claude-sonnet-4.5",
     "alibaba/qwen-plus",
     "alibaba/qwen-turbo",
   ];
+
+  const taskNameZh: Record<string, string> = {
+    "Research target audience & ICP": "研究目标受众与理想客户画像",
+    "Build prospect email list from existing contacts": "从现有联系人构建邮件列表",
+    "Create email templates (cold, follow-up, newsletter)": "创建邮件模板（冷启动、跟进、通讯）",
+    "Configure sending schedule & limits": "配置发送计划和限制",
+    "Set up tracking (opens, clicks, replies)": "设置追踪（打开、点击、回复）",
+    "Launch outreach campaign": "发起营销活动",
+    "Crawl website & audit current SEO health": "爬取网站并审计 SEO 状态",
+    "Keyword research": "关键词研究",
+    "Competitor content analysis": "竞争对手内容分析",
+    "Create monthly content calendar": "创建月度内容日历",
+    "Write first 3 SEO-optimized blog posts": "撰写前 3 篇 SEO 优化博客",
+    "Set up rank tracking & analytics": "设置排名追踪和分析",
+    "Define ICP and qualification criteria": "定义理想客户画像和筛选标准",
+    "Verify available data sources": "验证可用数据源",
+    "Build initial lead list": "构建初始线索列表",
+    "Enrich leads with company & contact data": "丰富线索的公司和联系信息",
+    "Score and prioritize leads": "评分和排序线索",
+    "Deliver qualified lead report": "交付合格线索报告",
+    "Audit existing social presence": "审计现有社交媒体状态",
+    "Create brand voice & content guidelines": "创建品牌声音和内容指南",
+    "Build 2-week content queue (posts, threads)": "构建 2 周内容队列",
+    "Set up scheduling tool integration": "设置排期工具集成",
+    "Launch engagement campaign (likes, replies, follows)": "发起互动活动",
+    "Track follower growth & engagement metrics": "追踪粉丝增长和互动指标",
+    "Set up website monitoring (uptime, speed)": "设置网站监控（可用性、速度）",
+    "Install analytics tracking": "安装分析追踪",
+    "Map conversion funnels": "映射转化漏斗",
+    "Run initial UX audit": "执行 UX 初步审计",
+    "Identify top 5 conversion blockers": "识别前 5 个转化阻碍",
+    "Create optimization roadmap": "创建优化路线图",
+    "Connect to CRM (HubSpot, Salesforce, etc.)": "连接 CRM（HubSpot、Salesforce 等）",
+    "Import existing leads & deals": "导入现有线索和商机",
+    "Create follow-up email sequences": "创建跟进邮件序列",
+    "Set up automated reminders": "设置自动提醒",
+    "Configure deal stage tracking": "配置商机阶段追踪",
+    "Launch follow-up email campaign": "发起跟进邮件活动",
+    "Analyze agent ecosystem & collect reports": "分析代理生态并收集报告",
+    "Generate cross-agent optimization recommendations": "生成跨代理优化建议",
+    "Market intelligence & content strategy": "市场情报与内容策略",
+    "Auto-coordinate agents (reset periodic tasks, flag blockers)": "自动协调代理",
+  };
+  const translateTask = (name: string) => (locale === "zh" || locale === "zh-TW") ? (taskNameZh[name] || name) : name;
 
   const [agents, setAgents] = useState<AgentAssignment[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -1549,7 +1594,7 @@ export default function AgentsPage() {
                                           <span
                                             className={`flex-1 ${task.status === "completed" ? "text-gray-400 line-through" : task.status === "in_progress" ? "text-gray-700 font-medium" : "text-gray-500"}`}
                                           >
-                                            {task.name}
+                                            {translateTask(task.name)}
                                             {isThisTaskRunning && (
                                               <RunningTimer
                                                 startedAt={
@@ -1969,6 +2014,7 @@ function ActivityLog({ locale, ta }: { locale: string; ta: Record<string, string
     };
     return map[type] || type;
   };
+
 
   return (
     <section className="mb-8">

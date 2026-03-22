@@ -120,7 +120,7 @@ export async function POST(req: NextRequest) {
     const [byokRows, todayUsage, , projects, recentHistory] = await sql.transaction([
       sql`SELECT DISTINCT ON (service) service, api_key, label FROM (
           SELECT service, api_key, label, user_id, 0 as priority FROM user_api_keys
-            WHERE service IN ('openai', 'anthropic', 'google', 'alibaba', 'cerebras', 'apify', 'tavily', 'brevo', 'sendgrid', 'hunter', 'apollo', 'snov_id', 'snov_secret')
+            WHERE service IN ('openai', 'anthropic', 'google', 'alibaba', 'cerebras', 'apify', 'tavily', 'pdl', 'brevo', 'sendgrid', 'hunter', 'apollo', 'snov_id', 'snov_secret')
             AND (user_id = ${userId} OR user_id IN (
               SELECT om2.user_id FROM organization_members om1
               JOIN organization_members om2 ON om1.org_id = om2.org_id
@@ -128,7 +128,7 @@ export async function POST(req: NextRequest) {
             ))
           UNION ALL
           SELECT ok.service, ok.api_key, ok.label, 0 as user_id, 1 as priority FROM org_api_keys ok
-            WHERE ok.service IN ('openai', 'anthropic', 'google', 'alibaba', 'cerebras', 'apify', 'tavily', 'brevo', 'sendgrid', 'hunter', 'apollo', 'snov_id', 'snov_secret')
+            WHERE ok.service IN ('openai', 'anthropic', 'google', 'alibaba', 'cerebras', 'apify', 'tavily', 'pdl', 'brevo', 'sendgrid', 'hunter', 'apollo', 'snov_id', 'snov_secret')
             AND ok.org_id IN (SELECT org_id FROM organization_members WHERE user_id = ${userId})
         ) combined
         ORDER BY service, priority, CASE WHEN user_id = ${userId} THEN 0 ELSE 1 END`,
@@ -168,6 +168,7 @@ export async function POST(req: NextRequest) {
         else if (row.service === "cerebras") byok.cerebras = key;
         else if (row.service === "apify") apifyToken = key;
         else if (row.service === "tavily") byok.tavily = key;
+        else if (row.service === "pdl") byok.pdl = key;
         else if (row.service === "brevo") brevoApiKey = key;
         else if (row.service === "sendgrid") sendgridApiKey = key;
         else if (row.service === "hunter") hunterKey = key;
@@ -212,6 +213,7 @@ export async function POST(req: NextRequest) {
     const lastReply = lastAssistantMsg ? (lastAssistantMsg.content as string).toLowerCase() : "";
 
     let reply: string;
+    const pendingUsage: { provider: string; model: string; prompt: number; completion: number; total: number }[] = [];
     const lowerMsg = message.toLowerCase();
     const isAffirmative = /^(yes|yeah|yep|sure|ok|okay|please|do it|go ahead|y|let's go|let's do it|absolutely|of course|好的|好|可以|开始|行|嗯|是的|没问题|来吧|开始吧)\b/i.test(message.trim());
 
@@ -503,7 +505,7 @@ export async function POST(req: NextRequest) {
       } else if (domains.length === 1) {
         try {
           const domain = domains[0];
-          const directEnrichKeys: LeadEnrichKeys = { hunter: hunterKey || undefined, apollo: apolloKey || undefined, snovId: snovId || undefined, snovSecret: snovSecret || undefined, plans: Object.keys(enrichPlans).length > 0 ? enrichPlans : undefined };
+          const directEnrichKeys: LeadEnrichKeys = { hunter: hunterKey || undefined, apollo: apolloKey || undefined, snovId: snovId || undefined, snovSecret: snovSecret || undefined, pdl: byok.pdl || undefined, plans: Object.keys(enrichPlans).length > 0 ? enrichPlans : undefined };
           const result = await prospectDomain(domain, directEnrichKeys, { skipBrevo: true });
 
           // Record enrichment usage
@@ -569,7 +571,7 @@ export async function POST(req: NextRequest) {
         }
       } else {
         try {
-          const multiEnrichKeys: LeadEnrichKeys = { hunter: hunterKey || undefined, apollo: apolloKey || undefined, snovId: snovId || undefined, snovSecret: snovSecret || undefined, plans: Object.keys(enrichPlans).length > 0 ? enrichPlans : undefined };
+          const multiEnrichKeys: LeadEnrichKeys = { hunter: hunterKey || undefined, apollo: apolloKey || undefined, snovId: snovId || undefined, snovSecret: snovSecret || undefined, pdl: byok.pdl || undefined, plans: Object.keys(enrichPlans).length > 0 ? enrichPlans : undefined };
           const result = await prospectMultipleDomains(domains.slice(0, 5), multiEnrichKeys);
           const parts: string[] = [`**Lead search across ${result.results.length} domains**\n`];
           for (const r of result.results) {
@@ -599,7 +601,7 @@ export async function POST(req: NextRequest) {
         || message.match(/(?:保存.*到|保存到)\s*[""]?(.+?)[""]?\s*(?:项目)?\s*$/);
       const projectName = projectNameMatch?.[1]?.trim();
 
-      const enrichKeys: LeadEnrichKeys = { hunter: hunterKey || undefined, apollo: apolloKey || undefined, snovId: snovId || undefined, snovSecret: snovSecret || undefined, plans: Object.keys(enrichPlans).length > 0 ? enrichPlans : undefined };
+      const enrichKeys: LeadEnrichKeys = { hunter: hunterKey || undefined, apollo: apolloKey || undefined, snovId: snovId || undefined, snovSecret: snovSecret || undefined, pdl: byok.pdl || undefined, plans: Object.keys(enrichPlans).length > 0 ? enrichPlans : undefined };
       const toolCtx: ToolContext = {
         sql, userId, userPlan, projects, agents, project_id: project_id || null,
         byok, selectedModel: selectedModel || "", apifyToken, brevoApiKey, sendgridApiKey, enrichKeys, sendStep: () => {},
@@ -697,7 +699,6 @@ export async function POST(req: NextRequest) {
         const pass1Ms = Date.now() - pass1Start;
 
         // Collect token usage to batch-insert at the end (avoids per-step subrequests)
-        const pendingUsage: { provider: string; model: string; prompt: number; completion: number; total: number }[] = [];
         if (pass1Result.usage) {
           pendingUsage.push({ provider: pass1Result.provider, model: pass1Result.model, prompt: pass1Result.usage.prompt_tokens, completion: pass1Result.usage.completion_tokens, total: pass1Result.usage.total_tokens });
         }
@@ -768,12 +769,26 @@ export async function POST(req: NextRequest) {
 
               const sendDone = (finalReply: string, model?: string) => {
                 addTrace("done", `total=${Date.now() - traceStart}ms`);
-                const payload: Record<string, unknown> = { type: "done", reply: finalReply, model };
+                // Summarize token usage and cost
+                const totalTokens = pendingUsage.reduce((s, u) => s + u.total, 0);
+                const totalPrompt = pendingUsage.reduce((s, u) => s + u.prompt, 0);
+                const totalCompletion = pendingUsage.reduce((s, u) => s + u.completion, 0);
+                const costMap: Record<string, { input: number; output: number }> = {
+                  cerebras: { input: 0, output: 0 }, nvidia: { input: 0, output: 0 },
+                  google: { input: 0.05, output: 0.05 }, openai: { input: 12.5, output: 50 },
+                  anthropic: { input: 15, output: 75 },
+                };
+                const estCost = pendingUsage.reduce((s, u) => {
+                  const c = costMap[u.provider] || { input: 0, output: 0 };
+                  return s + (u.prompt * c.input + u.completion * c.output) / 1_000_000;
+                }, 0);
+                const usage = { totalTokens, promptTokens: totalPrompt, completionTokens: totalCompletion, estCost: Math.round(estCost * 10000) / 10000, calls: pendingUsage.length };
+                const payload: Record<string, unknown> = { type: "done", reply: finalReply, model, usage };
                 if (isDev) payload.debug = debugTrace;
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
               };
 
-              const enrichKeys: LeadEnrichKeys = { hunter: hunterKey || undefined, apollo: apolloKey || undefined, snovId: snovId || undefined, snovSecret: snovSecret || undefined, plans: Object.keys(enrichPlans).length > 0 ? enrichPlans : undefined };
+              const enrichKeys: LeadEnrichKeys = { hunter: hunterKey || undefined, apollo: apolloKey || undefined, snovId: snovId || undefined, snovSecret: snovSecret || undefined, pdl: byok.pdl || undefined, plans: Object.keys(enrichPlans).length > 0 ? enrichPlans : undefined };
               const toolCtx: ToolContext = {
                 sql, userId, userPlan, projects, agents, project_id: project_id || null,
                 byok, selectedModel: selectedModel || "", apifyToken, brevoApiKey, sendgridApiKey, enrichKeys, sendStep,
@@ -841,7 +856,7 @@ export async function POST(req: NextRequest) {
                   orchMessages.push({ role: "assistant", content: currentAiContent });
                   orchMessages.push({
                     role: "user",
-                    content: `[Tool "${toolName}" ${toolError ? "ERROR" : "result"}]:\n${toolError ? `Error: ${toolError}` : (toolResult || "No results found.").substring(0, 3000)}\n\nDecide what to do next. Follow this priority chain:\n1. If a tool failed with an error → try an alternative tool or inform the user about the issue.\n2. If you just researched a business (crawl_website/search_google) but haven't searched for leads yet → call a search tool (search_google_maps, search_lead_finder, or search_leads_apify)\n3. If you just found companies/businesses (search_google_maps) with website domains but haven't found decision-maker contacts yet → call enrich_domains with the top domains to get email patterns and contacts\n4. If you just found leads with contact info AND the user's goal is fulfilled → respond with a helpful summary. Do NOT call another tool.\n5. If the search returned no results → try an alternative search tool with different keywords.\n\nDo NOT repeat a tool that already returned results. Do NOT ask the user for confirmation.`,
+                    content: `[Tool "${toolName}" ${toolError ? "ERROR" : "result"}]:\n${toolError ? `Error: ${toolError}` : (toolResult || "No results found.").substring(0, 3000)}\n\nDecide what to do next. Follow this priority chain:\n1. If a tool failed with an error → try an alternative tool or inform the user about the issue.\n2. If you just researched a business (crawl_website/search_google) but haven't searched for leads yet → call a search tool (search_google_maps, search_lead_finder, or search_leads)\n3. If you just found companies/businesses (search_google_maps) with website domains but haven't found decision-maker contacts yet → call enrich_domains with the top domains to get email patterns and contacts\n4. If you just found leads with contact info AND the user's goal is fulfilled → respond with a helpful summary. Do NOT call another tool.\n5. If the search returned no results → try an alternative search tool with different keywords.\n\nDo NOT repeat a tool that already returned results. Do NOT ask the user for confirmation.`,
                   });
 
                   // Ask AI for next step
@@ -916,7 +931,19 @@ export async function POST(req: NextRequest) {
     // Save agent reply (non-SSE path) — strip any raw tool_call text before saving
     const cleanReply = reply.replace(/```tool_call[\s\S]*?```/g, "").replace(/tool_call\s*\n?\{[\s\S]*\}/g, "").trim() || reply;
     await sql`INSERT INTO chat_messages (user_id, project_id, conversation_id, role, content, agent_type) VALUES (${userId}, ${project_id || null}, ${convId}, 'assistant', ${cleanReply}, 'autoclaw')`;
-    return NextResponse.json({ reply: cleanReply, model: usedModel });
+    // Usage summary for non-SSE path
+    const totalTokens = pendingUsage.reduce((s, u) => s + u.total, 0);
+    const costMap: Record<string, { input: number; output: number }> = {
+      cerebras: { input: 0, output: 0 }, nvidia: { input: 0, output: 0 },
+      google: { input: 0.05, output: 0.05 }, openai: { input: 12.5, output: 50 },
+      anthropic: { input: 15, output: 75 },
+    };
+    const estCost = pendingUsage.reduce((s, u) => {
+      const c = costMap[u.provider] || { input: 0, output: 0 };
+      return s + (u.prompt * c.input + u.completion * c.output) / 1_000_000;
+    }, 0);
+    const usage = { totalTokens, promptTokens: pendingUsage.reduce((s, u) => s + u.prompt, 0), completionTokens: pendingUsage.reduce((s, u) => s + u.completion, 0), estCost: Math.round(estCost * 10000) / 10000, calls: pendingUsage.length };
+    return NextResponse.json({ reply: cleanReply, model: usedModel, usage });
 
   } catch (err) {
     console.error("[POST /api/chat]", err);

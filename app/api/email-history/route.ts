@@ -64,25 +64,23 @@ export async function GET(req: NextRequest) {
               OR pm.user_id = ${userId}
               OR p.org_id IN (SELECT org_id FROM organization_members WHERE user_id = ${userId})
           )
-          OR (user_id IS NULL AND project_id IS NULL)
+          OR (user_id IS NULL AND sender_email = ${email})
         )
         ${search ? sql`AND (recipient_email ILIKE ${searchFilter} OR subject ILIKE ${searchFilter} OR sender_email ILIKE ${searchFilter})` : sql``}
         ${eventFilter ? sql`AND status = ${eventFilter}` : sql``}
         ORDER BY created_at DESC
         LIMIT ${limit} OFFSET ${offset}
       `;
-      if (localLogs.length > 0) {
-        events = localLogs.map((l) => ({
-          date: (l.created_at as string) || "",
-          event: (l.status as string) || "sent",
-          email: (l.recipient_email as string) || "",
-          subject: (l.subject as string) || "",
-          messageId: (l.message_id as string) || "",
-          from: (l.sender_email as string) || "",
-          body: (l.body_html as string) || undefined,
-        }));
-        return NextResponse.json({ events, total: events.length, source: "local" });
-      }
+      events = localLogs.map((l) => ({
+        date: (l.created_at as string) || "",
+        event: (l.status as string) || "sent",
+        email: (l.recipient_email as string) || "",
+        subject: (l.subject as string) || "",
+        messageId: (l.message_id as string) || "",
+        from: (l.sender_email as string) || "",
+        body: (l.body_html as string) || undefined,
+      }));
+      return NextResponse.json({ events, total: events.length, source: "local" });
     } catch { /* table may not exist yet, fall through to Brevo */ }
 
     // Fallback: Brevo API

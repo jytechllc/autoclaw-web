@@ -17,6 +17,7 @@ interface ChatMessage {
   agent_type?: string;
   model?: string;
   created_at: string;
+  usage?: { totalTokens: number; promptTokens: number; completionTokens: number; estCost: number; calls: number };
 }
 
 interface ModelOption {
@@ -281,6 +282,7 @@ export default function ChatPage() {
         const decoder = new TextDecoder();
         let finalReply = "";
         let finalModel = "";
+        let finalUsage: ChatMessage["usage"] = undefined;
         if (reader) {
           while (true) {
             const { done, value } = await reader.read();
@@ -331,6 +333,7 @@ export default function ChatPage() {
                   if (evt.type === "done") {
                     finalReply = evt.reply;
                     finalModel = evt.model;
+                    if (evt.usage) finalUsage = evt.usage;
                     setToolStatus("");
                     setToolSteps([]);
                     if (evt.debug) setDebugTrace(evt.debug);
@@ -341,12 +344,12 @@ export default function ChatPage() {
           }
         }
         if (finalReply) {
-          setMessages((prev) => [...prev, { id: Date.now() + 1, role: "assistant", content: finalReply, agent_type: "autoclaw", model: finalModel || undefined, created_at: new Date().toISOString() }]);
+          setMessages((prev) => [...prev, { id: Date.now() + 1, role: "assistant", content: finalReply, agent_type: "autoclaw", model: finalModel || undefined, created_at: new Date().toISOString(), usage: finalUsage }]);
         }
       } else {
         const data = await res.json();
         if (data.reply) {
-          setMessages((prev) => [...prev, { id: Date.now() + 1, role: "assistant", content: data.reply, agent_type: "autoclaw", model: data.model, created_at: new Date().toISOString() }]);
+          setMessages((prev) => [...prev, { id: Date.now() + 1, role: "assistant", content: data.reply, agent_type: "autoclaw", model: data.model, created_at: new Date().toISOString(), usage: data.usage }]);
         }
       }
     } catch {
@@ -556,7 +559,13 @@ export default function ChatPage() {
                   {msg.role === "assistant" && (
                     <div className="flex items-center gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       {msg.model && (
-                        <span className="text-[10px] text-gray-400 px-1.5 py-0.5 bg-gray-100 rounded mr-1">{msg.model}</span>
+                        <span className="text-[10px] text-gray-400 px-1.5 py-0.5 bg-gray-100 rounded mr-1">{msg.model.replace(/^(cerebras|openai|anthropic|google|alibaba|nvidia)\//, "")}</span>
+                      )}
+                      {msg.usage && (
+                        <span className="text-[10px] text-gray-400 px-1.5 py-0.5 bg-gray-50 rounded mr-1" title={`Prompt: ${msg.usage.promptTokens?.toLocaleString()} | Completion: ${msg.usage.completionTokens?.toLocaleString()} | Calls: ${msg.usage.calls}`}>
+                          {msg.usage.totalTokens >= 1000 ? `${(msg.usage.totalTokens / 1000).toFixed(1)}K` : msg.usage.totalTokens} tokens
+                          {msg.usage.estCost > 0 ? ` · $${msg.usage.estCost < 0.01 ? "<0.01" : msg.usage.estCost.toFixed(2)}` : " · Free"}
+                        </span>
                       )}
                       {/* Copy */}
                       <button

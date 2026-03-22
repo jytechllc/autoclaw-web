@@ -23,6 +23,7 @@ export interface ByokKeys {
   alibaba?: string;
   cerebras?: string;
   tavily?: string;
+  pdl?: string;
 }
 
 // ── Model Registry ──

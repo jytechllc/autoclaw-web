@@ -87,6 +87,8 @@ export default function OrgKeysSection({ orgs, orgKeys, setOrgKeys, apiKeys, col
             { service: "apollo", name: ts.byokApollo || "Apollo", hint: ts.byokApolloHint, tier: "freemium" as const, tierInfo: ts.byokApolloTier },
             { service: "apify", name: ts.byokApify || "Apify", hint: ts.byokApifyHint, tier: "freemium" as const, tierInfo: ts.byokApifyTier },
             { service: "hunter", name: ts.byokHunter || "Hunter", hint: ts.byokHunterHint, tier: "freemium" as const, tierInfo: ts.byokHunterTier },
+            { service: "pdl", name: "People Data Labs", hint: "Phone number enrichment. Get key at peopledatalabs.com.", tier: "freemium" as const, tierInfo: "Free: 100/mo. Pay-as-you-go: $0.10/record." },
+            { service: "abstract", name: "Abstract API", hint: "Phone validation, company enrichment. Get key at abstractapi.com.", tier: "freemium" as const, tierInfo: "Free: 100/mo. Starter: $17/mo." },
           ];
 
           // Snov.io needs special handling (2 keys: snov_id + snov_secret)

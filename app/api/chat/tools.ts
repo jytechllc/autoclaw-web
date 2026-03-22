@@ -1,6 +1,6 @@
 import { NeonQueryFunction } from "@neondatabase/serverless";
 import { chatWithAI, ByokKeys } from "@/lib/ai";
-import { prospectDomain, prospectMultipleDomains, searchCompanies, searchGoogleApify, crawlWebsiteApify, searchLeadsApify, searchGoogleMaps, searchLeadFinder, enrichCompanyDomains, type Lead, type LeadEnrichKeys } from "@/lib/leads";
+import { prospectDomain, prospectMultipleDomains, searchCompanies, searchGoogleApify, crawlWebsiteApify, searchLeadsApify, searchGoogleMaps, searchLeadFinder, enrichCompanyDomains, getApolloDailyBudget, type Lead, type LeadEnrichKeys } from "@/lib/leads";
 import { formatLeadTable, nextStepsHint, type ProjectRow } from "./constants";
 
 export interface ToolContext {
@@ -40,8 +40,8 @@ export async function executeTool(
       return handleSearchGoogle(toolParams, toolSummary, ctx);
     case "crawl_website":
       return handleCrawlWebsite(toolParams, apifyToken);
-    case "search_leads_apify":
-      return handleSearchLeadsApify(toolParams, toolSummary, ctx);
+    case "search_leads":
+      return handleSearchLeads(toolParams, toolSummary, ctx);
     case "search_google_maps":
       return handleSearchGoogleMaps(toolParams, toolSummary, ctx);
     case "search_lead_finder":
@@ -185,30 +185,100 @@ async function handleCrawlWebsite(toolParams: Record<string, unknown>, apifyToke
   }
 }
 
-async function handleSearchLeadsApify(toolParams: Record<string, unknown>, toolSummary: string, ctx: ToolContext): Promise<string> {
+async function handleSearchLeads(toolParams: Record<string, unknown>, toolSummary: string, ctx: ToolContext): Promise<string> {
   const { apifyToken, sendStep, userPlan, projects, byok, selectedModel } = ctx;
   const tavilyKey = byok.tavily || process.env.TAVILY_API_KEY || "";
-  if (!apifyToken && !tavilyKey) {
-    return "**Search not configured.** Please add a Tavily API key (free, 1000/mo) or Apify token in Settings > API Keys.";
-  }
+  const apolloKey = ctx.enrichKeys.apollo;
+  const apolloPlan = ctx.enrichKeys.plans?.apollo;
+  const apolloIsPaid = apolloKey && (!apolloPlan || apolloPlan !== "free");
   const isPaid = userPlan !== "starter";
 
   let leads: Lead[] = [];
 
-  // Step 1: Try Apify lead search (if available)
-  if (apifyToken) {
+  // Step 1: Apollo direct search (primary — free search, no credits consumed)
+  if (apolloKey && apolloIsPaid) {
     try {
-      leads = await searchLeadsApify(apifyToken, {
+      sendStep("search_leads");
+      const searchBody: Record<string, unknown> = { per_page: 50 };
+      if (toolParams.keywords) searchBody.q_keywords = (toolParams.keywords as string[]).join(" ");
+      if (toolParams.job_titles) searchBody.person_titles = toolParams.job_titles;
+      if (toolParams.locations) searchBody.person_locations = toolParams.locations;
+      if (toolParams.industries) searchBody.q_keywords = ((searchBody.q_keywords as string) || "") + " " + (toolParams.industries as string[]).join(" ");
+      if (toolParams.company_size) searchBody.organization_num_employees_ranges = toolParams.company_size;
+
+      const res = await fetch("https://api.apollo.io/v1/mixed_people/api_search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Api-Key": apolloKey },
+        body: JSON.stringify(searchBody),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const people = (data.people || []) as Record<string, unknown>[];
+        console.log(`[tools] Apollo search returned ${people.length} people`);
+
+        // Reveal with budget-aware limit (costs 1 email credit + 1 mobile credit each)
+        const { perCall, dailyBudget, daysLeft } = getApolloDailyBudget(75);
+        const revealLimit = Math.min(people.length, perCall);
+        console.log(`[tools] Apollo reveal budget: ${perCall}/call, ${dailyBudget}/day, ${daysLeft} days left`);
+        for (const p of people.slice(0, revealLimit)) {
+          const personId = p.id as string;
+          if (!personId) continue;
+          try {
+            const revealRes = await fetch("https://api.apollo.io/v1/people/match", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "X-Api-Key": apolloKey },
+              body: JSON.stringify({ id: personId, reveal_personal_emails: false, reveal_phone_number: true }),
+            });
+            if (revealRes.ok) {
+              const rd = await revealRes.json();
+              const person = rd.person || rd;
+              if (person && !rd.error) {
+                const email = (person.email as string) || "";
+                const firstName = (person.first_name as string) || "";
+                if (email || firstName) {
+                  const phones = person.phone_numbers as Array<{ sanitized_number?: string }> | undefined;
+                  leads.push({
+                    email,
+                    firstName,
+                    lastName: (person.last_name as string) || "",
+                    company: (person.organization_name as string) || "",
+                    position: (person.title as string) || "",
+                    phone: phones?.[0]?.sanitized_number || undefined,
+                    source: "apollo" as const,
+                    verified: Boolean(email),
+                    linkedinUrl: (person.linkedin_url as string) || undefined,
+                  });
+                }
+              }
+            }
+          } catch { /* skip individual reveal */ }
+        }
+        console.log(`[tools] Apollo revealed ${leads.length}/${revealLimit} contacts`);
+      }
+    } catch (err) {
+      console.warn(`[tools] Apollo search failed: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  // Step 2: Apify lead search fallback (if Apollo didn't find enough)
+  if (leads.length < 5 && apifyToken) {
+    try {
+      const apifyLeads = await searchLeadsApify(apifyToken, {
         keywords: toolParams.keywords as string[],
         job_titles: toolParams.job_titles as string[],
         industries: toolParams.industries as string[],
       });
+      // Dedupe
+      const existing = new Set(leads.map(l => l.email.toLowerCase()));
+      for (const l of apifyLeads) {
+        if (!existing.has(l.email.toLowerCase())) leads.push(l);
+      }
     } catch (err) {
       console.warn(`[tools] Apify lead search failed: ${err instanceof Error ? err.message : err}`);
     }
 
-    // Fallback 1a: Try lead_finder if Apify is available and first search returned nothing
-    if (leads.length === 0) {
+    // Fallback 2a: Try lead_finder
+    if (leads.length < 5) {
       const fallbackJobTitles = toolParams.job_titles as string[] | undefined;
       if (fallbackJobTitles && fallbackJobTitles.length > 0) {
         try {
@@ -418,7 +488,7 @@ async function handleSearchLeadFinder(toolParams: Record<string, unknown>, toolS
     });
 
     if (leads.length === 0) {
-      return `**${toolSummary || "Lead Finder Search"}**\n\nNo leads found matching the criteria. Try:\n- Broadening job titles or locations\n- Using **search_leads_apify** with keywords\n- Using **search_google_maps** to find companies first`;
+      return `**${toolSummary || "Lead Finder Search"}**\n\nNo leads found matching the criteria. Try:\n- Broadening job titles or locations\n- Using **search_leads** with keywords\n- Using **search_google_maps** to find companies first`;
     }
 
     const displayLeads = isPaid ? leads : leads.slice(0, 10);

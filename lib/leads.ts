@@ -3,6 +3,7 @@ const SNOV_API_ID = process.env.SNOV_API_ID;
 const SNOV_API_SECRET = process.env.SNOV_API_SECRET;
 const APOLLO_API_KEY = process.env.APOLLO_API_KEY;
 const BREVO_API_KEY = process.env.BREVO_API_KEY;
+const PDL_API_KEY = process.env.PDL_API_KEY;
 
 /** Optional BYOK keys for lead enrichment — override env vars when provided */
 export interface LeadEnrichKeys {
@@ -10,6 +11,7 @@ export interface LeadEnrichKeys {
   apollo?: string;
   snovId?: string;
   snovSecret?: string;
+  pdl?: string;
   /** Plan tiers from user settings, e.g. { apollo: "free", hunter: "starter" } */
   plans?: Record<string, string>;
 }
@@ -92,6 +94,16 @@ async function searchSnov(domain: string, byokId?: string, byokSecret?: string):
   })) };
 }
 
+/** Calculate Apollo daily mobile credit budget: remaining / days_left / 8 hours */
+export function getApolloDailyBudget(monthlyCredits = 75): { dailyBudget: number; daysLeft: number; perCall: number } {
+  const now = new Date();
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  const daysLeft = Math.max(1, Math.ceil((endOfMonth.getTime() - now.getTime()) / 86400000));
+  const dailyBudget = Math.max(1, Math.floor(monthlyCredits / daysLeft));
+  const perCall = Math.max(1, Math.floor(dailyBudget / 8));
+  return { dailyBudget, daysLeft, perCall };
+}
+
 async function searchApollo(domain: string, byokKey?: string, plan?: string): Promise<EnrichResult> {
   const key = byokKey || APOLLO_API_KEY;
   if (!key) { console.log("[enrichment] Apollo: no key configured"); return { leads: [] }; }
@@ -101,30 +113,32 @@ async function searchApollo(domain: string, byokKey?: string, plan?: string): Pr
   try {
     // Try mixed_people/search (works on paid plans, auto-falls back for free)
     if (isPaid) {
-      // Step 1: Search for people at this domain
+      // Step 1: Search for people at this domain (free, no credits consumed, max 100/page)
       const res = await fetch("https://api.apollo.io/v1/mixed_people/api_search", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Api-Key": key },
         body: JSON.stringify({
           q_organization_domains: domain,
-          per_page: 10,
+          per_page: 100,
         }),
       });
       const data = await res.json();
       if (res.ok && !data.error && data.people?.length > 0) {
         const people = data.people as Record<string, unknown>[];
-        console.log(`[enrichment] Apollo search returned ${people.length} people for ${domain}, revealing emails...`);
+        const { dailyBudget, daysLeft, perCall } = getApolloDailyBudget(75);
+        const revealLimit = Math.min(25, perCall); // Budget-aware reveal limit
+        console.log(`[enrichment] Apollo search returned ${people.length} people for ${domain}, revealing top ${revealLimit} (budget: ${perCall}/call, ${dailyBudget}/day, ${daysLeft} days left)`);
 
-        // Step 2: Reveal/enrich each person to get email, phone, etc.
+        // Step 2: Reveal/enrich each person to get email, phone (costs 1 credit each)
         const leads: Lead[] = [];
-        for (const p of people) {
+        for (const p of people.slice(0, revealLimit)) {
           const personId = p.id as string;
           if (!personId) continue;
           try {
             const revealRes = await fetch("https://api.apollo.io/v1/people/match", {
               method: "POST",
               headers: { "Content-Type": "application/json", "X-Api-Key": key },
-              body: JSON.stringify({ id: personId, reveal_personal_emails: false }),
+              body: JSON.stringify({ id: personId, reveal_personal_emails: false, reveal_phone_number: true }),
             });
             if (revealRes.ok) {
               const revealData = await revealRes.json();
@@ -396,6 +410,30 @@ export async function prospectDomain(domain: string, enrichKeys?: LeadEnrichKeys
   if (parts.length > 0) step("enrich_results:" + parts.join(", "));
 
   const leads = dedupeLeads(apolloLeads, hunterLeads, snovLeads);
+
+  // Enrich phone numbers via People Data Labs for leads missing phone
+  const pdlKey = enrichKeys?.pdl || PDL_API_KEY;
+  if (pdlKey && leads.length > 0) {
+    const needPhone = leads.filter(l => !l.phone && l.email).slice(0, 5); // max 5 per request
+    if (needPhone.length > 0) {
+      step("enrich_phones");
+      for (const lead of needPhone) {
+        try {
+          const params = new URLSearchParams({ api_key: pdlKey, email: lead.email });
+          const res = await fetch(`https://api.peopledatalabs.com/v5/person/enrich?${params}`);
+          if (res.ok) {
+            const data = await res.json();
+            const phones = data.data?.phone_numbers as string[] | undefined;
+            if (phones && phones.length > 0) {
+              lead.phone = phones[0];
+              console.log(`[enrichment] PDL phone found for ${lead.email}: ${phones[0]}`);
+            }
+          }
+        } catch { /* skip */ }
+      }
+    }
+  }
+
   // Skip Brevo import during chat tool execution to reduce subrequests
   const imported = options?.skipBrevo ? 0 : await importToBrevo(leads);
   const stats: EnrichStats[] = [];
