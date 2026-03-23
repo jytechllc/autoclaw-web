@@ -522,6 +522,7 @@ export default function ReportsPage() {
   const [selectedProjects, setSelectedProjects] = useState<Set<string>>(new Set());
   const [tokenUsage, setTokenUsage] = useState<TokenUsageEntry[]>([]);
   const [tokenSummary, setTokenSummary] = useState({ totalTokens: 0, promptTokens: 0, completionTokens: 0 });
+  const [personalTokenSummary, setPersonalTokenSummary] = useState({ totalTokens: 0, promptTokens: 0, completionTokens: 0 });
   const [tasksCompleted, setTasksCompleted] = useState(0);
   const [taskStatusByProject, setTaskStatusByProject] = useState<TaskStatusByProject[]>([]);
   const [dbKpisByProject, setDbKpisByProject] = useState<DbKpisByProject[]>([]);
@@ -582,6 +583,7 @@ export default function ReportsPage() {
         }
         if (data.tokenUsage) setTokenUsage(data.tokenUsage);
         if (data.tokenSummary) setTokenSummary(data.tokenSummary);
+        if (data.personalTokenSummary) setPersonalTokenSummary(data.personalTokenSummary);
         if (typeof data.tasksCompleted === "number") setTasksCompleted(data.tasksCompleted);
         if (Array.isArray(data.taskStatusByProject)) setTaskStatusByProject(data.taskStatusByProject);
         if (Array.isArray(data.dbKpisByProject)) setDbKpisByProject(data.dbKpisByProject);
@@ -1043,21 +1045,40 @@ export default function ReportsPage() {
 
             {tokenUsage.length > 0 && (
               <section className="min-w-0">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-                  <h2 className="text-lg font-semibold">{tr.tokenUsage}</h2>
-                  <div className="flex gap-3 text-sm">
-                    <div className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full font-medium">
-                      {tr.totalTokens}: {tokenSummary.totalTokens.toLocaleString()}
+                <h2 className="text-lg font-semibold mb-4">{tr.tokenUsage}</h2>
+                <TokenUsageChart data={tokenUsage} locale={locale} />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                  {/* Org usage */}
+                  <div className="bg-white border border-gray-200 rounded-xl p-4">
+                    <p className="text-xs text-gray-400 mb-2">{locale === "zh" || locale === "zh-TW" ? "组织消耗" : "Organization"}</p>
+                    <div className="flex flex-wrap gap-2 text-sm">
+                      <div className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full font-medium">
+                        {tr.totalTokens}: {tokenSummary.totalTokens.toLocaleString()}
+                      </div>
+                      <div className="bg-purple-50 text-purple-700 px-3 py-1 rounded-full font-medium">
+                        {tr.promptLabel}: {tokenSummary.promptTokens.toLocaleString()}
+                      </div>
+                      <div className="bg-violet-50 text-violet-700 px-3 py-1 rounded-full font-medium">
+                        {tr.completionLabel}: {tokenSummary.completionTokens.toLocaleString()}
+                      </div>
                     </div>
-                    <div className="bg-purple-50 text-purple-700 px-3 py-1 rounded-full font-medium">
-                      {tr.promptLabel}: {tokenSummary.promptTokens.toLocaleString()}
-                    </div>
-                    <div className="bg-violet-50 text-violet-700 px-3 py-1 rounded-full font-medium">
-                      {tr.completionLabel}: {tokenSummary.completionTokens.toLocaleString()}
+                  </div>
+                  {/* Personal usage */}
+                  <div className="bg-white border border-gray-200 rounded-xl p-4">
+                    <p className="text-xs text-gray-400 mb-2">{locale === "zh" || locale === "zh-TW" ? "个人消耗" : "Personal"}</p>
+                    <div className="flex flex-wrap gap-2 text-sm">
+                      <div className="bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full font-medium">
+                        {tr.totalTokens}: {personalTokenSummary.totalTokens.toLocaleString()}
+                      </div>
+                      <div className="bg-teal-50 text-teal-700 px-3 py-1 rounded-full font-medium">
+                        {tr.promptLabel}: {personalTokenSummary.promptTokens.toLocaleString()}
+                      </div>
+                      <div className="bg-cyan-50 text-cyan-700 px-3 py-1 rounded-full font-medium">
+                        {tr.completionLabel}: {personalTokenSummary.completionTokens.toLocaleString()}
+                      </div>
                     </div>
                   </div>
                 </div>
-                <TokenUsageChart data={tokenUsage} locale={locale} />
               </section>
             )}
               </div>

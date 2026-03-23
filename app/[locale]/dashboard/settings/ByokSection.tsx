@@ -86,6 +86,7 @@ export default function ByokSection({
           { service: "blob_token", name: ts.byokBlobToken, hint: ts.byokBlobTokenHint, tier: "free" as const, tierInfo: ts.byokBlobTokenTier },
           { service: "brevo", name: ts.byokBravo, hint: ts.byokBrevoHint, tier: "free" as const, tierInfo: ts.byokBrevoTier },
           { service: "sendgrid", name: ts.byokSendGrid, hint: ts.byokSendGridHint, tier: "free" as const, tierInfo: ts.byokSendGridTier },
+          // SMTP fields are grouped into a single card below (after Twitter)
           ...(userPlan !== "starter" ? [
             { service: "tavily" as const, name: "Tavily", hint: ts.byokTavilyHint || "AI-optimized web search. Get key at tavily.com.", tier: "freemium" as const, tierInfo: ts.byokTavilyTier || "Free: 1000 searches/mo. Pro: $20/mo." },
             { service: "apollo" as const, name: ts.byokApollo, hint: ts.byokApolloHint, tier: "freemium" as const, tierInfo: ts.byokApolloTier },
@@ -384,6 +385,143 @@ export default function ByokSection({
                               method: "POST",
                               headers: { "Content-Type": "application/json" },
                               body: JSON.stringify({ action: "delete", service: tk.service }),
+                            });
+                          }
+                          setByokMsg(ts.byokDeleted);
+                          setByokEditing(null);
+                          const data = await fetch("/api/api-keys").then((r) => r.json());
+                          setApiKeys(data.keys || []);
+                          setTimeout(() => setByokMsg(""), 3000);
+                        }}
+                        className="text-xs text-red-500 hover:text-red-700 px-3 py-1.5 rounded border border-red-200 transition-colors cursor-pointer"
+                      >
+                        {ts.byokDelete}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* SMTP - 5 fields grouped into one card */}
+        {(() => {
+          const smtpKeys = [
+            { service: "smtp_host" as const, name: "SMTP Host", placeholder: "smtp.gmail.com" },
+            { service: "smtp_port" as const, name: "SMTP Port", placeholder: "587" },
+            { service: "smtp_user" as const, name: "SMTP Username", placeholder: "you@gmail.com" },
+            { service: "smtp_pass" as const, name: "SMTP Password", placeholder: "App Password" },
+            { service: "smtp_from" as const, name: "SMTP From Email", placeholder: "sales@yourcompany.com" },
+          ];
+          const smtpConfigured = smtpKeys.filter((k) => apiKeys.some((a) => a.service === k.service));
+          const isEditingSmtp = byokEditing === "smtp";
+
+          return (
+            <div className="border border-gray-200 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-semibold">SMTP</h3>
+                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${smtpConfigured.length >= 3 ? "bg-green-100 text-green-800" : smtpConfigured.length > 0 ? "bg-yellow-100 text-yellow-800" : "bg-gray-100 text-gray-500"}`}>
+                    {smtpConfigured.length >= 3 ? ts.byokMasked : smtpConfigured.length > 0 ? `${smtpConfigured.length}/5` : ts.byokNotSet}
+                  </span>
+                  <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">{ts.byokTierFree}</span>
+                </div>
+                {!isEditingSmtp && (
+                  <button
+                    onClick={() => { setByokEditing("smtp"); setByokKeyInput(""); }}
+                    className="text-xs text-red-600 hover:text-red-800 transition-colors cursor-pointer"
+                  >
+                    {smtpConfigured.length > 0 ? ts.edit : ts.byokSave}
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-gray-400 mb-1">Use your own email server (Gmail, Outlook, or custom SMTP) to send campaigns.</p>
+              <p className="text-xs text-gray-500 mb-2 flex items-center gap-1">
+                <svg className="w-3 h-3 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg>
+                Gmail: use App Password (myaccount.google.com → Security → App Passwords)
+              </p>
+
+              {!isEditingSmtp && smtpConfigured.length > 0 && (
+                <div className="space-y-1">
+                  {smtpKeys.map((sk) => {
+                    const existing = apiKeys.find((a) => a.service === sk.service);
+                    return existing ? (
+                      <div key={sk.service} className="flex items-center gap-2">
+                        <span className="text-xs text-gray-500 w-32">{sk.name}:</span>
+                        <span className="text-sm text-gray-600 font-mono">{existing.masked_key}</span>
+                      </div>
+                    ) : null;
+                  })}
+                </div>
+              )}
+
+              {isEditingSmtp && (
+                <div className="space-y-2 mt-2">
+                  {smtpKeys.map((sk) => {
+                    const existing = apiKeys.find((a) => a.service === sk.service);
+                    return (
+                      <div key={sk.service}>
+                        <label className="text-xs text-gray-500 mb-1 block">{sk.name}</label>
+                        <input
+                          type={sk.service === "smtp_pass" ? "password" : "text"}
+                          defaultValue=""
+                          placeholder={existing ? `••••••••  (leave blank to keep)` : sk.placeholder}
+                          data-smtp-key={sk.service}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none font-mono"
+                        />
+                      </div>
+                    );
+                  })}
+                  <div className="flex gap-2 mt-3">
+                    <button
+                      onClick={async () => {
+                        setByokSaving(true);
+                        try {
+                          const inputs = document.querySelectorAll<HTMLInputElement>("[data-smtp-key]");
+                          let saved = false;
+                          for (const input of inputs) {
+                            const service = input.getAttribute("data-smtp-key");
+                            const value = input.value.trim();
+                            if (value && service) {
+                              const res = await fetch("/api/api-keys", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ action: "upsert", service, api_key: value }),
+                              });
+                              if (res.ok) saved = true;
+                            }
+                          }
+                          if (saved) {
+                            setByokMsg(ts.byokSaved);
+                            setByokEditing(null);
+                            const data = await fetch("/api/api-keys").then((r) => r.json());
+                            setApiKeys(data.keys || []);
+                          }
+                        } finally {
+                          setByokSaving(false);
+                          setTimeout(() => setByokMsg(""), 3000);
+                        }
+                      }}
+                      disabled={byokSaving}
+                      className="text-xs bg-red-800 hover:bg-red-900 text-white px-3 py-1.5 rounded font-medium transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      {byokSaving ? "..." : ts.byokSave}
+                    </button>
+                    <button
+                      onClick={() => setByokEditing(null)}
+                      className="text-xs text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded border border-gray-200 transition-colors cursor-pointer"
+                    >
+                      {tc.cancel}
+                    </button>
+                    {smtpConfigured.length > 0 && (
+                      <button
+                        onClick={async () => {
+                          for (const sk of smtpKeys) {
+                            await fetch("/api/api-keys", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ action: "delete", service: sk.service }),
                             });
                           }
                           setByokMsg(ts.byokDeleted);

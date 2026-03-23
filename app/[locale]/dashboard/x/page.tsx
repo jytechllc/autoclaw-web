@@ -51,6 +51,19 @@ export default function XPage() {
   const [recentTweets, setRecentTweets] = useState<RecentTweet[]>([]);
   const [loadingTweets, setLoadingTweets] = useState(false);
 
+  // Multi-account state
+  interface XAccount { id: number; label: string; username?: string; x_user_id?: string; is_default: boolean; status: string; last_verified_at?: string; created_at: string }
+  const [accounts, setAccounts] = useState<XAccount[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState<number | undefined>(undefined);
+  const [showAccountPanel, setShowAccountPanel] = useState(false);
+  const [showAddAccount, setShowAddAccount] = useState(false);
+  const [addingAccount, setAddingAccount] = useState(false);
+  const [newLabel, setNewLabel] = useState("");
+  const [newApiKey, setNewApiKey] = useState("");
+  const [newApiSecret, setNewApiSecret] = useState("");
+  const [newAccessToken, setNewAccessToken] = useState("");
+  const [newAccessTokenSecret, setNewAccessTokenSecret] = useState("");
+
   // Composer state
   const [content, setContent] = useState("");
   const [mediaUrl, setMediaUrl] = useState("");
@@ -108,15 +121,153 @@ export default function XPage() {
   const [imageError, setImageError] = useState("");
 
   useEffect(() => {
+    fetchAccounts();
     fetchStatus();
     fetchPosts();
     fetchRecurringTasks();
     fetchHistory();
+    // Handle OAuth callback results
+    const urlParams = new URLSearchParams(window.location.search);
+    const connected = urlParams.get("connected");
+    const error = urlParams.get("error");
+    if (connected) {
+      setMessage(t.accountAdded + (connected !== "ok" ? ` (@${connected})` : ""));
+      window.history.replaceState({}, "", window.location.pathname);
+      setTimeout(() => setMessage(""), 5000);
+    } else if (error) {
+      setMessage(t.accountError + `: ${error}`);
+      window.history.replaceState({}, "", window.location.pathname);
+      setTimeout(() => setMessage(""), 5000);
+    }
   }, []);
+
+  // Re-fetch when switching accounts
+  useEffect(() => {
+    if (selectedAccountId !== undefined) {
+      fetchStatus();
+      fetchPosts();
+      fetchRecentTweets();
+    }
+  }, [selectedAccountId]);
+
+  const [connectingOAuth, setConnectingOAuth] = useState(false);
+
+  async function connectWithX() {
+    setConnectingOAuth(true);
+    try {
+      const res = await fetch("/api/x/auth");
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url; // Redirect to X authorization page
+      } else {
+        setMessage(data.error || t.connectNeedKeys);
+      }
+    } catch {
+      setMessage(t.accountError);
+    }
+    setConnectingOAuth(false);
+    setTimeout(() => setMessage(""), 5000);
+  }
+
+  const [orgKeysAvailable, setOrgKeysAvailable] = useState(false);
+  const [orgName, setOrgName] = useState("");
+  const [legacyKeysAvailable, setLegacyKeysAvailable] = useState(false);
+  const [importingKeys, setImportingKeys] = useState(false);
+
+  async function fetchAccounts() {
+    try {
+      const res = await fetch("/api/x/accounts");
+      const data = await res.json();
+      if (data.accounts) {
+        setAccounts(data.accounts);
+        const def = data.accounts.find((a: XAccount) => a.is_default);
+        if (def) setSelectedAccountId(def.id);
+      }
+      if (data.orgKeysAvailable) { setOrgKeysAvailable(true); setOrgName(data.orgName || ""); }
+      if (data.legacyKeysAvailable) setLegacyKeysAvailable(true);
+    } catch { /* ignore */ }
+  }
+
+  async function importKeys(source: "import_org" | "import_legacy") {
+    setImportingKeys(true);
+    try {
+      const res = await fetch("/api/x/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: source }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMessage(t.accountAdded);
+        fetchAccounts();
+        fetchStatus();
+        if (source === "import_org") setOrgKeysAvailable(false);
+        if (source === "import_legacy") setLegacyKeysAvailable(false);
+      } else {
+        setMessage(t.accountError + (data.error ? `: ${data.error}` : ""));
+      }
+    } catch { setMessage(t.accountError); }
+    setImportingKeys(false);
+    setTimeout(() => setMessage(""), 5000);
+  }
+
+  async function addAccount() {
+    if (!newLabel.trim() || !newApiKey.trim() || !newApiSecret.trim() || !newAccessToken.trim() || !newAccessTokenSecret.trim()) return;
+    setAddingAccount(true);
+    try {
+      const res = await fetch("/api/x/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "add",
+          label: newLabel.trim(),
+          api_key: newApiKey.trim(),
+          api_secret: newApiSecret.trim(),
+          access_token: newAccessToken.trim(),
+          access_token_secret: newAccessTokenSecret.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMessage(t.accountAdded);
+        setShowAddAccount(false);
+        setNewLabel(""); setNewApiKey(""); setNewApiSecret(""); setNewAccessToken(""); setNewAccessTokenSecret("");
+        fetchAccounts();
+        fetchStatus();
+      } else {
+        setMessage(t.accountError + (data.error ? `: ${data.error}` : ""));
+      }
+    } catch { setMessage(t.accountError); }
+    setAddingAccount(false);
+    setTimeout(() => setMessage(""), 5000);
+  }
+
+  async function removeAccount(id: number) {
+    if (!confirm(t.removeAccountConfirm)) return;
+    await fetch("/api/x/accounts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "remove", id }),
+    });
+    setMessage(t.accountRemoved);
+    setTimeout(() => setMessage(""), 3000);
+    fetchAccounts();
+    if (selectedAccountId === id) setSelectedAccountId(undefined);
+  }
+
+  async function setDefaultAccount(id: number) {
+    await fetch("/api/x/accounts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "set_default", id }),
+    });
+    fetchAccounts();
+  }
 
   async function fetchStatus() {
     try {
-      const res = await fetch("/api/x/post");
+      const params = selectedAccountId ? `?accountId=${selectedAccountId}` : "";
+      const res = await fetch(`/api/x/post${params}`);
       const data = await res.json();
       if (res.ok) {
         setStatus(data);
@@ -136,7 +287,8 @@ export default function XPage() {
   async function fetchRecentTweets() {
     setLoadingTweets(true);
     try {
-      const res = await fetch("/api/x/post?recentTweets=true");
+      const acctParam = selectedAccountId ? `&accountId=${selectedAccountId}` : "";
+      const res = await fetch(`/api/x/post?recentTweets=true${acctParam}`);
       const data = await res.json();
       if (data.tweets) setRecentTweets(data.tweets);
     } catch {
@@ -182,6 +334,7 @@ export default function XPage() {
     setMessage("");
     try {
       const body: Record<string, unknown> = { content: content.trim() };
+      if (selectedAccountId) body.accountId = selectedAccountId;
       if (mediaUrl.trim()) body.mediaUrl = mediaUrl.trim();
 
       if (scheduleMode && scheduledAt) {
@@ -389,9 +542,29 @@ export default function XPage() {
           <div className="text-gray-500">{dict.common.loading}</div>
         ) : (
           <>
-            {/* Connection Status */}
+            {/* Account Switcher + Status */}
             <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <h2 className="text-lg font-semibold text-gray-800 mb-3">{t.accountInfo}</h2>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-lg font-semibold text-gray-800">{t.accountInfo}</h2>
+                <div className="flex items-center gap-2">
+                  {accounts.length > 0 && (
+                    <select
+                      value={selectedAccountId || ""}
+                      onChange={(e) => setSelectedAccountId(e.target.value ? Number(e.target.value) : undefined)}
+                      className="text-sm border border-gray-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      {accounts.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.label}{a.username ? ` (@${a.username})` : ""}{a.is_default ? ` ★` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <button onClick={() => setShowAccountPanel(!showAccountPanel)} className="text-xs text-blue-600 hover:text-blue-800 cursor-pointer font-medium">{t.allAccounts}</button>
+                </div>
+              </div>
+
+              {/* Current account status */}
               {status?.connected ? (
                 <div className="flex items-center gap-3">
                   <span className="inline-flex items-center gap-1.5 text-sm font-medium text-green-700 bg-green-50 px-3 py-1 rounded-full">
@@ -401,13 +574,121 @@ export default function XPage() {
                   <span className="text-sm text-gray-600">@{status.username}</span>
                   {status.name && <span className="text-sm text-gray-400">({status.name})</span>}
                 </div>
-              ) : (
-                <div className="space-y-2">
+              ) : accounts.length === 0 ? (
+                <div className="space-y-3">
                   <span className="inline-flex items-center gap-1.5 text-sm font-medium text-red-700 bg-red-50 px-3 py-1 rounded-full">
                     <span className="w-2 h-2 bg-red-500 rounded-full" />
                     {t.notConnected}
                   </span>
-                  <p className="text-sm text-gray-500">{t.noAccount}</p>
+                  <p className="text-sm text-gray-500">{t.connectDesc}</p>
+                  <button
+                    onClick={connectWithX}
+                    disabled={connectingOAuth}
+                    className="inline-flex items-center gap-2 bg-black hover:bg-gray-800 disabled:bg-gray-400 text-white px-5 py-2.5 rounded-lg text-sm font-medium cursor-pointer transition-colors"
+                  >
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                    {connectingOAuth ? t.connecting : t.connectWithX}
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <span className="inline-flex items-center gap-1.5 text-sm font-medium text-yellow-700 bg-yellow-50 px-3 py-1 rounded-full">
+                    <span className="w-2 h-2 bg-yellow-500 rounded-full" />
+                    {t.notConnected}
+                  </span>
+                </div>
+              )}
+
+              {/* Account management panel */}
+              {showAccountPanel && (
+                <div className="mt-4 pt-4 border-t border-gray-100">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-gray-700">{t.accounts} ({accounts.length})</h3>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={connectWithX}
+                        disabled={connectingOAuth}
+                        className="text-xs bg-black hover:bg-gray-800 disabled:bg-gray-400 text-white px-3 py-1 rounded-lg cursor-pointer font-medium flex items-center gap-1"
+                      >
+                        <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                        {connectingOAuth ? t.connecting : t.connectWithX}
+                      </button>
+                      <button onClick={() => setShowAddAccount(true)} className="text-xs border border-gray-300 hover:bg-gray-50 text-gray-600 px-3 py-1 rounded-lg cursor-pointer font-medium">{t.addAccount}</button>
+                    </div>
+                  </div>
+
+                  {accounts.length === 0 ? (
+                    <p className="text-sm text-gray-400">{t.noAccount}</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {accounts.map((a) => (
+                        <div key={a.id} className={`flex items-center justify-between p-3 rounded-lg border ${selectedAccountId === a.id ? "border-blue-300 bg-blue-50/50" : "border-gray-100 bg-gray-50/50"}`}>
+                          <div className="flex items-center gap-2">
+                            <span className={`w-2 h-2 rounded-full ${a.status === "active" ? "bg-green-500" : "bg-red-400"}`} />
+                            <span className="text-sm font-medium text-gray-800">{a.label}</span>
+                            {a.username && <span className="text-xs text-gray-500">@{a.username}</span>}
+                            {a.is_default && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">{t.defaultAccount}</span>}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {!a.is_default && (
+                              <button onClick={() => setDefaultAccount(a.id)} className="text-[11px] text-blue-600 hover:text-blue-800 cursor-pointer">{t.setDefault}</button>
+                            )}
+                            <button onClick={() => removeAccount(a.id)} className="text-[11px] text-red-400 hover:text-red-600 cursor-pointer">{t.removeAccount}</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* One-click import from org or legacy keys */}
+                  {(orgKeysAvailable || legacyKeysAvailable) && (
+                    <div className="mt-3 flex flex-col gap-2">
+                      {orgKeysAvailable && (
+                        <button
+                          onClick={() => importKeys("import_org")}
+                          disabled={importingKeys}
+                          className="w-full flex items-center justify-center gap-2 p-3 rounded-lg border-2 border-dashed border-blue-300 bg-blue-50/50 hover:bg-blue-100/50 text-sm font-medium text-blue-700 cursor-pointer transition-colors disabled:opacity-50"
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
+                          {importingKeys ? t.addingAccount : `${t.switchAccount}: ${orgName || "Organization"}`}
+                        </button>
+                      )}
+                      {legacyKeysAvailable && (
+                        <button
+                          onClick={() => importKeys("import_legacy")}
+                          disabled={importingKeys}
+                          className="w-full flex items-center justify-center gap-2 p-3 rounded-lg border-2 border-dashed border-gray-300 bg-gray-50/50 hover:bg-gray-100/50 text-sm font-medium text-gray-600 cursor-pointer transition-colors disabled:opacity-50"
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" /></svg>
+                          {importingKeys ? t.addingAccount : `${t.switchAccount}: Settings API Keys`}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Add account form */}
+                  {showAddAccount && (
+                    <div className="mt-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                      <h4 className="text-sm font-semibold text-gray-700 mb-3">{t.addAccount}</h4>
+                      <div className="space-y-2">
+                        <input type="text" value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder={t.accountLabelPlaceholder} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                        <div className="grid grid-cols-2 gap-2">
+                          <input type="text" value={newApiKey} onChange={(e) => setNewApiKey(e.target.value)} placeholder={t.apiKey} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                          <input type="text" value={newApiSecret} onChange={(e) => setNewApiSecret(e.target.value)} placeholder={t.apiSecret} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <input type="text" value={newAccessToken} onChange={(e) => setNewAccessToken(e.target.value)} placeholder={t.accessToken} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                          <input type="text" value={newAccessTokenSecret} onChange={(e) => setNewAccessTokenSecret(e.target.value)} placeholder={t.accessTokenSecret} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                        </div>
+                        <div className="flex justify-end gap-2 mt-2">
+                          <button onClick={() => setShowAddAccount(false)} className="text-sm text-gray-500 hover:text-gray-700 cursor-pointer">{dict.common.cancel}</button>
+                          <button onClick={addAccount} disabled={addingAccount || !newLabel.trim() || !newApiKey.trim()} className="text-sm bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white px-4 py-1.5 rounded-lg cursor-pointer font-medium">
+                            {addingAccount ? t.addingAccount : t.addAccount}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

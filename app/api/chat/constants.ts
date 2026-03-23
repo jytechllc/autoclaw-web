@@ -9,10 +9,9 @@ export const AVAILABLE_AGENTS = [
 
 export const AGENT_PLANS: Record<string, { plan: string; tasks: { name: string; status: string }[]; blockers: string[] }> = {
   email_marketing: {
-    plan: "Set up cold outreach campaign with personalized templates, build prospect email list from project contacts, configure follow-up sequences, and launch newsletter.",
+    plan: "Build prospect email list from project contacts, create personalized templates, configure follow-up sequences, and launch newsletter. Depends on Lead Prospecting for ICP data.",
     tasks: [
-      { name: "Research target audience & ICP", status: "in_progress" },
-      { name: "Build prospect email list from existing contacts", status: "pending" },
+      { name: "Build prospect email list from existing contacts", status: "in_progress" },
       { name: "Create email templates (cold, follow-up, newsletter)", status: "pending" },
       { name: "Configure sending schedule & limits", status: "pending" },
       { name: "Set up tracking (opens, clicks, replies)", status: "pending" },

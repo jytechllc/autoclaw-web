@@ -18,10 +18,34 @@ interface XCredentials {
   accessTokenSecret: string;
 }
 
-async function getUserXCredentials(userId: number): Promise<XCredentials | null> {
+async function getUserXCredentials(userId: number, accountId?: number): Promise<XCredentials & { accountId?: number } | null> {
   const sql = getDb();
 
-  // 1. Try personal keys first
+  // 1. Try x_accounts table first (multi-account support)
+  try {
+    let acctRow;
+    if (accountId) {
+      const rows = await sql`SELECT id, api_key, api_secret, access_token, access_token_secret FROM x_accounts WHERE id = ${accountId} AND user_id = ${userId} AND status = 'active' LIMIT 1`;
+      acctRow = rows[0];
+    } else {
+      // Use default account
+      const rows = await sql`SELECT id, api_key, api_secret, access_token, access_token_secret FROM x_accounts WHERE user_id = ${userId} AND status = 'active' ORDER BY is_default DESC, created_at ASC LIMIT 1`;
+      acctRow = rows[0];
+    }
+    if (acctRow) {
+      try {
+        return {
+          apiKey: decrypt(acctRow.api_key as string),
+          apiSecret: decrypt(acctRow.api_secret as string),
+          accessToken: decrypt(acctRow.access_token as string),
+          accessTokenSecret: decrypt(acctRow.access_token_secret as string),
+          accountId: acctRow.id as number,
+        };
+      } catch { /* decryption failed, fall through */ }
+    }
+  } catch { /* x_accounts table might not exist yet, fall through */ }
+
+  // 2. Legacy: personal keys in user_api_keys
   const keys = await sql`
     SELECT service, api_key FROM user_api_keys
     WHERE user_id = ${userId} AND service IN ('twitter_api_key', 'twitter_api_secret', 'twitter_access_token', 'twitter_access_token_secret')
@@ -29,11 +53,7 @@ async function getUserXCredentials(userId: number): Promise<XCredentials | null>
 
   const keyMap: Record<string, string> = {};
   for (const k of keys) {
-    try {
-      keyMap[k.service as string] = decrypt(k.api_key as string);
-    } catch {
-      // Decryption failed — skip this key
-    }
+    try { keyMap[k.service as string] = decrypt(k.api_key as string); } catch { /* skip */ }
   }
 
   if (keyMap.twitter_api_key && keyMap.twitter_api_secret && keyMap.twitter_access_token && keyMap.twitter_access_token_secret) {
@@ -45,7 +65,7 @@ async function getUserXCredentials(userId: number): Promise<XCredentials | null>
     };
   }
 
-  // 2. Fallback to org-level keys
+  // 3. Fallback to org-level keys
   const orgKeys = await sql`
     SELECT oak.service, oak.api_key FROM org_api_keys oak
     JOIN organization_members om ON om.org_id = oak.org_id
@@ -56,11 +76,7 @@ async function getUserXCredentials(userId: number): Promise<XCredentials | null>
 
   const orgKeyMap: Record<string, string> = {};
   for (const k of orgKeys) {
-    try {
-      orgKeyMap[k.service as string] = decrypt(k.api_key as string);
-    } catch {
-      // Decryption failed — skip this key
-    }
+    try { orgKeyMap[k.service as string] = decrypt(k.api_key as string); } catch { /* skip */ }
   }
 
   if (!orgKeyMap.twitter_api_key || !orgKeyMap.twitter_api_secret || !orgKeyMap.twitter_access_token || !orgKeyMap.twitter_access_token_secret) {
@@ -128,16 +144,17 @@ export async function POST(req: NextRequest) {
   }
 
   const userId = users[0].id;
-  const creds = await getUserXCredentials(userId);
+
+  const body = await req.json();
+  const { content, mediaUrl, postImmediately = true, scheduledAt, accountId } = body;
+
+  const creds = await getUserXCredentials(userId, accountId);
   if (!creds) {
     return NextResponse.json(
       { error: "X (Twitter) API keys not configured. Add them in Settings." },
       { status: 400 }
     );
   }
-
-  const body = await req.json();
-  const { content, mediaUrl, postImmediately = true, scheduledAt } = body;
 
   if (!content || content.length === 0) {
     return NextResponse.json({ error: "content is required" }, { status: 400 });
@@ -228,7 +245,8 @@ export async function GET(req: NextRequest) {
 
   const userId = users[0].id;
 
-  const creds = await getUserXCredentials(userId);
+  const accountIdParam = req.nextUrl.searchParams.get("accountId");
+  const creds = await getUserXCredentials(userId, accountIdParam ? Number(accountIdParam) : undefined);
 
   // Fetch recent tweets from X timeline
   const recentTweets = req.nextUrl.searchParams.get("recentTweets");

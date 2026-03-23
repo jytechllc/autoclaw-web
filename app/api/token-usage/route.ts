@@ -55,61 +55,50 @@ export async function GET() {
   `;
   const visibleUserIds = [userId, ...orgMemberIds.map((r) => (r as Record<string, number>).user_id)];
 
-  // Admin sees all token usage; org members see org-wide usage; others see only their own
-  const [summary, byModel, byDate] = isAdmin
-    ? await Promise.all([
-        sql`SELECT
-          COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
-          COALESCE(SUM(completion_tokens), 0) as completion_tokens,
-          COALESCE(SUM(total_tokens), 0) as total_tokens,
-          COUNT(*)::int as request_count
-        FROM token_usage`,
-        sql`SELECT
-          model,
-          COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
-          COALESCE(SUM(completion_tokens), 0) as completion_tokens,
-          COALESCE(SUM(total_tokens), 0) as total_tokens,
-          COUNT(*)::int as request_count
-        FROM token_usage
-        GROUP BY model
-        ORDER BY SUM(total_tokens) DESC`,
-        sql`SELECT
-          DATE(created_at) as date,
-          COALESCE(SUM(total_tokens), 0) as total_tokens,
-          COUNT(*)::int as request_count
-        FROM token_usage
-        WHERE created_at >= NOW() - INTERVAL '30 days'
-        GROUP BY DATE(created_at)
-        ORDER BY date DESC`,
-      ])
-    : await Promise.all([
-        sql`SELECT
-          COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
-          COALESCE(SUM(completion_tokens), 0) as completion_tokens,
-          COALESCE(SUM(total_tokens), 0) as total_tokens,
-          COUNT(*)::int as request_count
-        FROM token_usage WHERE user_id = ANY(${visibleUserIds})`,
-        sql`SELECT
-          model,
-          COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
-          COALESCE(SUM(completion_tokens), 0) as completion_tokens,
-          COALESCE(SUM(total_tokens), 0) as total_tokens,
-          COUNT(*)::int as request_count
-        FROM token_usage WHERE user_id = ANY(${visibleUserIds})
-        GROUP BY model
-        ORDER BY SUM(total_tokens) DESC`,
-        sql`SELECT
-          DATE(created_at) as date,
-          COALESCE(SUM(total_tokens), 0) as total_tokens,
-          COUNT(*)::int as request_count
-        FROM token_usage WHERE user_id = ANY(${visibleUserIds})
-          AND created_at >= NOW() - INTERVAL '30 days'
-        GROUP BY DATE(created_at)
-        ORDER BY date DESC`,
-      ]);
+  // Personal usage (current user only)
+  const [personalSummary] = await Promise.all([
+    sql`SELECT
+      COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
+      COALESCE(SUM(completion_tokens), 0) as completion_tokens,
+      COALESCE(SUM(total_tokens), 0) as total_tokens,
+      COUNT(*)::int as request_count
+    FROM token_usage WHERE user_id = ${userId}`,
+  ]);
+
+  // Org / admin usage (broader scope)
+  const scopeFilter = isAdmin
+    ? sql`1=1`
+    : sql`user_id = ANY(${visibleUserIds})`;
+
+  const [orgSummary, byModel, byDate] = await Promise.all([
+    sql`SELECT
+      COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
+      COALESCE(SUM(completion_tokens), 0) as completion_tokens,
+      COALESCE(SUM(total_tokens), 0) as total_tokens,
+      COUNT(*)::int as request_count
+    FROM token_usage WHERE ${scopeFilter}`,
+    sql`SELECT
+      model,
+      COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
+      COALESCE(SUM(completion_tokens), 0) as completion_tokens,
+      COALESCE(SUM(total_tokens), 0) as total_tokens,
+      COUNT(*)::int as request_count
+    FROM token_usage WHERE ${scopeFilter}
+    GROUP BY model
+    ORDER BY SUM(total_tokens) DESC`,
+    sql`SELECT
+      DATE(created_at) as date,
+      COALESCE(SUM(total_tokens), 0) as total_tokens,
+      COUNT(*)::int as request_count
+    FROM token_usage WHERE ${scopeFilter}
+      AND created_at >= NOW() - INTERVAL '30 days'
+    GROUP BY DATE(created_at)
+    ORDER BY date DESC`,
+  ]);
 
   return NextResponse.json({
-    summary: summary[0],
+    summary: orgSummary[0],
+    personal: personalSummary[0],
     byModel,
     byDate,
   });

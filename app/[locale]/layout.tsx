@@ -23,6 +23,9 @@ export const metadata: Metadata = {
   description:
     "Deploy AI-powered marketing agents that run 24/7. Email outreach, content creation, lead generation, SEO, and social media — all automated. Free tier available.",
   icons: { icon: "/logo.svg" },
+  alternates: {
+    canonical: "https://autoclaw.jytech.us",
+  },
 };
 
 export function generateStaticParams() {

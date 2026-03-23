@@ -515,6 +515,12 @@ async function fetchGaData(
 
 // ── Token usage fetching ──
 
+interface TokenSummary {
+  totalTokens: number;
+  promptTokens: number;
+  completionTokens: number;
+}
+
 interface TokenResult {
   tokenUsage: {
     date: string;
@@ -523,11 +529,8 @@ interface TokenResult {
     completion_tokens: number;
     total_tokens: number;
   }[];
-  tokenSummary: {
-    totalTokens: number;
-    promptTokens: number;
-    completionTokens: number;
-  };
+  tokenSummary: TokenSummary;
+  personalTokenSummary: TokenSummary;
 }
 
 interface TaskStatusCounts {
@@ -830,12 +833,14 @@ async function fetchTokenUsage(
   isAdmin: boolean,
   isEnterprise: boolean,
 ): Promise<TokenResult> {
+  const emptyResult: TokenResult = {
+    tokenUsage: [],
+    tokenSummary: { totalTokens: 0, promptTokens: 0, completionTokens: 0 },
+    personalTokenSummary: { totalTokens: 0, promptTokens: 0, completionTokens: 0 },
+  };
   try {
     if (projectIds.length === 0 && !isAdmin && !isEnterprise) {
-      return {
-        tokenUsage: [],
-        tokenSummary: { totalTokens: 0, promptTokens: 0, completionTokens: 0 },
-      };
+      return emptyResult;
     }
 
     const rows =
@@ -870,23 +875,28 @@ async function fetchTokenUsage(
       total_tokens: r.total_tokens as number,
     }));
 
-    const tokenSummary = {
-      totalTokens: 0,
-      promptTokens: 0,
-      completionTokens: 0,
-    };
+    const tokenSummary: TokenSummary = { totalTokens: 0, promptTokens: 0, completionTokens: 0 };
     for (const r of rows) {
       tokenSummary.totalTokens += r.total_tokens as number;
       tokenSummary.promptTokens += r.prompt_tokens as number;
       tokenSummary.completionTokens += r.completion_tokens as number;
     }
 
-    return { tokenUsage, tokenSummary };
-  } catch {
-    return {
-      tokenUsage: [],
-      tokenSummary: { totalTokens: 0, promptTokens: 0, completionTokens: 0 },
+    // Personal usage (current user only)
+    const personalRows = await sql`
+      SELECT COALESCE(SUM(prompt_tokens), 0)::int as prompt_tokens,
+        COALESCE(SUM(completion_tokens), 0)::int as completion_tokens,
+        COALESCE(SUM(total_tokens), 0)::int as total_tokens
+      FROM token_usage WHERE user_id = ${userId}`;
+    const personalTokenSummary: TokenSummary = {
+      totalTokens: personalRows[0].total_tokens as number,
+      promptTokens: personalRows[0].prompt_tokens as number,
+      completionTokens: personalRows[0].completion_tokens as number,
     };
+
+    return { tokenUsage, tokenSummary, personalTokenSummary };
+  } catch {
+    return emptyResult;
   }
 }
 
@@ -1035,7 +1045,7 @@ export async function GET(request: Request) {
   let { brevoStats, brevoCampaigns } = brevoData;
   const { brevoLists } = brevoData;
   const { gaStats, gaProjects } = gaData;
-  const { tokenUsage, tokenSummary } = tokenData;
+  const { tokenUsage, tokenSummary, personalTokenSummary } = tokenData;
 
   // Local email stats will be applied after campaign filtering (see below)
 
@@ -1311,6 +1321,7 @@ export async function GET(request: Request) {
     gaProjects,
     tokenUsage,
     tokenSummary,
+    personalTokenSummary,
     taskStatusCounts,
     taskStatusByProject,
     dbKpisByProject,

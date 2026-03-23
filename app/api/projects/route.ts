@@ -22,10 +22,9 @@ const PLAN_AGENT_LIMITS: Record<string, number> = {
 const AGENT_PLANS: Record<string, Record<string, object>> = {
   en: {
     email_marketing: {
-      plan: "Set up cold outreach campaign with personalized templates, build prospect email list, configure follow-up sequences, and launch newsletter.",
+      plan: "Build prospect email list from project contacts, create personalized templates, configure follow-up sequences, and launch newsletter. Depends on Lead Prospecting for ICP data.",
       tasks: [
-        { name: "Research target audience & ICP", status: "in_progress" },
-        { name: "Build prospect email list", status: "pending" },
+        { name: "Build prospect email list", status: "in_progress" },
         { name: "Create email templates (cold, follow-up, newsletter)", status: "pending" },
         { name: "Configure sending schedule & limits", status: "pending" },
         { name: "Set up tracking (opens, clicks, replies)", status: "pending" },
@@ -107,14 +106,13 @@ const AGENT_PLANS: Record<string, Record<string, object>> = {
   },
   zh: {
     email_marketing: {
-      plan: "\u8bbe\u7f6e\u4e2a\u6027\u5316\u6a21\u677f\u7684\u51b7\u90ae\u4ef6\u8425\u9500\u6d3b\u52a8\uff0c\u6784\u5efa\u6f5c\u5ba2\u90ae\u4ef6\u5217\u8868\uff0c\u914d\u7f6e\u8ddf\u8fdb\u5e8f\u5217\uff0c\u5e76\u53d1\u5e03\u901a\u8baf\u3002",
+      plan: "构建潜客邮件列表，创建个性化模板，配置跟进序列，并发布通讯。依赖潜在客户挖掘的 ICP 数据。",
       tasks: [
-        { name: "\u7814\u7a76\u76ee\u6807\u53d7\u4f17\u548c\u7406\u60f3\u5ba2\u6237\u753b\u50cf", status: "in_progress" },
-        { name: "构建潜在客户邮件列表", status: "pending" },
-        { name: "\u521b\u5efa\u90ae\u4ef6\u6a21\u677f\uff08\u51b7\u90ae\u4ef6\u3001\u8ddf\u8fdb\u3001\u901a\u8baf\uff09", status: "pending" },
-        { name: "\u914d\u7f6e\u53d1\u9001\u8ba1\u5212\u548c\u9650\u5236", status: "pending" },
-        { name: "\u8bbe\u7f6e\u8ddf\u8e2a\uff08\u6253\u5f00\u7387\u3001\u70b9\u51fb\u7387\u3001\u56de\u590d\u7387\uff09", status: "pending" },
-        { name: "\u53d1\u8d77\u8425\u9500\u6d3b\u52a8", status: "pending" },
+        { name: "构建潜在客户邮件列表", status: "in_progress" },
+        { name: "创建邮件模板（冷邮件、跟进、通讯）", status: "pending" },
+        { name: "配置发送计划和限制", status: "pending" },
+        { name: "设置跟踪（打开率、点击率、回复率）", status: "pending" },
+        { name: "发起营销活动", status: "pending" },
       ],
       blockers: [],
     },

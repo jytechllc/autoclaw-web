@@ -408,6 +408,48 @@ VALUES
   ('Numix XPilot', 'https://www.numix.co/numix-xpilot', 'partner', 'active', 'Tax Credits on Autopilot with Full Stack Accounting & CFO services by Numix', 'https://framerusercontent.com/images/MfxaJudXEVxeeht8WnKAsVFWXg.png', '10% off')
 ON CONFLICT (name) DO NOTHING;
 
+-- Email templates library (multi-language, project-scoped)
+CREATE TABLE IF NOT EXISTS email_templates (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+  agent_id INTEGER REFERENCES agent_assignments(id) ON DELETE SET NULL,
+  name VARCHAR(255) NOT NULL,
+  subject TEXT NOT NULL,
+  body_html TEXT NOT NULL,
+  language VARCHAR(10) DEFAULT 'en',          -- en, zh, zh-TW, fr, etc.
+  category VARCHAR(50) DEFAULT 'cold_outreach', -- cold_outreach, follow_up, newsletter, custom
+  tags TEXT[] DEFAULT '{}',
+  is_ai_generated BOOLEAN DEFAULT false,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_templates_user ON email_templates(user_id);
+CREATE INDEX IF NOT EXISTS idx_email_templates_project ON email_templates(project_id);
+CREATE INDEX IF NOT EXISTS idx_email_templates_language ON email_templates(language);
+CREATE INDEX IF NOT EXISTS idx_email_templates_category ON email_templates(category);
+
+-- X (Twitter) multi-account support
+CREATE TABLE IF NOT EXISTS x_accounts (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  label VARCHAR(255) NOT NULL,                -- display name, e.g. "Company Official", "Personal"
+  username VARCHAR(255),                       -- @handle, populated after verification
+  x_user_id VARCHAR(255),                      -- X platform user ID
+  api_key TEXT NOT NULL,
+  api_secret TEXT NOT NULL,
+  access_token TEXT NOT NULL,
+  access_token_secret TEXT NOT NULL,
+  is_default BOOLEAN DEFAULT false,
+  status VARCHAR(20) DEFAULT 'active',         -- active, error, revoked
+  last_verified_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_x_accounts_user ON x_accounts(user_id);
+
 -- User budget settings
 CREATE TABLE IF NOT EXISTS user_budgets (
   id SERIAL PRIMARY KEY,

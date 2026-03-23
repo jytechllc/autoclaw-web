@@ -73,6 +73,16 @@ export default function ContactsPage() {
   const [formTier, setFormTier] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // Send email state
+  const [sendTarget, setSendTarget] = useState<Contact | null>(null);
+  const [emailTemplates, setEmailTemplates] = useState<{ id: number; name: string; subject: string; body_html: string; language: string; category: string }[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [sendSubject, setSendSubject] = useState("");
+  const [sendBody, setSendBody] = useState("");
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [aiRecommending, setAiRecommending] = useState(false);
+  const [aiRecommendMsg, setAiRecommendMsg] = useState("");
+
   async function loadContacts(p = page) {
     const params = new URLSearchParams();
     if (search) params.set("search", search);
@@ -244,6 +254,120 @@ export default function ContactsPage() {
     } catch { /* ignore */ }
     setSyncing(false);
     setTimeout(() => setMsg(""), 5000);
+  }
+
+  // Detect likely language from email domain
+  function detectLanguageFromEmail(email: string): string {
+    const domain = email.split("@")[1]?.toLowerCase() || "";
+    // Country-code TLD mapping
+    if (domain.endsWith(".cn") || domain.endsWith(".com.cn")) return "zh";
+    if (domain.endsWith(".tw") || domain.endsWith(".com.tw")) return "zh-TW";
+    if (domain.endsWith(".hk") || domain.endsWith(".com.hk") || domain.endsWith(".mo")) return "zh-TW";
+    if (domain.endsWith(".fr") || domain.endsWith(".co.fr")) return "fr";
+    if (domain.endsWith(".jp") || domain.endsWith(".co.jp")) return "ja";
+    if (domain.endsWith(".kr") || domain.endsWith(".co.kr")) return "ko";
+    if (domain.endsWith(".de") || domain.endsWith(".at") || domain.endsWith(".ch")) return "de";
+    if (domain.endsWith(".es") || domain.endsWith(".mx") || domain.endsWith(".ar") || domain.endsWith(".co") || domain.endsWith(".cl")) return "es";
+    if (domain.endsWith(".pt") || domain.endsWith(".br") || domain.endsWith(".com.br")) return "pt";
+    if (domain.endsWith(".it")) return "it";
+    if (domain.endsWith(".ru") || domain.endsWith(".su")) return "ru";
+    if (domain.endsWith(".vn")) return "vi";
+    if (domain.endsWith(".th")) return "th";
+    if (domain.endsWith(".id") || domain.endsWith(".co.id")) return "id";
+    if (domain.endsWith(".my") || domain.endsWith(".sg")) return "zh"; // CN-heavy markets
+    // Well-known Chinese email providers
+    if (/\b(qq\.com|163\.com|126\.com|yeah\.net|sina\.com|sohu\.com|aliyun\.com|foxmail\.com)\b/.test(domain)) return "zh";
+    // Default
+    return "en";
+  }
+
+  function openSendEmail(contact: Contact) {
+    setSendTarget(contact);
+    setSelectedTemplateId("");
+    setSendSubject("");
+    setSendBody("");
+    // Load templates if not loaded
+    if (emailTemplates.length === 0) {
+      fetch("/api/email-templates")
+        .then((r) => r.json())
+        .then((data) => setEmailTemplates(data.templates || []));
+    }
+  }
+
+  function applyTemplate(templateId: string) {
+    setSelectedTemplateId(templateId);
+    const tpl = emailTemplates.find((t) => t.id === Number(templateId));
+    if (!tpl || !sendTarget) return;
+    // Apply merge tags
+    const replaceTags = (text: string) =>
+      text
+        .replace(/\{\{firstName\}\}/gi, sendTarget.first_name || "there")
+        .replace(/\{\{lastName\}\}/gi, sendTarget.last_name || "")
+        .replace(/\{\{company\}\}/gi, sendTarget.company || "your company")
+        .replace(/\{\{email\}\}/gi, sendTarget.email || "");
+    setSendSubject(replaceTags(tpl.subject));
+    setSendBody(replaceTags(tpl.body_html));
+  }
+
+  async function sendEmail() {
+    if (!sendTarget || !sendSubject.trim() || !sendBody.trim()) return;
+    setSendingEmail(true);
+    try {
+      const res = await fetch("/api/send-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: sendTarget.email,
+          toName: [sendTarget.first_name, sendTarget.last_name].filter(Boolean).join(" ") || undefined,
+          subject: sendSubject,
+          html: sendBody,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMsg(t.sendSuccess);
+        setSendTarget(null);
+      } else {
+        setMsg(t.sendError + (data.error ? `: ${data.error}` : ""));
+      }
+    } catch {
+      setMsg(t.sendError);
+    }
+    setSendingEmail(false);
+    setTimeout(() => setMsg(""), 5000);
+  }
+
+  async function aiRecommendTemplate() {
+    if (!sendTarget || emailTemplates.length === 0) return;
+    setAiRecommending(true);
+    setAiRecommendMsg("");
+    try {
+      const res = await fetch("/api/email-templates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "ai_recommend",
+          contact: {
+            email: sendTarget.email,
+            first_name: sendTarget.first_name,
+            last_name: sendTarget.last_name,
+            company: sendTarget.company,
+            position: sendTarget.position,
+            emails_sent: sendTarget.emails_sent,
+            emails_opened: sendTarget.emails_opened,
+            emails_clicked: sendTarget.emails_clicked,
+          },
+          template_ids: emailTemplates.map((t) => t.id),
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.template_id) {
+        applyTemplate(String(data.template_id));
+        setAiRecommendMsg(t.aiRecommended.replace("{reason}", data.reason || ""));
+      }
+    } catch { /* ignore */ }
+    setAiRecommending(false);
+    setTimeout(() => setAiRecommendMsg(""), 8000);
   }
 
   function contactQuality(c: Contact): { label: string; color: string } {
@@ -491,6 +615,7 @@ export default function ContactsPage() {
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${q.color}`}>{q.label}</span>
                     </td>
                     <td className="px-4 py-3.5 text-right whitespace-nowrap">
+                      <button onClick={() => openSendEmail(c)} className="text-xs text-blue-600 hover:text-blue-800 mr-3 cursor-pointer">{t.sendEmail}</button>
                       <button onClick={() => openForm(c)} className="text-xs text-red-600 hover:text-red-800 mr-3 cursor-pointer">{t.editContact}</button>
                       <button onClick={() => deleteContact(c.id)} className="text-xs text-gray-400 hover:text-red-600 cursor-pointer">{tc.delete}</button>
                     </td>
@@ -546,6 +671,98 @@ export default function ContactsPage() {
             </button>
           </div>
         )}
+
+        {/* Send Email modal */}
+        {sendTarget && (() => {
+          const detectedLang = detectLanguageFromEmail(sendTarget.email);
+          const langNames: Record<string, string> = { en: "English", zh: "简体中文", "zh-TW": "繁體中文", fr: "Français", ja: "日本語", ko: "한국어", de: "Deutsch", es: "Español", pt: "Português", it: "Italiano", ru: "Русский", vi: "Tiếng Việt", th: "ไทย", id: "Bahasa Indonesia" };
+          // Sort templates: matching language first, then others
+          const sorted = [...emailTemplates].sort((a, b) => {
+            const aMatch = a.language === detectedLang ? 0 : 1;
+            const bMatch = b.language === detectedLang ? 0 : 1;
+            return aMatch - bMatch;
+          });
+          return (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-auto p-6">
+              <h2 className="text-lg font-semibold mb-1">{t.sendEmail}</h2>
+              <div className="flex items-center gap-2 mb-4">
+                <p className="text-sm text-gray-500">
+                  {sendTarget.first_name || sendTarget.email} {sendTarget.company ? `(${sendTarget.company})` : ""}
+                </p>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium">
+                  {langNames[detectedLang] || detectedLang}
+                </span>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-medium text-gray-600">{t.selectTemplate}</label>
+                    <button
+                      onClick={aiRecommendTemplate}
+                      disabled={aiRecommending || emailTemplates.length === 0}
+                      className="text-[11px] px-2 py-0.5 rounded-full bg-purple-50 border border-purple-200 text-purple-700 hover:bg-purple-100 disabled:opacity-40 cursor-pointer font-medium transition-colors"
+                    >
+                      {aiRecommending ? t.aiRecommending : t.aiRecommend}
+                    </button>
+                  </div>
+                  <select
+                    value={selectedTemplateId}
+                    onChange={(e) => applyTemplate(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                  >
+                    <option value="">{emailTemplates.length === 0 ? t.noTemplates : `— ${t.selectTemplate} —`}</option>
+                    {sorted.map((tpl) => (
+                      <option key={tpl.id} value={tpl.id}>
+                        {tpl.language === detectedLang ? "★ " : ""}{`[${tpl.language.toUpperCase()}]`} {tpl.name} — {tpl.subject.substring(0, 50)}
+                      </option>
+                    ))}
+                  </select>
+                  {aiRecommendMsg && (
+                    <p className="text-[11px] text-purple-600 mt-1">{aiRecommendMsg}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">{t.email}: {sendTarget.email}</label>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Subject *</label>
+                  <input
+                    type="text"
+                    value={sendSubject}
+                    onChange={(e) => setSendSubject(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Body *</label>
+                  <textarea
+                    value={sendBody}
+                    onChange={(e) => setSendBody(e.target.value)}
+                    rows={8}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 resize-none"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 mt-5">
+                <button onClick={() => setSendTarget(null)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 cursor-pointer">{tc.cancel}</button>
+                <button
+                  onClick={sendEmail}
+                  disabled={sendingEmail || !sendSubject.trim() || !sendBody.trim()}
+                  className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer"
+                >
+                  {sendingEmail ? t.sending : t.sendEmail}
+                </button>
+              </div>
+            </div>
+          </div>
+          );
+        })()}
 
         {/* Add/Edit modal */}
         {showForm && (
