@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useUser } from "@auth0/nextjs-auth0/client";
 import DashboardShell from "@/components/DashboardShell";
 import { getDictionary, type Locale } from "@/lib/i18n";
@@ -98,11 +98,33 @@ export default function ContactsPage() {
     setLoading(false);
   }
 
+  const searchParams = useSearchParams();
+  const [trialClaimed, setTrialClaimed] = useState(false);
+
   useEffect(() => {
     loadContacts();
     fetch("/api/projects")
       .then((r) => r.json())
       .then((data) => setProjects(data.projects || []));
+
+    // Auto-claim trial leads if trialToken is present
+    const trialToken = searchParams.get("trialToken") || localStorage.getItem("trialToken");
+    if (trialToken && !trialClaimed) {
+      fetch("/api/trial-leads/claim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionToken: trialToken }),
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.claimed > 0) {
+            setTrialClaimed(true);
+            localStorage.removeItem("trialToken");
+            loadContacts();
+          }
+        })
+        .catch(() => {});
+    }
   }, []);
 
   useEffect(() => {

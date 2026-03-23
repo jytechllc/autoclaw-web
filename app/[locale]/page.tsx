@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { getDictionary, type Locale } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import TrialLeadSearch from "@/components/TrialLeadSearch";
 
 function SignupForm({ t }: { t: ReturnType<typeof getDictionary>["landing"] }) {
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
@@ -232,7 +233,7 @@ export default function Home() {
             <p className="text-xl text-gray-300 mb-10 max-w-2xl mx-auto leading-relaxed">{t.heroDescription}</p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <a href={`/auth/login?returnTo=/${locale}/dashboard/reports`} className="bg-red-700 hover:bg-red-800 text-white px-8 py-4 rounded-lg font-medium text-lg transition-colors">{t.startFree}</a>
-              <a href="#how-it-works" className="border border-red-400/50 hover:border-red-300 text-white px-8 py-4 rounded-lg font-medium text-lg transition-colors">{t.seeHowItWorks}</a>
+              <a href="#try-it" className="border border-red-400/50 hover:border-red-300 text-white px-8 py-4 rounded-lg font-medium text-lg transition-colors">{t.trialSearchBtn}</a>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mt-20 pt-12 border-t border-gray-700 max-w-3xl mx-auto">
               {stats.map((stat) => (
@@ -242,6 +243,13 @@ export default function Home() {
                 </div>
               ))}
             </div>
+          </div>
+        </section>
+
+        {/* Trial Lead Search */}
+        <section id="try-it" className="py-16 bg-white border-b border-gray-100">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+            <TrialLeadSearch t={t} locale={locale} />
           </div>
         </section>
 

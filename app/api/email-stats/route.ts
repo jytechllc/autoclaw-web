@@ -45,6 +45,19 @@ export async function GET() {
       WHERE user_id = ${userId}
     `;
 
+    // Stats by subject (for template performance)
+    const bySubject = await sql`
+      SELECT subject,
+        COUNT(*)::int as sent,
+        COUNT(opened_at)::int as opened,
+        COUNT(clicked_at)::int as clicked,
+        COUNT(bounced_at)::int as bounced
+      FROM email_logs
+      WHERE user_id = ${userId} AND status != 'error'
+      GROUP BY subject
+      ORDER BY sent DESC
+    `;
+
     return NextResponse.json({
       daily,
       byDayOfWeek: byDayOfWeek.map((r) => {
@@ -58,6 +71,7 @@ export async function GET() {
         };
       }),
       summary: summary[0] || {},
+      bySubject,
     });
   } catch (err) {
     console.error("[GET /api/email-stats]", err);

@@ -55,6 +55,9 @@ export const updateProjectSchema = z.object({
   ga_property_id: z.string().max(20).optional().nullable(),
   description: longText,
   domain,
+  contact_name: z.string().max(200).optional().nullable(),
+  contact_email: z.string().email().max(200).optional().nullable(),
+  contact_phone: z.string().max(50).optional().nullable(),
 });
 
 export const deleteProjectSchema = z.object({

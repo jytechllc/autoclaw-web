@@ -36,6 +36,9 @@ interface Project {
   name: string;
   website: string;
   description: string;
+  contact_name: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
   created_at: string;
 }
 

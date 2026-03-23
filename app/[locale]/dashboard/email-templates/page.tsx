@@ -84,6 +84,7 @@ interface Template {
   is_ai_generated: boolean;
   created_at: string;
   updated_at: string;
+  stats?: { sent: number; opened: number; clicked: number; bounced: number };
 }
 
 interface Project {
@@ -148,7 +149,20 @@ export default function EmailTemplatesPage() {
     if (catFilter) params.set("category", catFilter);
     const res = await fetch(`/api/email-templates?${params}`);
     const data = await res.json();
-    setTemplates(data.templates || []);
+    const tpls = (data.templates || []) as Template[];
+
+    // Load email stats per template (match by subject)
+    try {
+      const statsRes = await fetch("/api/email-stats");
+      const statsData = await statsRes.json();
+      const statsBySubject = (statsData.bySubject || []) as { subject: string; sent: number; opened: number; clicked: number; bounced: number }[];
+      for (const tpl of tpls) {
+        const match = statsBySubject.find((s) => tpl.subject && s.subject.includes(tpl.subject.replace(/\{\{.*?\}\}/g, "").trim().substring(0, 20)));
+        if (match) tpl.stats = match;
+      }
+    } catch { /* non-critical */ }
+
+    setTemplates(tpls);
     setLoading(false);
   }
 
@@ -374,26 +388,32 @@ export default function EmailTemplatesPage() {
         )}
 
         {/* Stats */}
-        {!loading && templates.length > 0 && (
+        {!loading && templates.length > 0 && (() => {
+          const totalSent = templates.reduce((sum, tpl) => sum + (tpl.stats?.sent || 0), 0);
+          const totalOpened = templates.reduce((sum, tpl) => sum + (tpl.stats?.opened || 0), 0);
+          const totalClicked = templates.reduce((sum, tpl) => sum + (tpl.stats?.clicked || 0), 0);
+          const openRate = totalSent > 0 ? Math.round(totalOpened / totalSent * 100) : 0;
+          return (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
             <div className="bg-white border border-gray-200 rounded-xl p-4">
               <p className="text-xs text-gray-400 mb-1">{t.templateCount.replace("{count}", String(templates.length))}</p>
               <p className="text-2xl font-bold text-gray-900">{templates.length}</p>
             </div>
             <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <p className="text-xs text-gray-400 mb-1">{t.aiGenerated}</p>
-              <p className="text-2xl font-bold text-purple-600">{templates.filter((t) => t.is_ai_generated).length}</p>
+              <p className="text-xs text-gray-400 mb-1">{locale === "zh" || locale === "zh-TW" ? "总发送" : "Total Sent"}</p>
+              <p className="text-2xl font-bold text-indigo-600">{totalSent}</p>
             </div>
             <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <p className="text-xs text-gray-400 mb-1">{t.language}</p>
-              <p className="text-2xl font-bold text-blue-600">{new Set(templates.map((t) => t.language)).size}</p>
+              <p className="text-xs text-gray-400 mb-1">{locale === "zh" || locale === "zh-TW" ? "打开 / 点击" : "Opened / Clicked"}</p>
+              <p className="text-2xl font-bold text-green-600">{totalOpened} / {totalClicked}</p>
             </div>
             <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <p className="text-xs text-gray-400 mb-1">{t.category}</p>
-              <p className="text-2xl font-bold text-green-600">{new Set(templates.map((t) => t.category)).size}</p>
+              <p className="text-xs text-gray-400 mb-1">{locale === "zh" || locale === "zh-TW" ? "打开率" : "Open Rate"}</p>
+              <p className="text-2xl font-bold text-emerald-600">{openRate}%</p>
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* Filters */}
         <div className="flex flex-col sm:flex-row gap-3 mb-4">
@@ -466,6 +486,33 @@ export default function EmailTemplatesPage() {
                     {new Date(tpl.updated_at).toLocaleDateString()}
                   </span>
                 </div>
+
+                {tpl.stats && tpl.stats.sent > 0 && (
+                  <div className="flex items-center gap-3 mb-3 py-2 px-3 bg-gray-50 rounded-lg">
+                    <div className="text-center">
+                      <p className="text-sm font-semibold text-gray-800">{tpl.stats.sent}</p>
+                      <p className="text-[10px] text-gray-400">{locale === "zh" || locale === "zh-TW" ? "发送" : "Sent"}</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-sm font-semibold text-green-600">{tpl.stats.opened}</p>
+                      <p className="text-[10px] text-gray-400">{locale === "zh" || locale === "zh-TW" ? "打开" : "Opened"}</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-sm font-semibold text-blue-600">{tpl.stats.clicked}</p>
+                      <p className="text-[10px] text-gray-400">{locale === "zh" || locale === "zh-TW" ? "点击" : "Clicked"}</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-sm font-semibold text-red-500">{tpl.stats.bounced}</p>
+                      <p className="text-[10px] text-gray-400">{locale === "zh" || locale === "zh-TW" ? "退信" : "Bounced"}</p>
+                    </div>
+                    {tpl.stats.sent > 0 && (
+                      <div className="ml-auto text-right">
+                        <p className="text-sm font-semibold text-emerald-600">{tpl.stats.opened > 0 ? Math.round(tpl.stats.opened / tpl.stats.sent * 100) : 0}%</p>
+                        <p className="text-[10px] text-gray-400">{locale === "zh" || locale === "zh-TW" ? "打开率" : "Open Rate"}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="flex items-center gap-2 pt-3 border-t border-gray-100">
                   <button onClick={() => setPreview(tpl)} className="text-xs text-gray-500 hover:text-gray-700 cursor-pointer">{t.preview}</button>

@@ -14,6 +14,9 @@ interface Project {
   description: string;
   ga_property_id: string | null;
   domain: string | null;
+  contact_name: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
   created_at?: string;
 }
 
@@ -23,6 +26,9 @@ const EMPTY_FORM = {
   ga_property_id: "",
   description: "",
   domain: "",
+  contact_name: "",
+  contact_email: "",
+  contact_phone: "",
 };
 
 export default function ProjectsPage() {
@@ -68,6 +74,9 @@ export default function ProjectsPage() {
       ga_property_id: project.ga_property_id || "",
       description: project.description || "",
       domain: project.domain || "",
+      contact_name: project.contact_name || "",
+      contact_email: project.contact_email || "",
+      contact_phone: project.contact_phone || "",
     });
     setSavedId(null);
   }
@@ -120,6 +129,9 @@ export default function ProjectsPage() {
           ga_property_id: editForm.ga_property_id || null,
           description: editForm.description,
           domain: editForm.domain || null,
+          contact_name: editForm.contact_name || null,
+          contact_email: editForm.contact_email || null,
+          contact_phone: editForm.contact_phone || null,
         }),
       });
       if (!res.ok) return;
@@ -133,6 +145,9 @@ export default function ProjectsPage() {
                 ga_property_id: editForm.ga_property_id || null,
                 description: editForm.description,
                 domain: editForm.domain || null,
+                contact_name: editForm.contact_name || null,
+                contact_email: editForm.contact_email || null,
+                contact_phone: editForm.contact_phone || null,
               }
             : project
         )
@@ -410,26 +425,62 @@ export default function ProjectsPage() {
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none resize-none"
                         />
                       </div>
+                      <div className="border-t border-gray-200 pt-3 mt-1">
+                        <p className="text-xs font-medium text-gray-600 mb-2">{locale === "zh" || locale === "zh-TW" ? "项目负责人" : "Project Contact"}</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <input
+                            type="text"
+                            value={editForm.contact_name}
+                            onChange={(e) => setEditForm((prev) => ({ ...prev, contact_name: e.target.value }))}
+                            placeholder={locale === "zh" || locale === "zh-TW" ? "联系人姓名" : "Contact name"}
+                            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
+                          />
+                          <input
+                            type="email"
+                            value={editForm.contact_email}
+                            onChange={(e) => setEditForm((prev) => ({ ...prev, contact_email: e.target.value }))}
+                            placeholder={locale === "zh" || locale === "zh-TW" ? "联系邮箱" : "Contact email"}
+                            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
+                          />
+                          <input
+                            type="tel"
+                            value={editForm.contact_phone}
+                            onChange={(e) => setEditForm((prev) => ({ ...prev, contact_phone: e.target.value }))}
+                            placeholder={locale === "zh" || locale === "zh-TW" ? "联系电话" : "Contact phone"}
+                            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
+                          />
+                        </div>
+                      </div>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                      <div>
-                        <p className="text-xs text-gray-400">{ts.website}</p>
-                        <p className="text-sm text-gray-700 break-all">{project.website || "-"}</p>
+                    <>
+                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                        <div>
+                          <p className="text-xs text-gray-400">{ts.website}</p>
+                          <p className="text-sm text-gray-700 break-all">{project.website || "-"}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-400">{ts.gaPropertyId}</p>
+                          <p className="text-sm text-gray-700">{project.ga_property_id || "-"}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-400">{ts.domain || "Work Domain"}</p>
+                          <p className="text-sm text-gray-700">{project.domain || "-"}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-400">{ts.description}</p>
+                          <p className="text-sm text-gray-700">{project.description || "-"}</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-xs text-gray-400">{ts.gaPropertyId}</p>
-                        <p className="text-sm text-gray-700">{project.ga_property_id || "-"}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-400">{ts.domain || "Work Domain"}</p>
-                        <p className="text-sm text-gray-700">{project.domain || "-"}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-400">{ts.description}</p>
-                        <p className="text-sm text-gray-700">{project.description || "-"}</p>
-                      </div>
-                    </div>
+                      {(project.contact_name || project.contact_email || project.contact_phone) && (
+                        <div className="mt-3 pt-3 border-t border-gray-100 flex flex-wrap gap-4">
+                          <p className="text-xs text-gray-400 w-full">{locale === "zh" || locale === "zh-TW" ? "项目负责人" : "Project Contact"}</p>
+                          {project.contact_name && <p className="text-sm text-gray-700">{project.contact_name}</p>}
+                          {project.contact_email && <a href={`mailto:${project.contact_email}`} className="text-sm text-blue-600 hover:underline">{project.contact_email}</a>}
+                          {project.contact_phone && <a href={`tel:${project.contact_phone}`} className="text-sm text-blue-600 hover:underline">{project.contact_phone}</a>}
+                        </div>
+                      )}
+                    </>
                   )}
                 </section>
               );
