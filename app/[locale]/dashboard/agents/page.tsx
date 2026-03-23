@@ -94,7 +94,7 @@ const STEP_LABELS: Record<string, Record<string, string>> = {
   en: {
     load_kb: "Loading knowledge base",
     fetch_website: "Fetching website content",
-    search_company: "Searching company info via Google",
+    search_company: "Searching company info online",
     check_icp: "Checking existing ICP from Lead Prospecting",
     ai_analyze: "AI analyzing",
     extract_criteria: "Extracting search criteria",
@@ -114,7 +114,7 @@ const STEP_LABELS: Record<string, Record<string, string>> = {
   zh: {
     load_kb: "加载知识库",
     fetch_website: "抓取网站内容",
-    search_company: "通过 Google 搜索公司信息",
+    search_company: "网络搜索公司信息",
     check_icp: "检查潜客开发的 ICP 结果",
     ai_analyze: "AI 分析中",
     extract_criteria: "提取搜索条件",
@@ -134,7 +134,7 @@ const STEP_LABELS: Record<string, Record<string, string>> = {
   "zh-TW": {
     load_kb: "載入知識庫",
     fetch_website: "擷取網站內容",
-    search_company: "透過 Google 搜尋公司資訊",
+    search_company: "網路搜尋公司資訊",
     check_icp: "檢查潛客開發的 ICP 結果",
     ai_analyze: "AI 分析中",
     extract_criteria: "擷取搜尋條件",
@@ -154,7 +154,7 @@ const STEP_LABELS: Record<string, Record<string, string>> = {
   fr: {
     load_kb: "Chargement de la base de connaissances",
     fetch_website: "Extraction du contenu du site",
-    search_company: "Recherche d'infos entreprise via Google",
+    search_company: "Recherche d'infos entreprise en ligne",
     check_icp: "Vérification de l'ICP existant",
     ai_analyze: "Analyse IA",
     extract_criteria: "Extraction des critères",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { useUser } from "@auth0/nextjs-auth0/client";
 import DashboardShell from "@/components/DashboardShell";
@@ -37,6 +37,14 @@ interface Project {
 }
 
 export default function ContactsPage() {
+  return (
+    <Suspense>
+      <ContactsPageInner />
+    </Suspense>
+  );
+}
+
+function ContactsPageInner() {
   const params = useParams();
   const locale = (params.locale as Locale) || "en";
   const dict = getDictionary(locale);

@@ -31,6 +31,8 @@ export async function trackUsage(
   sql: NeonQueryFunction<false, false>,
   requests: number,
   tokens: number,
+  userId?: number,
+  projectId?: number,
 ): Promise<void> {
   const period = currentPeriod();
   await sql`
@@ -42,6 +44,15 @@ export async function trackUsage(
       token_count = embedding_usage.token_count + ${tokens},
       updated_at = NOW()
   `;
+  // Also track in token_usage for per-user reporting
+  if (userId && tokens > 0) {
+    try {
+      await sql`
+        INSERT INTO token_usage (user_id, project_id, provider, model, prompt_tokens, completion_tokens, total_tokens, source)
+        VALUES (${userId}, ${projectId || null}, 'embedding', 'text-embedding', ${tokens}, 0, ${tokens}, 'rag')
+      `;
+    } catch { /* non-critical */ }
+  }
 }
 
 /**
@@ -75,6 +86,8 @@ export async function generateEmbeddings(
   byokKeys?: { google?: string; openai?: string },
   sql?: NeonQueryFunction<false, false>,
   plan?: string,
+  userId?: number,
+  projectId?: number,
 ): Promise<number[][]> {
   // Estimate tokens for tracking (~4 chars per token)
   const estimatedTokens = texts.reduce((sum, t) => sum + Math.ceil(t.length / 4), 0);
@@ -83,7 +96,7 @@ export async function generateEmbeddings(
   if (byokKeys?.google) {
     try {
       const result = await googleEmbed(byokKeys.google, texts);
-      if (sql) await trackUsage(sql, 1, estimatedTokens).catch(() => {});
+      if (sql) await trackUsage(sql, 1, estimatedTokens, userId, projectId).catch(() => {});
       return result;
     } catch (e) {
       console.error("User Google embedding failed:", e);
@@ -94,7 +107,7 @@ export async function generateEmbeddings(
   if (byokKeys?.openai) {
     try {
       const result = await openaiEmbed(byokKeys.openai, texts);
-      if (sql) await trackUsage(sql, 1, estimatedTokens).catch(() => {});
+      if (sql) await trackUsage(sql, 1, estimatedTokens, userId, projectId).catch(() => {});
       return result;
     } catch (e) {
       console.error("User OpenAI embedding failed:", e);
@@ -105,7 +118,7 @@ export async function generateEmbeddings(
   if (GOOGLE_AI_API && plan === "enterprise") {
     try {
       const result = await googleEmbed(GOOGLE_AI_API, texts);
-      if (sql) await trackUsage(sql, 1, estimatedTokens).catch(() => {});
+      if (sql) await trackUsage(sql, 1, estimatedTokens, userId, projectId).catch(() => {});
       return result;
     } catch (e) {
       console.error("System Google embedding failed:", e);

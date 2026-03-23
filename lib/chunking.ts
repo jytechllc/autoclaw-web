@@ -25,7 +25,12 @@ export async function extractPdf(buffer: Buffer): Promise<string> {
 
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
 
-  const doc = await pdfjs.getDocument({ data: new Uint8Array(buffer) }).promise;
+  const doc = await pdfjs.getDocument({
+    data: new Uint8Array(buffer),
+    cMapUrl: "https://cdn.jsdelivr.net/npm/pdfjs-dist/cmaps/",
+    cMapPacked: true,
+    useSystemFonts: true,
+  } as Parameters<typeof pdfjs.getDocument>[0]).promise;
   const pages: string[] = [];
   for (let i = 1; i <= doc.numPages; i++) {
     const page = await doc.getPage(i);

@@ -3,14 +3,16 @@ import { auth0 } from "@/lib/auth0";
 import { getDb, resolveUserPlan } from "@/lib/db";
 import { generateEmbeddings, loadEmbeddingKeys, isOverBudget } from "@/lib/embeddings";
 import { extractPdf, extractDocx, extractUrl, chunkText, estimateTokens } from "@/lib/chunking";
+import { put, list } from "@vercel/blob";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 const PLAN_LIMITS: Record<string, { maxDocs: number; maxSizeMB: number }> = {
-  starter: { maxDocs: 10, maxSizeMB: 50 },
+  starter: { maxDocs: 10, maxSizeMB: 500 },
   growth: { maxDocs: 100, maxSizeMB: 500 },
   scale: { maxDocs: 1000, maxSizeMB: 5000 },
-  enterprise: { maxDocs: 99999, maxSizeMB: 99999 },
+  enterprise: { maxDocs: 1000, maxSizeMB: 500 },
 };
 
 // GET: list knowledge base documents
@@ -126,6 +128,19 @@ export async function GET(req: NextRequest) {
 
   const limits = PLAN_LIMITS[plan] || PLAN_LIMITS.starter;
 
+  // Blob storage usage
+  let blobUsage = { totalBytes: 0, totalFiles: 0 };
+  try {
+    let cursor: string | undefined;
+    for (let page = 0; page < 3; page++) {
+      const result = await list({ cursor, limit: 1000, prefix: `kb/${userId}/` });
+      blobUsage.totalFiles += result.blobs.length;
+      blobUsage.totalBytes += result.blobs.reduce((s, b) => s + b.size, 0);
+      if (!result.hasMore) break;
+      cursor = result.cursor;
+    }
+  } catch { /* blob not configured or empty */ }
+
   return NextResponse.json({
     documents: enrichedDocs,
     plan,
@@ -136,6 +151,8 @@ export async function GET(req: NextRequest) {
       maxSizeMB: limits.maxSizeMB,
       totalTokens,
       totalChunks,
+      blobUsedBytes: blobUsage.totalBytes,
+      blobFiles: blobUsage.totalFiles,
     },
     orgs: orgs.map((o) => ({ id: o.id, name: o.name })),
     projects: projects.map((p) => ({ id: p.id, name: p.name })),
@@ -211,7 +228,7 @@ async function checkLimits(
     return `Document limit reached (${limits.maxDocs} documents on your plan). Upgrade for more.`;
   }
   if ((totalSize + addSize) / (1024 * 1024) > limits.maxSizeMB) {
-    return `Storage limit reached (${limits.maxSizeMB}MB on your plan). Upgrade for more.`;
+    return `Storage limit reached (${limits.maxSizeMB}MB). Contact admin to increase your storage quota.`;
   }
   return null;
 }
@@ -246,7 +263,7 @@ async function processAndEmbed(
     const BATCH_SIZE = 20;
     for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
       const batch = chunks.slice(i, i + BATCH_SIZE);
-      const embeddings = await generateEmbeddings(batch, byokKeys, sql, plan);
+      const embeddings = await generateEmbeddings(batch, byokKeys, sql, plan, userId);
 
       for (let j = 0; j < batch.length; j++) {
         const chunkIndex = i + j;
@@ -274,66 +291,87 @@ async function handleFileUpload(
   limits: { maxDocs: number; maxSizeMB: number },
 ) {
   const formData = await req.formData();
-  const file = formData.get("file") as File | null;
+  const files = formData.getAll("file") as File[];
   const scope = (formData.get("scope") as string) || "personal";
   const orgId = formData.get("org_id") ? parseInt(formData.get("org_id") as string) : null;
   const projectId = formData.get("project_id") ? parseInt(formData.get("project_id") as string) : null;
 
-  if (!file) {
+  if (files.length === 0) {
     return NextResponse.json({ error: "No file provided" }, { status: 400 });
   }
 
-  const fileSize = file.size;
-  const limitErr = await checkLimits(sql, userId, limits, fileSize);
-  if (limitErr) {
-    return NextResponse.json({ error: limitErr }, { status: 403 });
-  }
+  const results: { name: string; id?: number; error?: string }[] = [];
 
-  // Determine document type
-  const fileName = file.name.toLowerCase();
-  let docType: string;
-  if (fileName.endsWith(".pdf")) docType = "pdf";
-  else if (fileName.endsWith(".docx") || fileName.endsWith(".doc")) docType = "docx";
-  else if (fileName.match(/\.(png|jpg|jpeg|gif|webp)$/)) docType = "image";
-  else if (fileName.match(/\.(txt|md|csv)$/)) docType = "text";
-  else {
-    return NextResponse.json({ error: "Unsupported file type. Supported: PDF, DOCX, TXT, MD, images." }, { status: 400 });
-  }
-
-  const title = file.name;
-
-  // Create document record
-  const docs = await sql`
-    INSERT INTO kb_documents (user_id, org_id, project_id, scope, title, doc_type, file_size, status)
-    VALUES (${userId}, ${orgId}, ${projectId}, ${scope}, ${title}, ${docType}, ${fileSize}, 'processing')
-    RETURNING id
-  `;
-  const docId = docs[0].id as number;
-
-  try {
-    const buffer = Buffer.from(await file.arrayBuffer());
-    let text: string;
-
-    if (docType === "pdf") {
-      text = await extractPdf(buffer);
-    } else if (docType === "docx") {
-      text = await extractDocx(buffer);
-    } else if (docType === "image") {
-      // For images, store a description placeholder — full Vision API integration can be added later
-      text = `[Image: ${title}]`;
-    } else {
-      text = buffer.toString("utf-8");
+  for (const file of files) {
+    const fileSize = file.size;
+    const limitErr = await checkLimits(sql, userId, limits, fileSize);
+    if (limitErr) {
+      results.push({ name: file.name, error: limitErr });
+      continue;
     }
 
-    // Process in background-ish (still within request, but chunking + embedding)
-    await processAndEmbed(sql, docId, text, userId, plan);
+    // Determine document type
+    const fileName = file.name.toLowerCase();
+    let docType: string;
+    if (fileName.endsWith(".pdf")) docType = "pdf";
+    else if (fileName.endsWith(".docx") || fileName.endsWith(".doc")) docType = "docx";
+    else if (fileName.match(/\.(png|jpg|jpeg|gif|webp)$/)) docType = "image";
+    else if (fileName.match(/\.(txt|md|csv)$/)) docType = "text";
+    else {
+      results.push({ name: file.name, error: "Unsupported file type" });
+      continue;
+    }
 
-    return NextResponse.json({ id: docId, status: "ready" });
-  } catch (e) {
-    const errMsg = e instanceof Error ? e.message : "Processing failed";
-    await sql`UPDATE kb_documents SET status = 'error', error_message = ${errMsg} WHERE id = ${docId}`;
-    return NextResponse.json({ id: docId, status: "error", error: errMsg }, { status: 500 });
+    const title = file.name;
+
+    // Create document record
+    const docs = await sql`
+      INSERT INTO kb_documents (user_id, org_id, project_id, scope, title, doc_type, file_size, status)
+      VALUES (${userId}, ${orgId}, ${projectId}, ${scope}, ${title}, ${docType}, ${fileSize}, 'processing')
+      RETURNING id
+    `;
+    const docId = docs[0].id as number;
+
+    try {
+      const buffer = Buffer.from(await file.arrayBuffer());
+
+      // Store file in Vercel Blob for persistence
+      let blobUrl: string | null = null;
+      try {
+        const blob = await put(`kb/${userId}/${docId}-${file.name}`, buffer, { access: "public" });
+        blobUrl = blob.url;
+        await sql`UPDATE kb_documents SET blob_url = ${blobUrl} WHERE id = ${docId}`;
+      } catch { /* blob storage optional */ }
+
+      let text: string;
+      if (docType === "pdf") {
+        text = await extractPdf(buffer);
+      } else if (docType === "docx") {
+        text = await extractDocx(buffer);
+      } else if (docType === "image") {
+        text = `[Image: ${title}]`;
+      } else {
+        text = buffer.toString("utf-8");
+      }
+
+      // Process: chunking + embedding
+      await processAndEmbed(sql, docId, text, userId, plan);
+      results.push({ name: file.name, id: docId });
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : "Processing failed";
+      await sql`UPDATE kb_documents SET status = 'error', error_message = ${errMsg} WHERE id = ${docId}`;
+      results.push({ name: file.name, id: docId, error: errMsg });
+    }
   }
+
+  const successCount = results.filter((r) => !r.error).length;
+  if (results.length === 1) {
+    // Single file: preserve original response format
+    const r = results[0];
+    if (r.error) return NextResponse.json({ id: r.id, status: "error", error: r.error }, { status: 500 });
+    return NextResponse.json({ id: r.id, status: "ready" });
+  }
+  return NextResponse.json({ results, uploaded: successCount, total: results.length });
 }
 
 async function handleAddUrl(
@@ -695,7 +733,7 @@ async function handleEditChunk(
   const tokenCount = estimateTokens(content);
 
   try {
-    const [embedding] = await generateEmbeddings([content], byokKeys, sql, plan);
+    const [embedding] = await generateEmbeddings([content], byokKeys, sql, plan, userId);
     const embeddingStr = `[${embedding.join(",")}]`;
     await sql`
       UPDATE kb_chunks

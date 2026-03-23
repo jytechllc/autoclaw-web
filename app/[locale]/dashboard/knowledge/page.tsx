@@ -61,7 +61,7 @@ export default function KnowledgePage() {
   const [documents, setDocuments] = useState<KBDocument[]>([]);
   const [orgs, setOrgs] = useState<Org[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [usage, setUsage] = useState({ docCount: 0, totalSize: 0, maxDocs: 10, maxSizeMB: 50, totalTokens: 0, totalChunks: 0 });
+  const [usage, setUsage] = useState({ docCount: 0, totalSize: 0, maxDocs: 10, maxSizeMB: 500, totalTokens: 0, totalChunks: 0, blobUsedBytes: 0, blobFiles: 0 });
   const [plan, setPlan] = useState("starter");
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("all");
@@ -70,6 +70,7 @@ export default function KnowledgePage() {
   const [addMode, setAddMode] = useState<AddMode>(null);
   const [scope, setScope] = useState<string>("personal");
   const [orgId, setOrgId] = useState<number | null>(null);
+  const [scopeInitialized, setScopeInitialized] = useState(false);
   const [projectId, setProjectId] = useState<number | null>(null);
   const [url, setUrl] = useState("");
   const [textTitle, setTextTitle] = useState("");
@@ -88,6 +89,7 @@ export default function KnowledgePage() {
   const [editChunkContent, setEditChunkContent] = useState("");
   const [chunkSaving, setChunkSaving] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number; fileName: string; errors: string[] } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchDocuments = useCallback(async () => {
@@ -96,10 +98,17 @@ export default function KnowledgePage() {
       const res = await fetch(`/api/knowledge-base${scopeParam}`);
       const data = await res.json();
       setDocuments(data.documents || []);
-      setOrgs(data.orgs || []);
+      const loadedOrgs = data.orgs || [];
+      setOrgs(loadedOrgs);
       setProjects(data.projects || []);
-      setUsage(data.usage || { docCount: 0, totalSize: 0, maxDocs: 10, maxSizeMB: 50, totalTokens: 0, totalChunks: 0 });
+      setUsage(data.usage || { docCount: 0, totalSize: 0, maxDocs: 10, maxSizeMB: 500, totalTokens: 0, totalChunks: 0, blobUsedBytes: 0, blobFiles: 0 });
       setPlan(data.plan || "starter");
+      // Default to org scope if user belongs to an org
+      if (!scopeInitialized && loadedOrgs.length > 0) {
+        setScope("org");
+        setOrgId(loadedOrgs[0].id);
+        setScopeInitialized(true);
+      }
     } catch {
       // ignore
     } finally {
@@ -111,28 +120,39 @@ export default function KnowledgePage() {
     if (user) fetchDocuments();
   }, [user, fetchDocuments]);
 
-  async function handleFileUpload(file: File) {
+  async function handleFileUpload(files: File | File[]) {
+    const fileList = Array.isArray(files) ? files : [files];
     setSubmitting(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("scope", scope);
-      if (orgId) formData.append("org_id", String(orgId));
-      if (projectId) formData.append("project_id", String(projectId));
+    const errors: string[] = [];
+    setUploadProgress({ current: 0, total: fileList.length, fileName: fileList[0]?.name || "", errors: [] });
 
-      const res = await fetch("/api/knowledge-base", { method: "POST", body: formData });
-      if (!res.ok) {
-        const err = await res.json();
-        alert(err.error || "Upload failed");
-      } else {
-        setAddMode(null);
-        fetchDocuments();
+    for (let i = 0; i < fileList.length; i++) {
+      const f = fileList[i];
+      setUploadProgress({ current: i + 1, total: fileList.length, fileName: f.name, errors: [...errors] });
+      try {
+        const formData = new FormData();
+        formData.append("file", f);
+        formData.append("scope", scope);
+        if (orgId) formData.append("org_id", String(orgId));
+        if (projectId) formData.append("project_id", String(projectId));
+
+        const res = await fetch("/api/knowledge-base", { method: "POST", body: formData });
+        if (!res.ok) {
+          const err = await res.json();
+          errors.push(`${f.name}: ${err.error || "Failed"}`);
+        }
+      } catch {
+        errors.push(`${f.name}: Upload failed`);
       }
-    } catch {
-      alert("Upload failed");
-    } finally {
-      setSubmitting(false);
     }
+
+    setUploadProgress(null);
+    setSubmitting(false);
+    if (errors.length > 0) {
+      alert(errors.join("\n"));
+    }
+    setAddMode(null);
+    fetchDocuments();
   }
 
   async function handleAddUrl() {
@@ -320,8 +340,8 @@ export default function KnowledgePage() {
   function onDrop(e: React.DragEvent) {
     e.preventDefault();
     setDragOver(false);
-    const file = e.dataTransfer.files[0];
-    if (file) handleFileUpload(file);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) handleFileUpload(files);
   }
 
   const statusColor = (s: string) => {
@@ -365,7 +385,7 @@ export default function KnowledgePage() {
           </div>
           <div className="flex items-center gap-2">
             <span className="text-gray-500">{t.storage}:</span>
-            <span className="font-medium">{formatSize(usage.totalSize)}/{usage.maxSizeMB}MB</span>
+            <span className="font-medium">{formatSize(usage.totalSize)}/{usage.maxSizeMB >= 1000 ? `${(usage.maxSizeMB / 1000).toFixed(0)}GB` : `${usage.maxSizeMB}MB`}</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-gray-500">{t.kbTokens || "Tokens"}:</span>
@@ -374,6 +394,13 @@ export default function KnowledgePage() {
           <div className="flex items-center gap-2">
             <span className="text-gray-500">{t.kbChunks || "Chunks"}:</span>
             <span className="font-medium">{usage.totalChunks.toLocaleString()}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-gray-500">{locale === "zh" || locale === "zh-TW" ? "云存储" : "Cloud Storage"}:</span>
+            <span className="font-medium">
+              {usage.blobUsedBytes > 0 ? formatSize(usage.blobUsedBytes) : "0 MB"} / 500 MB
+              {usage.blobFiles > 0 && <span className="text-gray-400 ml-1">({usage.blobFiles} {locale === "zh" || locale === "zh-TW" ? "文件" : "files"})</span>}
+            </span>
           </div>
           {usage.docCount >= usage.maxDocs && (
             <span className="text-xs text-amber-600">{t.upgradeHint}</span>
@@ -477,9 +504,31 @@ export default function KnowledgePage() {
                   ref={fileInputRef}
                   type="file"
                   accept=".pdf,.docx,.doc,.txt,.md,.csv,.png,.jpg,.jpeg,.gif,.webp"
+                  multiple
                   className="hidden"
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileUpload(f); }}
+                  onChange={(e) => { const files = e.target.files; if (files && files.length > 0) handleFileUpload(Array.from(files)); }}
                 />
+              </div>
+            )}
+
+            {/* Upload Progress */}
+            {uploadProgress && (
+              <div className="bg-white border border-gray-200 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-700">
+                    {locale === "zh" || locale === "zh-TW" ? "上传中" : "Uploading"} ({uploadProgress.current}/{uploadProgress.total})
+                  </span>
+                  <span className="text-xs text-gray-400">{Math.round(uploadProgress.current / uploadProgress.total * 100)}%</span>
+                </div>
+                <div className="w-full bg-gray-100 rounded-full h-2 mb-2">
+                  <div className="bg-red-500 h-2 rounded-full transition-all" style={{ width: `${Math.round(uploadProgress.current / uploadProgress.total * 100)}%` }} />
+                </div>
+                <p className="text-xs text-gray-500 truncate">{uploadProgress.fileName}</p>
+                {uploadProgress.errors.length > 0 && (
+                  <div className="mt-2 text-xs text-red-500">
+                    {uploadProgress.errors.map((e, i) => <p key={i}>{e}</p>)}
+                  </div>
+                )}
               </div>
             )}
 
