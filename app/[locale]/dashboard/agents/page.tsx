@@ -1414,6 +1414,54 @@ export default function AgentsPage() {
                               </select>
                             </div>
 
+                            {/* Exclude region for lead prospecting */}
+                            {agent.agent_type === "lead_prospecting" && (
+                              <div className="mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                                <p className="text-xs font-medium text-gray-500 mb-2">{locale === "zh" || locale === "zh-TW" ? "目标地区设置" : "Region Settings"}</p>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                  <div>
+                                    <label className="text-[10px] text-gray-500">{locale === "zh" || locale === "zh-TW" ? "重点推广地区" : "Include Regions"}</label>
+                                    <input
+                                      type="text"
+                                      placeholder={locale === "zh" || locale === "zh-TW" ? "例如: United States, Europe" : "e.g. United States, Europe"}
+                                      defaultValue={(config.include_regions as string) || "United States, Europe"}
+                                      onBlur={(e) => {
+                                        const val = e.target.value.trim();
+                                        if (val !== ((config.include_regions as string) || "United States, Europe")) {
+                                          fetch("/api/projects", {
+                                            method: "POST",
+                                            headers: { "Content-Type": "application/json" },
+                                            body: JSON.stringify({ action: "update_agent_config", agent_id: agent.id, config: { include_regions: val || null } }),
+                                          }).then(() => loadData());
+                                        }
+                                      }}
+                                      className="w-full border border-gray-300 rounded-md px-3 py-1.5 text-xs mt-0.5"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-[10px] text-gray-500">{locale === "zh" || locale === "zh-TW" ? "排除地区" : "Exclude Regions"}</label>
+                                    <input
+                                      type="text"
+                                      placeholder={locale === "zh" || locale === "zh-TW" ? "例如: China, Russia" : "e.g. China, Russia"}
+                                      defaultValue={(config.exclude_regions as string) || "China"}
+                                      onBlur={(e) => {
+                                        const val = e.target.value.trim();
+                                        if (val !== ((config.exclude_regions as string) || "China")) {
+                                          fetch("/api/projects", {
+                                            method: "POST",
+                                            headers: { "Content-Type": "application/json" },
+                                            body: JSON.stringify({ action: "update_agent_config", agent_id: agent.id, config: { exclude_regions: val || null } }),
+                                          }).then(() => loadData());
+                                        }
+                                      }}
+                                      className="w-full border border-gray-300 rounded-md px-3 py-1.5 text-xs mt-0.5"
+                                    />
+                                  </div>
+                                </div>
+                                <p className="text-[10px] text-gray-400 mt-1">{locale === "zh" || locale === "zh-TW" ? "搜索潜在客户时优先目标地区，排除指定地区的公司" : "Prioritize target regions and skip excluded regions when searching leads."}</p>
+                              </div>
+                            )}
+
                             {/* Sender config for email/sales agents */}
                             {(agent.agent_type === "email_marketing" || agent.agent_type === "sales_followup") && (
                               <div className="mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200">

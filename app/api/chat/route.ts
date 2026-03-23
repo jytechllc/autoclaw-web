@@ -168,6 +168,7 @@ export async function POST(req: NextRequest) {
         else if (row.service === "cerebras") byok.cerebras = key;
         else if (row.service === "apify") apifyToken = key;
         else if (row.service === "tavily") byok.tavily = key;
+        else if (row.service === "firecrawl") byok.firecrawl = key;
         else if (row.service === "pdl") byok.pdl = key;
         else if (row.service === "brevo") brevoApiKey = key;
         else if (row.service === "sendgrid") sendgridApiKey = key;

@@ -39,7 +39,7 @@ export async function executeTool(
     case "search_google":
       return handleSearchGoogle(toolParams, toolSummary, ctx);
     case "crawl_website":
-      return handleCrawlWebsite(toolParams, apifyToken);
+      return handleCrawlWebsite(toolParams, apifyToken, byok);
     case "search_leads":
       return handleSearchLeads(toolParams, toolSummary, ctx);
     case "search_google_maps":
@@ -171,17 +171,62 @@ async function handleSearchGoogle(toolParams: Record<string, unknown>, toolSumma
   }
 }
 
-async function handleCrawlWebsite(toolParams: Record<string, unknown>, apifyToken: string): Promise<string> {
-  if (!apifyToken) {
-    return "**Apify API key not configured.** Please add your Apify API token in Settings > API Keys (service: apify), or ask your admin to set the APIFY_API_TOKEN environment variable.";
+async function crawlWithFirecrawl(apiKey: string, url: string): Promise<string> {
+  const res = await fetch("https://api.firecrawl.dev/v1/scrape", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({ url, formats: ["markdown"] }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Firecrawl error ${res.status}: ${text.substring(0, 200)}`);
   }
+  const data = (await res.json()) as { success?: boolean; data?: { markdown?: string; metadata?: { title?: string; description?: string } } };
+  if (!data.success || !data.data?.markdown) throw new Error("Firecrawl returned no content");
+  const md = data.data.markdown;
+  const title = data.data.metadata?.title || "";
+  const desc = data.data.metadata?.description || "";
+  return `${title ? `**${title}**\n` : ""}${desc ? `${desc}\n\n` : ""}${md}`;
+}
+
+async function handleCrawlWebsite(toolParams: Record<string, unknown>, apifyToken: string, byok: ByokKeys): Promise<string> {
+  const firecrawlKey = byok.firecrawl || process.env.FIRECRAWL_API_KEY || "";
   const url = toolParams.url as string;
   if (!url) return "Please provide a URL to crawl.";
+
+  // Try Firecrawl first (better JS rendering, markdown output)
+  if (firecrawlKey) {
+    try {
+      const content = await crawlWithFirecrawl(firecrawlKey, url);
+      return `**Website content from ${url}** *(via Firecrawl)*\n\n${content.substring(0, 4000)}`;
+    } catch (err) {
+      // Fall through to Apify
+      if (!apifyToken) {
+        return `Website crawl failed: ${err instanceof Error ? err.message : "Unknown error"}`;
+      }
+    }
+  }
+
+  // Fallback to Apify
+  if (apifyToken) {
+    try {
+      const content = await crawlWebsiteApify(apifyToken, url);
+      return `**Website content from ${url}** *(via Apify)*\n\n${content.substring(0, 3000)}`;
+    } catch (err) {
+      return `Website crawl failed: ${err instanceof Error ? err.message : "Unknown error"}. The site may be blocking crawlers.`;
+    }
+  }
+
+  // Direct fetch as last resort
   try {
-    const content = await crawlWebsiteApify(apifyToken, url);
-    return `**Website content from ${url}**\n\n${content.substring(0, 3000)}`;
+    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (compatible; AutoClaw/1.0)" }, redirect: "follow" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const html = await res.text();
+    const titleMatch = html.match(/<title[^>]*>(.*?)<\/title>/i);
+    const body = html.replace(/<script[\s\S]*?<\/script>/gi, "").replace(/<style[\s\S]*?<\/style>/gi, "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+    return `**Website content from ${url}** *(direct fetch)*\n\n${titleMatch?.[1] ? `**${titleMatch[1].trim()}**\n\n` : ""}${body.substring(0, 3000)}`;
   } catch (err) {
-    return `Website crawl failed: ${err instanceof Error ? err.message : "Unknown error"}. The site may be blocking crawlers.`;
+    return `Website crawl failed: ${err instanceof Error ? err.message : "Unknown error"}. Please add a Firecrawl API key (free 500 pages/mo) or Apify token in Settings > API Keys.`;
   }
 }
 

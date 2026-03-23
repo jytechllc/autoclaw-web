@@ -89,6 +89,7 @@ export default function OrgKeysSection({ orgs, orgKeys, setOrgKeys, apiKeys, col
             { service: "smtp_pass", name: "SMTP Password", hint: "Gmail: App Password | Outlook: your password", tier: "free" as const, tierInfo: "Gmail: App Passwords" },
             { service: "smtp_from", name: "SMTP From Email", hint: "Sender email for recipients", tier: "free" as const, tierInfo: "Must match SMTP provider" },
             { service: "tavily", name: ts.byokTavily || "Tavily", hint: ts.byokTavilyHint || "AI-optimized web search. Get key at tavily.com.", tier: "freemium" as const, tierInfo: ts.byokTavilyTier || "Free: 1000 searches/mo. Pro: $20/mo." },
+            { service: "firecrawl", name: "Firecrawl", hint: "Web scraping with JS rendering. Get key at firecrawl.dev.", tier: "freemium" as const, tierInfo: "Free: 500 pages/mo. Starter: $19/mo." },
             { service: "apollo", name: ts.byokApollo || "Apollo", hint: ts.byokApolloHint, tier: "freemium" as const, tierInfo: ts.byokApolloTier },
             { service: "apify", name: ts.byokApify || "Apify", hint: ts.byokApifyHint, tier: "freemium" as const, tierInfo: ts.byokApifyTier },
             { service: "hunter", name: ts.byokHunter || "Hunter", hint: ts.byokHunterHint, tier: "freemium" as const, tierInfo: ts.byokHunterTier },

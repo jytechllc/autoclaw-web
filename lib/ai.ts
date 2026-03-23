@@ -23,6 +23,7 @@ export interface ByokKeys {
   alibaba?: string;
   cerebras?: string;
   tavily?: string;
+  firecrawl?: string;
   pdl?: string;
 }
 

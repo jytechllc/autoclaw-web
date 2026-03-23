@@ -209,6 +209,7 @@ export const BYOK_SERVICES: Record<string, string> = {
   snov_secret: "snov_secret",
   snov: "snov_id",
   tavily: "tavily",
+  firecrawl: "firecrawl",
   pdl: "pdl",
   "people_data_labs": "pdl",
   vercel: "vercel",
