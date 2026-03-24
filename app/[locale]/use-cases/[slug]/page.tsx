@@ -48,7 +48,7 @@ export default function UseCaseArticlePage() {
             {lang === "zh" ? "所有案例" : "All Use Cases"}
           </Link>
           <div className="flex items-center gap-3">
-            <LanguageSwitcher />
+            <LanguageSwitcher locale={locale} />
             <Link href={`/${locale}`} className="text-sm font-medium text-red-700 hover:text-red-900">
               AutoClaw
             </Link>
