@@ -513,7 +513,7 @@ export default function EmailTemplatesPage() {
               <div key={tpl.id} className="bg-white border border-gray-200 rounded-xl p-5 hover:shadow-md transition-shadow">
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-gray-900 truncate">{tpl.name}</h3>
+                    <h3 className="font-semibold text-gray-900 truncate">{tpl.name} <span className="text-[10px] text-gray-300 font-normal">#{tpl.id}</span></h3>
                     <p className="text-xs text-gray-400 mt-0.5 truncate">{tpl.subject}</p>
                   </div>
                   <div className="flex items-center gap-1.5 ml-2 shrink-0">

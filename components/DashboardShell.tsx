@@ -39,8 +39,6 @@ export default function DashboardShell({ children, user, plan, fullHeight }: Pro
         { href: `/${locale}/dashboard/projects`, label: tc.projects },
         { href: `/${locale}/dashboard/skills`, label: tc.skills },
         { href: `/${locale}/dashboard/knowledge`, label: tc.knowledge },
-        { href: `/${locale}/dashboard/email-templates`, label: tc.emailTemplates },
-        { href: `/${locale}/dashboard/email-review`, label: tc.emailReview || "Email Review" },
         { href: `/${locale}/dashboard/media-library`, label: tc.mediaLibrary || "Media Library" },
       ],
     },
@@ -51,6 +49,8 @@ export default function DashboardShell({ children, user, plan, fullHeight }: Pro
         { href: `/${locale}/dashboard/crm?tab=companies`, label: tc.crmCompanies || "Companies" },
         { href: `/${locale}/dashboard/crm?tab=groups`, label: tc.crmGroups || (locale === "zh" ? "群组" : "Groups") },
         { href: `/${locale}/dashboard/crm?tab=tasks`, label: tc.crmTasks || "Tasks" },
+        { href: `/${locale}/dashboard/email-templates`, label: tc.emailTemplates },
+        { href: `/${locale}/dashboard/email-review`, label: tc.emailReview || "Email Review" },
       ],
     },
     {

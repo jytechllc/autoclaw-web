@@ -855,24 +855,24 @@ export default function UseCasesPage() {
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
-          <Link href={`/${locale}`} className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <img src="/logo.svg" alt="AutoClaw" className="w-9 h-9" />
+          <Link href={`/${locale}`} className="text-xl sm:text-2xl font-bold tracking-tight flex items-center gap-2">
+            <img src="/logo.svg" alt="AutoClaw" className="w-8 h-8 sm:w-9 sm:h-9" />
             <span><span className="text-red-600">Auto</span>Claw</span>
           </Link>
-          <div className="flex items-center gap-4">
-            <Link href={`/${locale}`} className="text-sm text-gray-500 hover:text-gray-700 transition-colors">
+          <div className="flex items-center gap-2 sm:gap-4">
+            <Link href={`/${locale}`} className="text-xs sm:text-sm text-gray-500 hover:text-gray-700 transition-colors">
               {lang === "zh" ? "首页" : "Home"}
             </Link>
-            <Link href={`/${locale}/dashboard`} className="text-sm text-gray-500 hover:text-gray-700 transition-colors">{tc.dashboard}</Link>
+            <Link href={`/${locale}/dashboard`} className="text-xs sm:text-sm text-gray-500 hover:text-gray-700 transition-colors">{tc.dashboard}</Link>
             <LanguageSwitcher locale={locale} />
           </div>
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">{lang === "zh" ? "客户案例" : "Use Cases"}</h1>
-          <p className="text-gray-500">{lang === "zh" ? "了解 AutoClaw 如何帮助不同行业的企业实现营销自动化" : "See how AutoClaw helps businesses across industries automate their marketing"}</p>
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+        <div className="mb-6 sm:mb-8">
+          <h1 className="text-2xl sm:text-3xl font-bold mb-2">{lang === "zh" ? "客户案例" : "Use Cases"}</h1>
+          <p className="text-sm sm:text-base text-gray-500">{lang === "zh" ? "了解 AutoClaw 如何帮助不同行业的企业实现营销自动化" : "See how AutoClaw helps businesses across industries automate their marketing"}</p>
         </div>
 
         <div className="space-y-6">
@@ -887,30 +887,30 @@ export default function UseCasesPage() {
                   onClick={() => setExpandedSlug(isExpanded ? null : uc.slug)}
                   className="w-full text-left cursor-pointer"
                 >
-                  <div className={`p-6 ${isFeatured ? "bg-gradient-to-r from-gray-800 to-red-900 text-white" : "bg-gradient-to-r from-gray-700 to-gray-800 text-white"}`}>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        {isFeatured && (
-                          <span className="inline-block bg-white/20 text-white text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full mb-2">
-                            {lang === "zh" ? "精选案例" : "Featured"}
-                          </span>
-                        )}
+                  <div className={`p-4 sm:p-6 ${isFeatured ? "bg-gradient-to-r from-gray-800 to-red-900 text-white" : "bg-gradient-to-r from-gray-700 to-gray-800 text-white"}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2 mb-1">
+                          {isFeatured && (
+                            <span className="inline-block bg-white/20 text-white text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full">
+                              {lang === "zh" ? "精选案例" : "Featured"}
+                            </span>
+                          )}
+                          {uc.agents > 0 && (
+                            <span className="bg-white/20 text-white text-[10px] sm:text-xs font-semibold px-2 py-0.5 rounded-full">
+                              {uc.agents} AI {lang === "zh" ? "员工" : "Employees"}
+                            </span>
+                          )}
+                        </div>
                         <p className="text-white/70 text-xs uppercase tracking-wider mb-1">{uc.industry[lang] || uc.industry.en}</p>
-                        <h2 className="text-xl font-bold">{uc.title[lang] || uc.title.en}</h2>
+                        <h2 className="text-base sm:text-xl font-bold leading-snug">{uc.title[lang] || uc.title.en}</h2>
                         {uc.company && <p className="text-white/60 text-sm mt-1">{uc.company}</p>}
                       </div>
-                      <div className="flex items-center gap-3">
-                        {uc.agents > 0 && (
-                        <span className="bg-white/20 text-white text-sm font-semibold px-3 py-1 rounded-full">
-                          {uc.agents} AI {lang === "zh" ? "员工" : "Employees"}
-                        </span>
-                        )}
-                        <svg className={`w-5 h-5 text-white/60 transition-transform ${isExpanded ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
-                      </div>
+                      <svg className={`w-5 h-5 text-white/60 transition-transform shrink-0 mt-1 ${isExpanded ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
                     </div>
-                    <p className="text-white/80 text-sm mt-2">{uc.summary[lang] || uc.summary.en}</p>
+                    <p className="text-white/80 text-xs sm:text-sm mt-2 line-clamp-2 sm:line-clamp-none">{uc.summary[lang] || uc.summary.en}</p>
                     <Link href={`/${locale}/use-cases/${uc.slug}`} className="inline-flex items-center gap-1 text-xs text-white/50 hover:text-white mt-2" onClick={(e) => e.stopPropagation()}>
                       {lang === "zh" ? "阅读全文" : "Read article"} &rarr;
                     </Link>
@@ -919,7 +919,7 @@ export default function UseCasesPage() {
 
                 {/* Expanded content */}
                 {isExpanded && (
-                  <div className="p-6">
+                  <div className="p-4 sm:p-6">
                     {/* Visual infographic per use case */}
                     <CaseVisual slug={uc.slug} lang={lang} />
 
@@ -945,9 +945,9 @@ export default function UseCasesPage() {
         </div>
 
         {/* CTA */}
-        <div className="mt-12 text-center bg-white rounded-xl border border-gray-200 p-8">
-          <h2 className="text-2xl font-bold mb-2">{lang === "zh" ? "准备好开始了吗？" : "Ready to get started?"}</h2>
-          <p className="text-gray-500 mb-6">{lang === "zh" ? "免费部署你的第一个 AI 员工，几分钟即可上手" : "Deploy your first AI employee for free — get started in minutes"}</p>
+        <div className="mt-8 sm:mt-12 text-center bg-white rounded-xl border border-gray-200 p-6 sm:p-8">
+          <h2 className="text-xl sm:text-2xl font-bold mb-2">{lang === "zh" ? "准备好开始了吗？" : "Ready to get started?"}</h2>
+          <p className="text-sm sm:text-base text-gray-500 mb-6">{lang === "zh" ? "免费部署你的第一个 AI 员工，几分钟即可上手" : "Deploy your first AI employee for free — get started in minutes"}</p>
           <Link
             href={`/${locale}/dashboard`}
             className="inline-flex items-center justify-center bg-red-600 hover:bg-red-700 text-white px-8 py-3 rounded-lg text-sm font-semibold transition-colors"

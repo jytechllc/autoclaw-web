@@ -46,6 +46,7 @@ export async function POST(req: NextRequest) {
       if (keys[svc]) continue;
       try { keys[svc] = decrypt(row.api_key as string); } catch { keys[svc] = row.api_key as string; }
     }
+    console.log("[send-email] userId:", userId, "keys found:", Object.keys(keys).join(",") || "none", "keyRows:", keyRows.length, "brevoKey ends:", (keys.brevo || "").slice(-10));
 
     const rawBody = await req.json();
 
@@ -54,9 +55,29 @@ export async function POST(req: NextRequest) {
       const templateId = rawBody.template_id;
       if (!templateId) return NextResponse.json({ error: "template_id required" }, { status: 400 });
 
-      const tplRows = await sql`SELECT subject, body_html FROM email_templates WHERE id = ${templateId} AND user_id = ${userId}`;
+      const tplRows = await sql`SELECT et.subject, et.body_html, et.project_id, p.org_id, p.user_id as project_owner_id, pu.email as owner_email, pu.name as owner_name
+        FROM email_templates et
+        LEFT JOIN projects p ON p.id = et.project_id
+        LEFT JOIN users pu ON pu.id = p.user_id
+        WHERE et.id = ${templateId} AND et.user_id = ${userId}`;
       if (tplRows.length === 0) return NextResponse.json({ error: "Template not found" }, { status: 404 });
       const tpl = tplRows[0];
+
+      // Use project org's brevo key if available
+      if (tpl.org_id) {
+        // Project org key takes priority — override any previously loaded key
+        const orgKeys = await sql`SELECT service, api_key FROM org_api_keys WHERE org_id = ${tpl.org_id} AND service IN ('brevo', 'sendgrid')`;
+        for (const row of orgKeys) {
+          const svc = row.service as string;
+          try { keys[svc] = decrypt(row.api_key as string); } catch { keys[svc] = row.api_key as string; }
+        }
+      }
+
+      // Use project owner as default sender
+      if (tpl.owner_email && !rawBody.from) {
+        rawBody.from = tpl.owner_email as string;
+        rawBody.fromName = (tpl.owner_name as string) || "";
+      }
 
       if (rawBody.action === "test") {
         const toEmail = rawBody.to_email;
@@ -118,9 +139,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "to, subject, and html are required" }, { status: 400 });
     }
 
-    // Also check env vars as fallback
-    const brevoKey = keys.brevo || process.env.BREVO_API_KEY || "";
-    const sendgridKey = keys.sendgrid || process.env.SENDGRID_API_KEY || "";
+    // BYOK only — env keys are for internal use (enrichment), not sending
+    const brevoKey = keys.brevo || "";
+    const sendgridKey = keys.sendgrid || "";
     const smtpHost = keys.smtp_host || "";
     const smtpPort = keys.smtp_port || "587";
     const smtpUser = keys.smtp_user || "";
@@ -179,11 +200,17 @@ export async function POST(req: NextRequest) {
           const data = await res.json() as { messageId?: string };
           messageId = data.messageId;
           usedProvider = "brevo";
-        } else if (provider === "brevo") {
+        } else {
           const err = await res.text();
-          return NextResponse.json({ error: `Brevo failed: ${err.substring(0, 200)}` }, { status: 500 });
+          console.error("[send-email] Brevo error:", res.status, err.substring(0, 300));
+          if (provider === "brevo") {
+            return NextResponse.json({ error: `Brevo failed: ${err.substring(0, 200)}` }, { status: 500 });
+          }
+          // Auto mode: return Brevo error directly instead of generic "no provider"
+          return NextResponse.json({ error: `Brevo: ${err.substring(0, 200)}` }, { status: 500 });
         }
       } catch (e) {
+        console.error("[send-email] Brevo exception:", e);
         if (provider === "brevo") {
           return NextResponse.json({ error: `Brevo failed: ${e instanceof Error ? e.message : e}` }, { status: 500 });
         }

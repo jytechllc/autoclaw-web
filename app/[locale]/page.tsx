@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { getDictionary, type Locale } from "@/lib/i18n";
@@ -117,6 +117,9 @@ export default function Home() {
   const t = dict.landing;
   const tc = dict.common;
 
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const closeMobileMenu = useCallback(() => setMobileMenuOpen(false), []);
+
   const [user, setUser] = useState<{ name?: string; picture?: string; email?: string } | null>(null);
   const [platformStats, setPlatformStats] = useState<{
     today: { total_tokens: number; request_count: number };
@@ -210,17 +213,58 @@ export default function Home() {
                 <a href={`/auth/login?returnTo=/${locale}/dashboard/reports`} className="bg-primary text-white px-5 py-2 rounded-lg hover:bg-primary-dark transition-colors">{t.getStarted}</a>
               )}
             </nav>
-            {/* Mobile nav */}
-            <div className="flex md:hidden items-center gap-3">
-              <LanguageSwitcher locale={locale} />
-              {user ? (
-                <a href={`/${locale}/dashboard`} className="text-sm text-primary font-medium">{tc.dashboard}</a>
+            {/* Mobile nav toggle */}
+            <button
+              className="flex md:hidden items-center justify-center w-10 h-10 rounded-lg hover:bg-gray-100 transition-colors"
+              onClick={() => setMobileMenuOpen((prev) => !prev)}
+              aria-label="Toggle menu"
+            >
+              {mobileMenuOpen ? (
+                <svg className="w-6 h-6 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
               ) : (
-                <a href={`/auth/login?returnTo=/${locale}/dashboard/reports`} className="bg-primary text-white px-4 py-2 rounded-lg text-sm">{t.getStarted}</a>
+                <svg className="w-6 h-6 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+                </svg>
               )}
-            </div>
+            </button>
           </div>
         </div>
+
+        {/* Mobile menu panel */}
+        {mobileMenuOpen && (
+          <div className="md:hidden border-t border-gray-100 bg-white">
+            <nav className="max-w-7xl mx-auto px-4 py-4 flex flex-col gap-1">
+              <a href="#agents" onClick={closeMobileMenu} className="px-3 py-2.5 rounded-lg text-gray-700 hover:bg-gray-50 font-medium text-sm transition-colors">{tc.agents}</a>
+              <a href="#how-it-works" onClick={closeMobileMenu} className="px-3 py-2.5 rounded-lg text-gray-700 hover:bg-gray-50 font-medium text-sm transition-colors">{t.howItWorks}</a>
+              <Link href={`/${locale}/use-cases`} onClick={closeMobileMenu} className="px-3 py-2.5 rounded-lg text-gray-700 hover:bg-gray-50 font-medium text-sm transition-colors">{t.caseStudies}</Link>
+              <a href="#pricing" onClick={closeMobileMenu} className="px-3 py-2.5 rounded-lg text-gray-700 hover:bg-gray-50 font-medium text-sm transition-colors">{t.pricing}</a>
+              <Link href={`/${locale}/leaderboard`} onClick={closeMobileMenu} className="px-3 py-2.5 rounded-lg text-gray-700 hover:bg-gray-50 font-medium text-sm transition-colors">{locale === "zh" || locale === "zh-TW" ? "排行榜" : "Leaderboard"}</Link>
+              <a href={`/${locale}/dashboard`} onClick={closeMobileMenu} className="px-3 py-2.5 rounded-lg text-gray-700 hover:bg-gray-50 font-medium text-sm transition-colors">{tc.dashboard}</a>
+              <div className="border-t border-gray-100 mt-2 pt-3 flex items-center justify-between px-3">
+                <LanguageSwitcher locale={locale} />
+                {user ? (
+                  <div className="flex items-center gap-3">
+                    <a href={`/${locale}/dashboard`} className="flex items-center gap-2">
+                      {user.picture ? (
+                        <img src={user.picture} alt={user.name || "User"} className="w-7 h-7 rounded-full border-2 border-red-200" referrerPolicy="no-referrer" />
+                      ) : (
+                        <div className="w-7 h-7 rounded-full bg-primary text-white flex items-center justify-center text-xs font-bold">
+                          {(user.name || user.email || "U")[0].toUpperCase()}
+                        </div>
+                      )}
+                      <span className="text-sm text-gray-700 max-w-[100px] truncate">{user.name || user.email}</span>
+                    </a>
+                    <a href="/auth/logout" className="text-xs text-gray-400 hover:text-red-500">{tc.logOut}</a>
+                  </div>
+                ) : (
+                  <a href={`/auth/login?returnTo=/${locale}/dashboard/reports`} className="bg-primary text-white px-5 py-2 rounded-lg text-sm font-medium">{t.getStarted}</a>
+                )}
+              </div>
+            </nav>
+          </div>
+        )}
       </header>
 
       <main>
@@ -311,16 +355,16 @@ export default function Home() {
               <h2 className="text-3xl md:text-4xl font-bold mb-4">{t.casesTitle}</h2>
               <p className="text-lg text-gray-500 max-w-2xl mx-auto">{t.casesSubtitle}</p>
             </div>
-            <div className="grid md:grid-cols-3 gap-8">
+            <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6 md:gap-8">
               {caseStudies.map((cs) => (
                 <div key={cs.company} className="rounded-xl border border-gray-100 overflow-hidden hover:shadow-lg transition-shadow">
-                  <div className="bg-gradient-to-r from-red-600 to-red-700 p-6 text-white">
+                  <div className="bg-gradient-to-r from-red-600 to-red-700 p-4 sm:p-6 text-white">
                     <p className="text-red-200 text-xs uppercase tracking-wider mb-1">{cs.industry}</p>
-                    <h3 className="text-2xl font-bold">{cs.company}</h3>
+                    <h3 className="text-xl sm:text-2xl font-bold">{cs.company}</h3>
                   </div>
-                  <div className="p-6">
-                    <div className="flex items-center gap-2 mb-4">
-                      <span className="bg-red-50 text-primary text-sm font-semibold px-3 py-1 rounded-full">{cs.agents} {t.aiAgents}</span>
+                  <div className="p-4 sm:p-6">
+                    <div className="flex items-center gap-2 mb-3 sm:mb-4">
+                      <span className="bg-red-50 text-primary text-xs sm:text-sm font-semibold px-3 py-1 rounded-full">{cs.agents} {t.aiAgents}</span>
                     </div>
                     <p className="text-gray-500 text-sm leading-relaxed">{cs.results}</p>
                   </div>
