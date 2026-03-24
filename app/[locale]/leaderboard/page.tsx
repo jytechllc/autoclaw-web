@@ -70,7 +70,9 @@ const MODEL_MAINTAINERS: Record<string, string> = {
   "glm-5-turbo": "Zhipu AI (智谱)",
   // Embedding
   "text-embedding": "Google",
-  // Image / Video (xPilot)
+  // Image / Video (xPilot / Google)
+  "google/nano-banana-2": "Google",
+  "gemini-3.1-flash-image-preview": "Google",
   "bytedance/seedream-v4.5": "ByteDance",
   "bytedance/seedance-v1.5-pro/text-to-video": "ByteDance",
   "seedance-2.0/text-to-video": "ByteDance",
@@ -106,17 +108,18 @@ const MARKET_LEADERBOARD: MarketModel[] = [
   { name: "Llama 3.3 70B", provider: "Meta", category: "llm", arena_elo: 1260, context: "128K", pricing: "BYOK (NVIDIA)", highlight: "Best NVIDIA NIM model (~51 tok/s)" },
   { name: "Llama 3.1 8B", provider: "Meta", category: "llm", arena_elo: 1200, context: "128K", pricing: "Free (Cerebras)", highlight: "Fastest inference (~2500 tok/s)" },
   // Image
-  { name: "Seedream v4.5", provider: "ByteDance", category: "image", context: "—", pricing: "xPilot", highlight: "Platform default, high quality" },
+  { name: "Nano Banana 2", provider: "Google", category: "image", context: "4K", pricing: "Gemini API", highlight: "Latest Google image gen, Pro quality + Flash speed" },
+  { name: "Seedream v4.5", provider: "ByteDance", category: "image", context: "—", pricing: "~$0.02/img", highlight: "Platform default, high quality" },
   { name: "DALL-E 3", provider: "OpenAI", category: "image", context: "—", pricing: "$0.04/img", highlight: "Best text understanding" },
   { name: "Midjourney v7", provider: "Midjourney", category: "image", context: "—", pricing: "$10/mo", highlight: "Best artistic quality" },
   { name: "Flux 1.1 Pro", provider: "Black Forest", category: "image", context: "—", pricing: "$0.04/img", highlight: "Best photorealism" },
-  { name: "Stable Diffusion 3.5", provider: "Stability AI", category: "image", context: "—", pricing: "Free (open)", highlight: "Best open-source image" },
+  { name: "Stable Diffusion 3.5", provider: "Stability AI", category: "image", context: "—", pricing: "Open / API paid", highlight: "Best open-source image (self-host free)" },
   { name: "Ideogram 3", provider: "Ideogram", category: "image", context: "—", pricing: "$0.04/img", highlight: "Best text-in-image" },
   // Video
-  { name: "Seedance 2.0", provider: "ByteDance", category: "video", context: "—", pricing: "xPilot", highlight: "Latest text-to-video with audio" },
-  { name: "Seedance 1.5 Pro", provider: "ByteDance", category: "video", context: "—", pricing: "xPilot", highlight: "Premium video with audio" },
-  { name: "Wan 2.6", provider: "Alibaba", category: "video", context: "—", pricing: "xPilot", highlight: "Standard text-to-video with audio" },
-  { name: "Kling Video O3", provider: "Kuaishou (快手)", category: "video", context: "—", pricing: "xPilot", highlight: "Premium video generation" },
+  { name: "Seedance 2.0", provider: "ByteDance", category: "video", context: "—", pricing: "~$0.10/vid", highlight: "Latest text-to-video with audio" },
+  { name: "Seedance 1.5 Pro", provider: "ByteDance", category: "video", context: "—", pricing: "~$0.10/vid", highlight: "Premium video with audio" },
+  { name: "Wan 2.6", provider: "Alibaba", category: "video", context: "—", pricing: "~$0.10/vid", highlight: "Standard text-to-video with audio" },
+  { name: "Kling Video O3", provider: "Kuaishou (快手)", category: "video", context: "—", pricing: "~$0.10/vid", highlight: "Premium video generation" },
   // Audio / TTS
   { name: "OpenAI TTS", provider: "OpenAI", category: "audio", context: "—", pricing: "BYOK", highlight: "6 voices (alloy, echo, fable, onyx, nova, shimmer)" },
   // Search
@@ -318,8 +321,8 @@ export default function LeaderboardPage() {
                     <th className="pb-2 font-medium">{t.provider}</th>
                     {marketCategory === "llm" && <th className="pb-2 font-medium text-right">{t.elo}</th>}
                     {marketCategory === "llm" && <th className="pb-2 font-medium text-right">{t.context}</th>}
-                    <th className="pb-2 font-medium text-right">{t.pricing}</th>
-                    <th className="pb-2 font-medium">{t.highlight}</th>
+                    <th className="pb-2 pr-6 font-medium text-right">{t.pricing}</th>
+                    <th className="pb-2 pl-4 font-medium">{t.highlight}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -332,8 +335,8 @@ export default function LeaderboardPage() {
                         <td className="py-3 text-right font-semibold text-indigo-600">{m.arena_elo || "—"}</td>
                       )}
                       {marketCategory === "llm" && <td className="py-3 text-right text-gray-600">{m.context}</td>}
-                      <td className="py-3 text-right text-gray-600">{m.pricing}</td>
-                      <td className="py-3 text-xs text-gray-500">{m.highlight}</td>
+                      <td className="py-3 pr-6 text-right text-gray-600">{m.pricing}</td>
+                      <td className="py-3 pl-4 text-xs text-gray-500">{m.highlight}</td>
                     </tr>
                   ))}
                 </tbody>

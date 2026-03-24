@@ -42,6 +42,7 @@ const PLATFORM_MODELS: { model: string; provider: string; category: string }[] =
   { model: "openai/gpt-4o", provider: "openai", category: "llm" },
   { model: "openai/gpt-4o-mini", provider: "openai", category: "llm" },
   // Image
+  { model: "google/nano-banana-2", provider: "google", category: "image" },
   { model: "bytedance/seedream-v4.5", provider: "xpilot", category: "image" },
   { model: "dall-e-3", provider: "openai", category: "image" },
   // Video
