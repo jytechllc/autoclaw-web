@@ -158,16 +158,38 @@ async function handleProspectMulti(toolParams: Record<string, unknown>, toolSumm
 async function handleSearchGoogle(toolParams: Record<string, unknown>, toolSummary: string, ctx: ToolContext): Promise<string> {
   const { apifyToken, byok } = ctx;
   const tavilyKey = byok.tavily;
-  if (!apifyToken && !tavilyKey) {
-    return "**Search not configured.** Please add a Tavily API key (free, 1000/mo) or Apify token in Settings > API Keys.";
+  const firecrawlKey = byok.firecrawl || process.env.FIRECRAWL_API_KEY || "";
+  if (!apifyToken && !tavilyKey && !firecrawlKey) {
+    return "**Search not configured.** Please add a Tavily API key (free, 1000/mo) or Firecrawl key in Settings > API Keys.";
   }
   const queries = (toolParams.queries as string[]) || [];
   if (queries.length === 0) return "Please provide at least one search query.";
   try {
     const searchResult = await searchGoogleApify(apifyToken, queries.slice(0, 5), tavilyKey);
-    return `**${toolSummary || "Google Search Results"}**\n\n${searchResult}`;
+    let enriched = "";
+
+    // Enrich top search result URLs with Firecrawl for deeper content
+    if (firecrawlKey && searchResult.length > 50) {
+      const urlMatches = searchResult.match(/https?:\/\/[^\s)]+/g) || [];
+      const uniqueUrls = [...new Set(urlMatches)].slice(0, 2);
+      for (const u of uniqueUrls) {
+        try {
+          const content = await crawlWithFirecrawl(firecrawlKey, u);
+          enriched += `\n\n---\n**Deep content from ${u}:**\n${content.substring(0, 1500)}`;
+        } catch { /* skip */ }
+      }
+    }
+
+    return `**${toolSummary || "Web Search Results"}**\n\n${searchResult}${enriched}`;
   } catch (err) {
-    return `Google search failed: ${err instanceof Error ? err.message : "Unknown error"}. Please try again.`;
+    // If search fails but Firecrawl is available, try direct crawl on query as URL
+    if (firecrawlKey && queries[0]?.match(/^https?:\/\//)) {
+      try {
+        const content = await crawlWithFirecrawl(firecrawlKey, queries[0]);
+        return `**${toolSummary || "Web Content"}**\n\n${content.substring(0, 4000)}`;
+      } catch { /* fall through */ }
+    }
+    return `Web search failed: ${err instanceof Error ? err.message : "Unknown error"}. Please try again.`;
   }
 }
 

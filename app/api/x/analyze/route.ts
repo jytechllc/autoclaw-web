@@ -579,44 +579,55 @@ Be realistic — most strategies cost under $5/month in tool costs.${langInstruc
   if (generateImage && (parsed.variants as unknown[])?.length > 0) {
     stepStart("generate_images");
     const xpilotKey = await getUserKey(userId, "xpilot");
-    if (xpilotKey) {
+    const openaiKey = await getUserKey(userId, "openai") || process.env.OPENAI_API_KEY || "";
+
+    if (xpilotKey || openaiKey) {
       async function generateImageForVariant(variant: { imagePrompt?: string; generatedImageUrl?: string }) {
         if (!variant.imagePrompt) return;
-        try {
-          const imgRes = await fetch("https://xpilot.jytech.us/api/v1/image/generate", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${xpilotKey!}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              model: "bytedance/seedream-v4.5",
-              prompt: variant.imagePrompt,
-              aspect_ratio: "16:9",
-            }),
-          });
-          const imgData = await imgRes.json();
-          if (imgRes.ok) {
-            if (imgData.outputs?.[0]) {
-              variant.generatedImageUrl = imgData.outputs[0];
-            } else if (imgData.poll_url || imgData.task_id) {
-              const pollPath = imgData.poll_url || `/api/v1/image/${imgData.task_id}`;
-              for (let i = 0; i < 15; i++) {
-                await new Promise((r) => setTimeout(r, 2000));
-                const pollRes = await fetch(`https://xpilot.jytech.us${pollPath}`, {
-                  headers: { Authorization: `Bearer ${xpilotKey!}` },
-                });
-                const pollData = await pollRes.json();
-                if (pollData.status === "completed" && pollData.outputs?.[0]) {
-                  variant.generatedImageUrl = pollData.outputs[0];
-                  break;
+
+        // Try xPilot first
+        if (xpilotKey) {
+          try {
+            const imgRes = await fetch("https://xpilot.jytech.us/api/v1/image/generate", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${xpilotKey}`, "Content-Type": "application/json" },
+              body: JSON.stringify({ model: "bytedance/seedream-v4.5", prompt: variant.imagePrompt, aspect_ratio: "16:9" }),
+            });
+            const imgText = await imgRes.text();
+            if (imgText && imgRes.ok) {
+              const imgData = JSON.parse(imgText);
+              if (imgData.outputs?.[0]) { variant.generatedImageUrl = imgData.outputs[0]; return; }
+              if (imgData.poll_url || imgData.task_id) {
+                const pollPath = imgData.poll_url || `/api/v1/image/${imgData.task_id}`;
+                for (let i = 0; i < 15; i++) {
+                  await new Promise((r) => setTimeout(r, 2000));
+                  const pollRes = await fetch(`https://xpilot.jytech.us${pollPath}`, { headers: { Authorization: `Bearer ${xpilotKey}` } });
+                  const pollText = await pollRes.text();
+                  if (!pollText) continue;
+                  const pollData = JSON.parse(pollText);
+                  if (pollData.status === "completed" && pollData.outputs?.[0]) { variant.generatedImageUrl = pollData.outputs[0]; return; }
+                  if (pollData.status === "failed") break;
                 }
-                if (pollData.status === "failed") break;
               }
             }
+          } catch { /* xPilot failed, try fallback */ }
+        }
+
+        // Fallback: DALL-E 3
+        if (openaiKey && !variant.generatedImageUrl) {
+          try {
+            const dalleRes = await fetch("https://api.openai.com/v1/images/generations", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
+              body: JSON.stringify({ model: "dall-e-3", prompt: variant.imagePrompt, n: 1, size: "1792x1024", quality: "standard" }),
+            });
+            if (dalleRes.ok) {
+              const dalleData = (await dalleRes.json()) as { data?: { url?: string }[] };
+              if (dalleData.data?.[0]?.url) { variant.generatedImageUrl = dalleData.data[0].url; return; }
+            }
+          } catch (err) {
+            console.error("DALL-E fallback failed (non-fatal):", err);
           }
-        } catch (err) {
-          console.error(`Image generation failed for variant (non-fatal):`, err);
         }
       }
 

@@ -28,12 +28,7 @@ export async function POST(req: NextRequest) {
     if (users.length === 0) return NextResponse.json({ error: "User not found" }, { status: 404 });
     const userId = users[0].id as number;
 
-    const body = (await req.json()) as SendRequest;
-    if (!body.to || !body.subject || !body.html) {
-      return NextResponse.json({ error: "to, subject, and html are required" }, { status: 400 });
-    }
-
-    // Load all email-related keys from BYOK (user + org)
+    // Load all email-related keys from BYOK (user + org) — needed for all send methods
     const keyRows = await sql`
       SELECT service, api_key FROM (
         SELECT service, api_key, 0 as p FROM user_api_keys
@@ -45,12 +40,82 @@ export async function POST(req: NextRequest) {
           AND ok.org_id IN (SELECT org_id FROM organization_members WHERE user_id = ${userId})
       ) combined ORDER BY service, p
     `;
-
     const keys: Record<string, string> = {};
     for (const row of keyRows) {
       const svc = row.service as string;
-      if (keys[svc]) continue; // first match wins (user > org)
+      if (keys[svc]) continue;
       try { keys[svc] = decrypt(row.api_key as string); } catch { keys[svc] = row.api_key as string; }
+    }
+
+    const rawBody = await req.json();
+
+    // Handle template-based actions (test / send_to_group)
+    if (rawBody.action === "test" || rawBody.action === "send_to_group") {
+      const templateId = rawBody.template_id;
+      if (!templateId) return NextResponse.json({ error: "template_id required" }, { status: 400 });
+
+      const tplRows = await sql`SELECT subject, body_html FROM email_templates WHERE id = ${templateId} AND user_id = ${userId}`;
+      if (tplRows.length === 0) return NextResponse.json({ error: "Template not found" }, { status: 404 });
+      const tpl = tplRows[0];
+
+      if (rawBody.action === "test") {
+        const toEmail = rawBody.to_email;
+        if (!toEmail) return NextResponse.json({ error: "to_email required" }, { status: 400 });
+        rawBody.to = toEmail;
+        rawBody.subject = `[TEST] ${tpl.subject}`;
+        rawBody.html = tpl.body_html as string;
+      }
+
+      if (rawBody.action === "send_to_group") {
+        const groupId = rawBody.group_id;
+        if (!groupId) return NextResponse.json({ error: "group_id required" }, { status: 400 });
+
+        const members = await sql`
+          SELECT c.email, c.first_name, c.last_name, c.company
+          FROM contacts c
+          JOIN contact_group_members gm ON gm.contact_id = c.id
+          WHERE gm.group_id = ${groupId} AND c.email IS NOT NULL AND c.email != ''
+        `;
+        if (members.length === 0) return NextResponse.json({ error: "No contacts in this group" }, { status: 400 });
+
+        // Send to each member (reuse the send logic below via recursion-like approach)
+        let sent = 0;
+        let failed = 0;
+        for (const m of members) {
+          try {
+            const subject = (tpl.subject as string)
+              .replace(/\{\{firstName\}\}/gi, (m.first_name as string) || "")
+              .replace(/\{\{company\}\}/gi, (m.company as string) || "");
+            const html = (tpl.body_html as string)
+              .replace(/\{\{firstName\}\}/gi, (m.first_name as string) || "there")
+              .replace(/\{\{lastName\}\}/gi, (m.last_name as string) || "")
+              .replace(/\{\{company\}\}/gi, (m.company as string) || "your company");
+
+            // Quick inline send via Brevo (most common)
+            const brevoKey = keys.brevo || process.env.BREVO_API_KEY || "";
+            if (brevoKey) {
+              const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+                method: "POST",
+                headers: { "api-key": brevoKey, "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  sender: { email: email, name: session.user.name || "Marketing" },
+                  to: [{ email: m.email as string }],
+                  subject,
+                  htmlContent: html,
+                }),
+              });
+              if (res.ok || res.status === 202) sent++;
+              else failed++;
+            }
+          } catch { failed++; }
+        }
+        return NextResponse.json({ success: true, sent, failed, total: members.length });
+      }
+    }
+
+    const body = rawBody as SendRequest;
+    if (!body.to || !body.subject || !body.html) {
+      return NextResponse.json({ error: "to, subject, and html are required" }, { status: 400 });
     }
 
     // Also check env vars as fallback

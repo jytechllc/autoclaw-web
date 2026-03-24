@@ -10,7 +10,7 @@
     },
     {
       "path": "/api/cron/run-agents",
-      "schedule": "0 8 * * *"
+      "schedule": "0 */6 * * *"
     },
     {
       "path": "/api/cron/sync-email-stats",

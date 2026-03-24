@@ -1,8 +1,5 @@
-declare module "pdfjs-dist/legacy/build/pdf.worker.mjs" {
-  export const WorkerMessageHandler: unknown;
-}
-
 declare module "pdfjs-dist/legacy/build/pdf.mjs" {
+  export const GlobalWorkerOptions: { workerSrc: string };
   export function getDocument(params: { data: Uint8Array }): {
     promise: Promise<{
       numPages: number;
@@ -15,6 +12,3 @@ declare module "pdfjs-dist/legacy/build/pdf.mjs" {
     }>;
   };
 }
-
-/* Allow setting pdfjsWorker on globalThis */
-declare var pdfjsWorker: { WorkerMessageHandler: unknown };

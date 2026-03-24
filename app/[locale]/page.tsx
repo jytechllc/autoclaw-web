@@ -189,6 +189,7 @@ export default function Home() {
               <a href="#how-it-works" className="hover:text-primary transition-colors">{t.howItWorks}</a>
               <Link href={`/${locale}/use-cases`} className="hover:text-primary transition-colors">{t.caseStudies}</Link>
               <a href="#pricing" className="hover:text-primary transition-colors">{t.pricing}</a>
+              <Link href={`/${locale}/leaderboard`} className="hover:text-primary transition-colors">{locale === "zh" || locale === "zh-TW" ? "排行榜" : "Leaderboard"}</Link>
               <a href={`/${locale}/dashboard`} className="hover:text-primary transition-colors">{tc.dashboard}</a>
               <LanguageSwitcher locale={locale} />
               {user ? (

@@ -39,9 +39,16 @@ export default function DashboardShell({ children, user, plan, fullHeight }: Pro
         { href: `/${locale}/dashboard/projects`, label: tc.projects },
         { href: `/${locale}/dashboard/skills`, label: tc.skills },
         { href: `/${locale}/dashboard/knowledge`, label: tc.knowledge },
-        { href: `/${locale}/dashboard/contacts`, label: tc.customers },
         { href: `/${locale}/dashboard/email-templates`, label: tc.emailTemplates },
-        { href: `/${locale}/dashboard/activities`, label: tc.activities },
+      ],
+    },
+    {
+      label: tc.crm || "CRM",
+      children: [
+        { href: `/${locale}/dashboard/crm?tab=contacts`, label: tc.crmContacts || "Contacts" },
+        { href: `/${locale}/dashboard/crm?tab=companies`, label: tc.crmCompanies || "Companies" },
+        { href: `/${locale}/dashboard/crm?tab=groups`, label: tc.crmGroups || (locale === "zh" ? "群组" : "Groups") },
+        { href: `/${locale}/dashboard/crm?tab=tasks`, label: tc.crmTasks || "Tasks" },
       ],
     },
     {
@@ -59,6 +66,15 @@ export default function DashboardShell({ children, user, plan, fullHeight }: Pro
         { href: `/${locale}/dashboard/x`, label: tc.x },
         { href: `/${locale}/dashboard/facebook`, label: tc.facebook },
         { href: `/${locale}/dashboard/instagram`, label: tc.instagram },
+      ],
+    },
+    {
+      label: tc.salesChannels || "Sales Channels",
+      children: [
+        { href: `/${locale}/dashboard/products`, label: locale === "zh" ? "产品管理" : "Products" },
+        { href: `/${locale}/dashboard/marketplace/amazon`, label: "Amazon" },
+        { href: `/${locale}/dashboard/marketplace/dkwholesale`, label: "DK Wholesale" },
+        { href: `/${locale}/dashboard/marketplace/etsy`, label: "Etsy" },
       ],
     },
     {

@@ -449,6 +449,7 @@ export default function AgentsPage() {
       available: true,
     },
   ]);
+  const [userApiKeys, setUserApiKeys] = useState<string[]>([]);
 
   const loadData = () => {
     const ts = Date.now();
@@ -458,7 +459,12 @@ export default function AgentsPage() {
       fetch(`/api/models?_t=${ts}`)
         .then((r) => r.json())
         .catch(() => ({ models: [] })),
-    ]).then(async ([reportData, projectData, modelData]) => {
+      fetch(`/api/api-keys?_t=${ts}`)
+        .then((r) => r.json())
+        .then((d: { keys?: { service: string }[] }) => (d.keys || []).map((k) => k.service))
+        .catch(() => [] as string[]),
+    ]).then(async ([reportData, projectData, modelData, apiKeyServices]) => {
+      setUserApiKeys(apiKeyServices as string[]);
       const agentsList = (projectData.agents || []) as AgentAssignment[];
       setAgents(agentsList);
       setServerAgents(reportData.serverAgents || reportData.reports || []);
@@ -1525,6 +1531,25 @@ export default function AgentsPage() {
                                   </select>
                                   <p className="text-[10px] text-gray-400 mt-0.5">{ta.targetLanguageHint || "Language used for email templates and outreach content."}</p>
                                 </div>
+                                <div className="mt-2 flex items-center gap-2">
+                                  <label className="relative inline-flex items-center cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={!!(config.require_approval)}
+                                      onChange={(e) => {
+                                        fetch("/api/projects", {
+                                          method: "POST",
+                                          headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({ action: "update_agent_config", agent_id: agent.id, config: { require_approval: e.target.checked } }),
+                                        }).then(() => loadData());
+                                      }}
+                                      className="sr-only peer"
+                                    />
+                                    <div className="w-8 h-4 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-red-800"></div>
+                                  </label>
+                                  <span className="text-[10px] text-gray-500 font-medium">{ta.requireApproval || "Review emails before sending"}</span>
+                                </div>
+                                <p className="text-[10px] text-gray-400 mt-0.5">{ta.requireApprovalHint || "When enabled, emails will be queued for your review before sending."}</p>
                               </div>
                             )}
 
@@ -1607,6 +1632,17 @@ export default function AgentsPage() {
                                 for (const b of config.blockers as string[]) {
                                   issues.push({ type: "warn", msg: b });
                                 }
+                              }
+
+                              // Proactive API key warnings
+                              if (agent.agent_type === "lead_prospecting" && !userApiKeys.includes("apollo")) {
+                                issues.push({ type: "warn", msg: locale === "zh" ? "需要配置 Apollo API 密钥才能搜索潜客。请在设置 → API 密钥中配置。" : (ta.diagNoApollo || "Apollo API key required for lead search. Configure in Settings → API Keys.") });
+                              }
+                              if (agent.agent_type === "email_marketing" && !userApiKeys.some((k) => k === "brevo" || k === "sendgrid")) {
+                                issues.push({ type: "warn", msg: locale === "zh" ? "需要配置 Brevo 或 SendGrid API 密钥才能发送邮件。请在设置 → API 密钥中配置。" : (ta.diagNoEmailProvider || "Brevo or SendGrid API key required for sending emails. Configure in Settings → API Keys.") });
+                              }
+                              if (["lead_prospecting", "seo_content"].includes(agent.agent_type) && !userApiKeys.some((k) => k === "tavily" || k === "firecrawl")) {
+                                issues.push({ type: "warn", msg: locale === "zh" ? "需要配置 Tavily 或 Firecrawl API 密钥才能进行网络搜索。请在设置 → API 密钥中配置。" : (ta.diagNoWebSearch || "Tavily or Firecrawl API key required for web search. Configure in Settings → API Keys.") });
                               }
 
                               if (issues.length === 0) return null;

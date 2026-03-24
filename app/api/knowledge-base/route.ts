@@ -4,8 +4,27 @@ import { getDb, resolveUserPlan } from "@/lib/db";
 import { generateEmbeddings, loadEmbeddingKeys, isOverBudget } from "@/lib/embeddings";
 import { extractPdf, extractDocx, extractUrl, chunkText, estimateTokens } from "@/lib/chunking";
 import { put, list } from "@vercel/blob";
+import { decrypt } from "@/lib/crypto";
 
 export const dynamic = "force-dynamic";
+
+async function getFirecrawlKey(sql: ReturnType<typeof getDb>, userId: number): Promise<string> {
+  // Check env first
+  if (process.env.FIRECRAWL_API_KEY) return process.env.FIRECRAWL_API_KEY;
+  // Then personal BYOK
+  try {
+    const rows = await sql`
+      SELECT api_key FROM user_api_keys WHERE user_id = ${userId} AND service = 'firecrawl'
+      UNION ALL
+      SELECT ok.api_key FROM org_api_keys ok
+        WHERE ok.service = 'firecrawl'
+        AND ok.org_id IN (SELECT org_id FROM organization_members WHERE user_id = ${userId})
+      LIMIT 1
+    `;
+    if (rows.length > 0) return decrypt(rows[0].api_key as string);
+  } catch { /* no key */ }
+  return "";
+}
 export const maxDuration = 60;
 
 const PLAN_LIMITS: Record<string, { maxDocs: number; maxSizeMB: number }> = {
@@ -429,14 +448,39 @@ async function handleAddUrl(
     `;
     const docId = docs[0].id as number;
 
-    // Best-effort: try to extract and embed content — don't fail if it doesn't work
+    // Best-effort: try to extract and embed content
+    // Priority: Firecrawl (best for SPAs) → direct extractUrl
     try {
-      const text = await extractUrl(url);
-      const textSize = Buffer.byteLength(text, "utf-8");
-      await sql`UPDATE kb_documents SET file_size = ${textSize} WHERE id = ${docId}`;
-      await processAndEmbed(sql, docId, text, userId, plan);
+      let text = "";
+      const firecrawlKey = await getFirecrawlKey(sql, userId);
+      if (firecrawlKey) {
+        try {
+          const fcRes = await fetch("https://api.firecrawl.dev/v1/scrape", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${firecrawlKey}` },
+            body: JSON.stringify({ url, formats: ["markdown"] }),
+          });
+          if (fcRes.ok) {
+            const fcData = (await fcRes.json()) as { success?: boolean; data?: { markdown?: string; metadata?: { title?: string } } };
+            if (fcData.success && fcData.data?.markdown) {
+              text = fcData.data.markdown;
+              if (fcData.data.metadata?.title) {
+                await sql`UPDATE kb_documents SET title = ${fcData.data.metadata.title} WHERE id = ${docId}`;
+              }
+            }
+          }
+        } catch { /* Firecrawl failed, fall through */ }
+      }
+      if (!text) {
+        text = await extractUrl(url);
+      }
+      if (text) {
+        const textSize = Buffer.byteLength(text, "utf-8");
+        await sql`UPDATE kb_documents SET file_size = ${textSize} WHERE id = ${docId}`;
+        await processAndEmbed(sql, docId, text, userId, plan);
+      }
     } catch {
-      // Content extraction failed — URL is saved as a reference, that's fine
+      // Content extraction failed — URL is saved as a reference
     }
 
     return NextResponse.json({ id: docId, status: "ready" });
@@ -499,7 +543,7 @@ async function handleDelete(
   }
 
   const doc = docs[0];
-  if (doc.user_id !== userId) {
+  if (Number(doc.user_id) !== Number(userId)) {
     // Check if user is admin of the org
     if (doc.org_id) {
       const membership = await sql`

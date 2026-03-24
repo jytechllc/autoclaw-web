@@ -192,7 +192,16 @@ export default function ChatPage() {
 
   const [toolStatus, setToolStatus] = useState<string>("");
   const [toolSteps, setToolSteps] = useState<{ label: string; done: boolean; error?: boolean; errorDetail?: string }[]>([]);
+  const [stepTick, setStepTick] = useState(0);
   const [debugTrace, setDebugTrace] = useState<{ ts: number; event: string; detail?: string }[] | null>(null);
+
+  // Tick counter for active steps — increments every 5 seconds while a step is running
+  useEffect(() => {
+    const hasActive = toolSteps.some((s) => !s.done);
+    if (!hasActive) { setStepTick(0); return; }
+    const interval = setInterval(() => setStepTick((t) => t + 1), 5000);
+    return () => clearInterval(interval);
+  }, [toolSteps]);
   const isDev = typeof window !== "undefined" && window.location.hostname === "localhost";
 
   interface ToolExecution {
@@ -305,6 +314,7 @@ export default function ChatPage() {
                           return prev.map((s, i) => i === prev.length - 1 && !s.done ? { ...s, done: true, error: true } : s);
                         }
                         // Mark previous steps as done, add new one
+                        setStepTick(0);
                         const updated = prev.map((s) => ({ ...s, done: true }));
                         if (!updated.some((s) => s.label === stepMsg)) {
                           updated.push({ label: stepMsg, done: false });
@@ -627,7 +637,12 @@ export default function ChatPage() {
                             ) : (
                               <svg className="w-3.5 h-3.5 text-red-800 animate-spin shrink-0" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={4} /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                             )}
-                            <span className={step.error ? "text-red-500" : step.done ? "text-gray-400" : "text-gray-700 font-medium"}>{step.label}</span>
+                            <span className={step.error ? "text-red-500" : step.done ? "text-gray-400" : "text-gray-700 font-medium"}>
+                              {step.label}
+                              {!step.done && !step.error && stepTick > 0 && (
+                                <span className="text-gray-400 font-normal ml-1">x{stepTick + 1} ({stepTick * 5}s)</span>
+                              )}
+                            </span>
                           </div>
                           {step.error && step.errorDetail && (
                             <div className="ml-5.5 text-[11px] text-red-400 bg-red-50 rounded px-2 py-1 break-all" style={{ marginLeft: "22px" }}>{step.errorDetail}</div>

@@ -19,17 +19,18 @@ export interface ChunkResult {
  * "Cannot find module pdf.worker.mjs" error in Next.js/Vercel.
  */
 export async function extractPdf(buffer: Buffer): Promise<string> {
-  // Load worker into globalThis so pdfjs uses it inline (no separate file import)
-  const { WorkerMessageHandler } = await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
-  globalThis.pdfjsWorker = { WorkerMessageHandler };
-
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+
+  // Disable worker — server-side doesn't need it, and avoids
+  // "Cannot find module pdf.worker.mjs" in Next.js dev/Turbopack.
+  pdfjs.GlobalWorkerOptions.workerSrc = "";
 
   const doc = await pdfjs.getDocument({
     data: new Uint8Array(buffer),
     cMapUrl: "https://cdn.jsdelivr.net/npm/pdfjs-dist/cmaps/",
     cMapPacked: true,
     useSystemFonts: true,
+    isEvalSupported: false,
   } as Parameters<typeof pdfjs.getDocument>[0]).promise;
   const pages: string[] = [];
   for (let i = 1; i <= doc.numPages; i++) {

@@ -137,6 +137,16 @@ export default function EmailTemplatesPage() {
   // Editor mode: "visual" for WYSIWYG, "source" for HTML code
   const [editorMode, setEditorMode] = useState<"visual" | "source">("visual");
 
+  // Send state
+  const [sendTemplate, setSendTemplate] = useState<Template | null>(null);
+  const [sendGroupId, setSendGroupId] = useState("");
+  const [testEmailAddr, setTestEmailAddr] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendResult, setSendResult] = useState("");
+  const [groups, setGroups] = useState<{ id: number; name: string; member_count: number }[]>([]);
+  const [dailySent, setDailySent] = useState(0);
+  const [dailyLimit] = useState(50);
+
   // Translate state
   const [translateSource, setTranslateSource] = useState<Template | null>(null);
   const [translateLang, setTranslateLang] = useState("");
@@ -171,6 +181,19 @@ export default function EmailTemplatesPage() {
     fetch("/api/projects")
       .then((r) => r.json())
       .then((data) => setProjects(data.projects || []));
+    // Load groups for send modal
+    fetch("/api/crm?tab=groups")
+      .then((r) => r.json())
+      .then((data) => setGroups(data.groups || []))
+      .catch(() => {});
+    // Load today's send count
+    fetch("/api/email-stats")
+      .then((r) => r.json())
+      .then((data) => {
+        const today = (data.daily || []).find((d: { stat_date: string }) => d.stat_date === new Date().toISOString().slice(0, 10));
+        if (today) setDailySent(today.sent || 0);
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -283,6 +306,29 @@ export default function EmailTemplatesPage() {
     }
     setAiGenerating(false);
     setTimeout(() => setMsg(""), 5000);
+  }
+
+  async function sendToGroup() {
+    if (!sendTemplate || !sendGroupId) return;
+    setSending(true);
+    setSendResult("");
+    try {
+      const res = await fetch("/api/send-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "send_to_group", template_id: sendTemplate.id, group_id: Number(sendGroupId) }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSendResult(locale === "zh" || locale === "zh-TW" ? `已发送 ${data.sent} 封` : `Sent ${data.sent} emails`);
+        setDailySent((prev) => prev + (data.sent || 0));
+      } else {
+        setSendResult(data.error || "Failed");
+      }
+    } catch {
+      setSendResult("Error");
+    }
+    setSending(false);
   }
 
   function openTranslate(tpl: Template) {
@@ -415,6 +461,15 @@ export default function EmailTemplatesPage() {
           );
         })()}
 
+        {/* Daily send quota */}
+        <div className="flex items-center gap-3 mb-4 text-sm">
+          <span className="text-gray-500">{locale === "zh" || locale === "zh-TW" ? "今日发送" : "Today"}: <span className="font-medium text-gray-800">{dailySent}</span> / {dailyLimit}</span>
+          <div className="flex-1 max-w-[200px] bg-gray-100 rounded-full h-2">
+            <div className="bg-red-500 h-2 rounded-full transition-all" style={{ width: `${Math.min(100, dailySent / dailyLimit * 100)}%` }} />
+          </div>
+          <span className="text-xs text-gray-400">{locale === "zh" || locale === "zh-TW" ? `剩余 ${Math.max(0, dailyLimit - dailySent)} 封` : `${Math.max(0, dailyLimit - dailySent)} remaining`}</span>
+        </div>
+
         {/* Filters */}
         <div className="flex flex-col sm:flex-row gap-3 mb-4">
           <input
@@ -483,7 +538,17 @@ export default function EmailTemplatesPage() {
                     </span>
                   )}
                   <span className="text-[10px] text-gray-300 ml-auto">
-                    {new Date(tpl.updated_at).toLocaleDateString()}
+                    {(() => {
+                      const diff = Date.now() - new Date(tpl.updated_at).getTime();
+                      const mins = Math.floor(diff / 60000);
+                      if (mins < 1) return locale === "zh" || locale === "zh-TW" ? "刚刚" : "just now";
+                      if (mins < 60) return `${mins}${locale === "zh" || locale === "zh-TW" ? "分钟前" : "m ago"}`;
+                      const hrs = Math.floor(mins / 60);
+                      if (hrs < 24) return `${hrs}${locale === "zh" || locale === "zh-TW" ? "小时前" : "h ago"}`;
+                      const days = Math.floor(hrs / 24);
+                      if (days < 7) return `${days}${locale === "zh" || locale === "zh-TW" ? "天前" : "d ago"}`;
+                      return new Date(tpl.updated_at).toLocaleDateString();
+                    })()}
                   </span>
                 </div>
 
@@ -517,7 +582,7 @@ export default function EmailTemplatesPage() {
                 <div className="flex items-center gap-2 pt-3 border-t border-gray-100">
                   <button onClick={() => setPreview(tpl)} className="text-xs text-gray-500 hover:text-gray-700 cursor-pointer">{t.preview}</button>
                   <button onClick={() => openForm(tpl)} className="text-xs text-red-600 hover:text-red-800 cursor-pointer">{t.editTemplate}</button>
-                  <button onClick={() => duplicateTemplate(tpl)} className="text-xs text-blue-600 hover:text-blue-800 cursor-pointer">{t.duplicateTemplate}</button>
+                  <button onClick={() => { setSendTemplate(tpl); setSendResult(""); setTestEmailAddr(""); setSendGroupId(""); }} className="text-xs text-green-600 hover:text-green-800 cursor-pointer font-medium">{locale === "zh" || locale === "zh-TW" ? "发送" : "Send"}</button>
                   <button onClick={() => openTranslate(tpl)} className="text-xs text-purple-600 hover:text-purple-800 cursor-pointer">{t.translate}</button>
                   <button onClick={() => deleteTemplate(tpl.id)} className="text-xs text-gray-400 hover:text-red-600 cursor-pointer ml-auto">{tc.delete}</button>
                 </div>
@@ -635,6 +700,92 @@ export default function EmailTemplatesPage() {
                 >
                   {aiGenerating ? t.aiGenerating : t.aiGenerate}
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Send modal */}
+        {sendTemplate && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setSendTemplate(null)}>
+            <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold">{locale === "zh" || locale === "zh-TW" ? "发送邮件" : "Send Email"}</h2>
+                <button onClick={() => setSendTemplate(null)} className="text-gray-400 hover:text-gray-600 cursor-pointer text-xl">&times;</button>
+              </div>
+
+              <div className="bg-gray-50 rounded-lg p-3 mb-4">
+                <p className="text-xs text-gray-400">{locale === "zh" || locale === "zh-TW" ? "模板" : "Template"}</p>
+                <p className="font-medium text-sm">{sendTemplate.name}</p>
+                <p className="text-xs text-gray-500 mt-0.5">{sendTemplate.subject}</p>
+              </div>
+
+              {/* Send to group */}
+              <div className="mb-4">
+                <label className="text-xs font-medium text-gray-600 block mb-1">{locale === "zh" || locale === "zh-TW" ? "发送到群组" : "Send to Group"}</label>
+                <div className="flex gap-2">
+                  <select
+                    value={sendGroupId}
+                    onChange={(e) => setSendGroupId(e.target.value)}
+                    className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm cursor-pointer"
+                  >
+                    <option value="">{locale === "zh" || locale === "zh-TW" ? "选择群组..." : "Select group..."}</option>
+                    {groups.map((g) => (
+                      <option key={g.id} value={g.id}>{g.name} ({g.member_count} {locale === "zh" || locale === "zh-TW" ? "人" : "members"})</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={sendToGroup}
+                    disabled={!sendGroupId || sending}
+                    className="bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white px-4 py-2 rounded-lg text-sm font-medium cursor-pointer whitespace-nowrap"
+                  >
+                    {sending ? "..." : locale === "zh" || locale === "zh-TW" ? "发送" : "Send"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="border-t border-gray-200 pt-4 mb-4">
+                <label className="text-xs font-medium text-gray-600 block mb-1">{locale === "zh" || locale === "zh-TW" ? "发送测试邮件" : "Send Test Email"}</label>
+                <div className="flex gap-2">
+                  <input
+                    type="email"
+                    value={testEmailAddr}
+                    onChange={(e) => setTestEmailAddr(e.target.value)}
+                    placeholder={locale === "zh" || locale === "zh-TW" ? "输入测试邮箱..." : "Enter test email..."}
+                    className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                  <button
+                    onClick={() => testEmailAddr && sendTemplate && (async () => {
+                      setSending(true); setSendResult("");
+                      try {
+                        const res = await fetch("/api/send-email", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ action: "test", template_id: sendTemplate.id, to_email: testEmailAddr.trim() }),
+                        });
+                        const data = await res.json();
+                        setSendResult(data.success ? (locale === "zh" || locale === "zh-TW" ? "测试邮件已发送！" : "Test email sent!") : (data.error || "Failed"));
+                      } catch { setSendResult("Error"); }
+                      setSending(false);
+                    })()}
+                    disabled={!testEmailAddr.trim() || sending}
+                    className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white px-4 py-2 rounded-lg text-sm font-medium cursor-pointer whitespace-nowrap"
+                  >
+                    {locale === "zh" || locale === "zh-TW" ? "测试" : "Test"}
+                  </button>
+                </div>
+                <p className="text-[10px] text-gray-400 mt-1">{locale === "zh" || locale === "zh-TW" ? "发送一封测试邮件到指定邮箱，确认模板效果" : "Send a test email to verify template before bulk sending"}</p>
+              </div>
+
+              {sendResult && (
+                <div className={`text-sm px-3 py-2 rounded-lg mb-3 ${sendResult.includes("!") || sendResult.includes("封") ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"}`}>
+                  {sendResult}
+                </div>
+              )}
+
+              <div className="text-xs text-gray-400 flex items-center justify-between">
+                <span>{locale === "zh" || locale === "zh-TW" ? `今日已发送 ${dailySent}/${dailyLimit}` : `Today: ${dailySent}/${dailyLimit} sent`}</span>
+                <button onClick={() => setSendTemplate(null)} className="text-gray-500 cursor-pointer">{locale === "zh" || locale === "zh-TW" ? "关闭" : "Close"}</button>
               </div>
             </div>
           </div>
