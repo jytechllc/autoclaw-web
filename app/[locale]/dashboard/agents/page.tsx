@@ -352,8 +352,13 @@ export default function AgentsPage() {
   const { user, isLoading: userLoading } = useUser();
   const WORKER_MODELS = [
     "cerebras/qwen-3-235b",
+    "cerebras/llama3.1-8b",
     "cerebras/gpt-oss-120b",
     "anthropic/claude-sonnet-4.5",
+    "xai/grok-3",
+    "xai/grok-3-mini",
+    "zhipu/glm-4.7-flash",
+    "nvidia/llama-3.3-70b",
     "alibaba/qwen-plus",
     "alibaba/qwen-turbo",
   ];

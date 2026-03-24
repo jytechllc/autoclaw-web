@@ -14,6 +14,7 @@ interface PlatformRanking {
   total_tokens: number;
   recent_7d_calls: number;
   popularity_score: number;
+  category?: string;
 }
 
 interface MarketModel {
@@ -24,6 +25,65 @@ interface MarketModel {
   context: string;
   pricing: string;
   highlight: string;
+}
+
+// Map model IDs to their maintainer (creator), not the hosting provider
+const MODEL_MAINTAINERS: Record<string, string> = {
+  // Cerebras-hosted but maintained by others
+  "qwen-3-235b-a22b-instruct-2507": "Alibaba (Qwen)",
+  "cerebras/qwen-3-235b": "Alibaba (Qwen)",
+  "cerebras/qwen-3-coder-480b": "Alibaba (Qwen)",
+  "cerebras/gpt-oss-120b": "OpenAI",
+  "gpt-oss-120b": "OpenAI",
+  // Anthropic
+  "claude-sonnet-4.5": "Anthropic",
+  "anthropic/claude-sonnet-4.5": "Anthropic",
+  "claude-sonnet-4-20250514": "Anthropic",
+  // Alibaba direct
+  "alibaba/qwen-plus": "Alibaba (Qwen)",
+  "alibaba/qwen-turbo": "Alibaba (Qwen)",
+  "qwen-plus": "Alibaba (Qwen)",
+  "qwen-turbo": "Alibaba (Qwen)",
+  // xAI
+  "xai/grok-3": "xAI",
+  "xai/grok-3-mini": "xAI",
+  "grok-3": "xAI",
+  "grok-3-mini": "xAI",
+  // OpenAI
+  "dall-e-3": "OpenAI",
+  // Meta (hosted on various platforms: Cerebras, NVIDIA, Ollama, etc.)
+  "llama3.1-8b": "Meta",
+  "cerebras/llama3.1-8b": "Meta",
+  "nvidia/llama-3.3-70b": "Meta",
+  "nvidia/meta/llama-3.3-70b-instruct": "Meta",
+  "meta/llama-3.1-8b-instruct": "Meta",
+  "llama-4-scout-17b-16e-instruct": "Meta",
+  "meta/llama": "Meta",
+  // Zhipu GLM (via z.ai)
+  "GLM-4.7-Flash": "Zhipu AI (智谱)",
+  "zhipu/glm-4.7-flash": "Zhipu AI (智谱)",
+  "glm-4.5": "Zhipu AI (智谱)",
+  "glm-4.5-air": "Zhipu AI (智谱)",
+  "glm-4.6": "Zhipu AI (智谱)",
+  "glm-4.7": "Zhipu AI (智谱)",
+  "glm-5": "Zhipu AI (智谱)",
+  "glm-5-turbo": "Zhipu AI (智谱)",
+  // Embedding
+  "text-embedding": "Google",
+  // Image / Video (xPilot)
+  "bytedance/seedream-v4.5": "ByteDance",
+  "bytedance/seedance-v1.5-pro/text-to-video": "ByteDance",
+  "seedance-2.0/text-to-video": "ByteDance",
+  "alibaba/wan-2.6/text-to-video": "Alibaba",
+  "kwaivgi/kling-video-o3-std/text-to-video": "Kuaishou (快手)",
+  "wavespeed-ai/wan-2.2/t2v-480p-ultra-fast": "WaveSpeed AI",
+  // Ollama
+  "qwen2.5:7b": "Alibaba (Qwen)",
+  "qwen2.5:3b": "Alibaba (Qwen)",
+};
+
+function getModelMaintainer(model: string, provider: string): string {
+  return MODEL_MAINTAINERS[model] || MODEL_MAINTAINERS[`${provider}/${model}`] || provider;
 }
 
 // Industry benchmark data (updated periodically)
@@ -37,12 +97,28 @@ const MARKET_LEADERBOARD: MarketModel[] = [
   { name: "DeepSeek V3", provider: "DeepSeek", category: "llm", arena_elo: 1330, context: "128K", pricing: "$0.27/$1.10", highlight: "Cheapest high-quality" },
   { name: "Llama 4 Scout", provider: "Meta", category: "llm", arena_elo: 1310, context: "10M", pricing: "Free (open)", highlight: "Best open-source" },
   { name: "Grok 3", provider: "xAI", category: "llm", arena_elo: 1350, context: "128K", pricing: "$3/$15", highlight: "Real-time web access" },
+  { name: "GLM-4 Plus", provider: "Zhipu AI (智谱)", category: "llm", arena_elo: 1300, context: "128K", pricing: "$0.70/$0.70", highlight: "Best Chinese-native model" },
+  { name: "GLM-4.5 Flash", provider: "Zhipu AI (智谱)", category: "llm", arena_elo: 1280, context: "128K", pricing: "Free", highlight: "Free high-quality Chinese model" },
+  { name: "GLM-4.7 Flash", provider: "Zhipu AI (智谱)", category: "llm", arena_elo: 1285, context: "128K", pricing: "Free", highlight: "Latest free flash model" },
+  { name: "GLM-4.6V Flash", provider: "Zhipu AI (智谱)", category: "llm", arena_elo: 1275, context: "128K", pricing: "Free", highlight: "Free multimodal vision model" },
+  { name: "GLM-5", provider: "Zhipu AI (智谱)", category: "llm", arena_elo: 1320, context: "128K", pricing: "Paid", highlight: "Latest flagship Chinese model" },
+  { name: "GLM-5 Turbo", provider: "Zhipu AI (智谱)", category: "llm", arena_elo: 1305, context: "128K", pricing: "Paid", highlight: "Fast flagship model" },
+  { name: "Llama 3.3 70B", provider: "Meta", category: "llm", arena_elo: 1260, context: "128K", pricing: "BYOK (NVIDIA)", highlight: "Best NVIDIA NIM model (~51 tok/s)" },
+  { name: "Llama 3.1 8B", provider: "Meta", category: "llm", arena_elo: 1200, context: "128K", pricing: "Free (Cerebras)", highlight: "Fastest inference (~2500 tok/s)" },
   // Image
+  { name: "Seedream v4.5", provider: "ByteDance", category: "image", context: "—", pricing: "xPilot", highlight: "Platform default, high quality" },
   { name: "DALL-E 3", provider: "OpenAI", category: "image", context: "—", pricing: "$0.04/img", highlight: "Best text understanding" },
   { name: "Midjourney v7", provider: "Midjourney", category: "image", context: "—", pricing: "$10/mo", highlight: "Best artistic quality" },
   { name: "Flux 1.1 Pro", provider: "Black Forest", category: "image", context: "—", pricing: "$0.04/img", highlight: "Best photorealism" },
   { name: "Stable Diffusion 3.5", provider: "Stability AI", category: "image", context: "—", pricing: "Free (open)", highlight: "Best open-source image" },
   { name: "Ideogram 3", provider: "Ideogram", category: "image", context: "—", pricing: "$0.04/img", highlight: "Best text-in-image" },
+  // Video
+  { name: "Seedance 2.0", provider: "ByteDance", category: "video", context: "—", pricing: "xPilot", highlight: "Latest text-to-video with audio" },
+  { name: "Seedance 1.5 Pro", provider: "ByteDance", category: "video", context: "—", pricing: "xPilot", highlight: "Premium video with audio" },
+  { name: "Wan 2.6", provider: "Alibaba", category: "video", context: "—", pricing: "xPilot", highlight: "Standard text-to-video with audio" },
+  { name: "Kling Video O3", provider: "Kuaishou (快手)", category: "video", context: "—", pricing: "xPilot", highlight: "Premium video generation" },
+  // Audio / TTS
+  { name: "OpenAI TTS", provider: "OpenAI", category: "audio", context: "—", pricing: "BYOK", highlight: "6 voices (alloy, echo, fable, onyx, nova, shimmer)" },
   // Search
   { name: "Tavily", provider: "Tavily", category: "search", context: "—", pricing: "Free 1000/mo", highlight: "Best AI-optimized search" },
   { name: "Firecrawl", provider: "Firecrawl", category: "search", context: "—", pricing: "Free 500/mo", highlight: "Best JS rendering" },
@@ -57,7 +133,8 @@ export default function LeaderboardPage() {
   const [rankings, setRankings] = useState<PlatformRanking[]>([]);
   const [autoPick, setAutoPick] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
-  const [marketCategory, setMarketCategory] = useState<"llm" | "image" | "search">("llm");
+  const [marketCategory, setMarketCategory] = useState<"llm" | "image" | "video" | "audio" | "search">("llm");
+  const [platformCategory, setPlatformCategory] = useState<"all" | "llm" | "image" | "video" | "audio" | "search" | "embedding">("all");
 
   const fetchRankings = useCallback(async () => {
     setLoading(true);
@@ -83,7 +160,7 @@ export default function LeaderboardPage() {
     market: isZh ? "市场排行" : "Market Leaderboard",
     rank: "#",
     model: isZh ? "模型" : "Model",
-    provider: isZh ? "提供商" : "Provider",
+    provider: isZh ? "维护者" : "Maintainer",
     calls: isZh ? "调用次数" : "Calls",
     users: isZh ? "用户数" : "Users",
     tokens: "Tokens",
@@ -93,6 +170,8 @@ export default function LeaderboardPage() {
     analysis: isZh ? "分析" : "Analysis",
     writing: isZh ? "写作" : "Writing",
     image: isZh ? "图像" : "Image",
+    video: isZh ? "视频" : "Video",
+    audio: isZh ? "语音" : "Audio",
     noData: isZh ? "暂无使用数据" : "No usage data yet",
     loading: isZh ? "加载中..." : "Loading...",
     context: isZh ? "上下文" : "Context",
@@ -162,6 +241,18 @@ export default function LeaderboardPage() {
               </div>
             )}
 
+            <div className="flex gap-2 mb-4">
+              {(["all", "llm", "image", "video", "audio", "search"] as const).map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => setPlatformCategory(cat)}
+                  className={`px-4 py-1.5 rounded-full text-xs font-medium cursor-pointer ${platformCategory === cat ? "bg-red-700 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+                >
+                  {cat === "all" ? (isZh ? "全部" : "All") : t[cat] || cat}
+                </button>
+              ))}
+            </div>
+
             {loading ? (
               <p className="text-center py-12 text-gray-400">{t.loading}</p>
             ) : rankings.length === 0 ? (
@@ -181,11 +272,11 @@ export default function LeaderboardPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {rankings.map((r, i) => (
-                      <tr key={i} className={`border-b border-gray-100 ${i < 3 ? "bg-yellow-50/30" : ""}`}>
+                    {rankings.filter((r) => platformCategory === "all" || (r.category || "llm") === platformCategory).map((r, i) => (
+                      <tr key={i} className={`border-b border-gray-100 ${i < 3 && platformCategory === "all" ? "bg-yellow-50/30" : ""}`}>
                         <td className="py-3 text-center">{medalEmoji(i)}</td>
                         <td className="py-3 font-medium text-gray-800">{String(r.model)}</td>
-                        <td className="py-3 text-gray-500">{String(r.provider)}</td>
+                        <td className="py-3 text-gray-500">{getModelMaintainer(String(r.model), String(r.provider))}</td>
                         <td className="py-3 text-right text-gray-700">{r.total_calls.toLocaleString()}</td>
                         <td className="py-3 text-right text-gray-700">{r.unique_users}</td>
                         <td className="py-3 text-right">
@@ -207,13 +298,13 @@ export default function LeaderboardPage() {
         {activeTab === "market" && (
           <div>
             <div className="flex gap-2 mb-4">
-              {(["llm", "image", "search"] as const).map((cat) => (
+              {(["llm", "image", "video", "audio", "search"] as const).map((cat) => (
                 <button
                   key={cat}
                   onClick={() => setMarketCategory(cat)}
                   className={`px-4 py-1.5 rounded-full text-xs font-medium cursor-pointer ${marketCategory === cat ? "bg-red-700 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
                 >
-                  {cat === "llm" ? t.llm : cat === "image" ? t.image : t.search}
+                  {t[cat] || cat}
                 </button>
               ))}
             </div>
@@ -226,7 +317,7 @@ export default function LeaderboardPage() {
                     <th className="pb-2 font-medium">{t.model}</th>
                     <th className="pb-2 font-medium">{t.provider}</th>
                     {marketCategory === "llm" && <th className="pb-2 font-medium text-right">{t.elo}</th>}
-                    <th className="pb-2 font-medium text-right">{t.context}</th>
+                    {marketCategory === "llm" && <th className="pb-2 font-medium text-right">{t.context}</th>}
                     <th className="pb-2 font-medium text-right">{t.pricing}</th>
                     <th className="pb-2 font-medium">{t.highlight}</th>
                   </tr>
@@ -240,7 +331,7 @@ export default function LeaderboardPage() {
                       {marketCategory === "llm" && (
                         <td className="py-3 text-right font-semibold text-indigo-600">{m.arena_elo || "—"}</td>
                       )}
-                      <td className="py-3 text-right text-gray-600">{m.context}</td>
+                      {marketCategory === "llm" && <td className="py-3 text-right text-gray-600">{m.context}</td>}
                       <td className="py-3 text-right text-gray-600">{m.pricing}</td>
                       <td className="py-3 text-xs text-gray-500">{m.highlight}</td>
                     </tr>

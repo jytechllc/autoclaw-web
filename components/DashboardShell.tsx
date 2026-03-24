@@ -40,6 +40,7 @@ export default function DashboardShell({ children, user, plan, fullHeight }: Pro
         { href: `/${locale}/dashboard/skills`, label: tc.skills },
         { href: `/${locale}/dashboard/knowledge`, label: tc.knowledge },
         { href: `/${locale}/dashboard/email-templates`, label: tc.emailTemplates },
+        { href: `/${locale}/dashboard/email-review`, label: tc.emailReview || "Email Review" },
       ],
     },
     {
