@@ -114,8 +114,8 @@ export async function generateEmbeddings(
     }
   }
 
-  // 3. Fall back to system Google key (enterprise plan only)
-  if (GOOGLE_AI_API && plan === "enterprise") {
+  // 3. Fall back to system Google key (free for all users, 1500 req/day)
+  if (GOOGLE_AI_API) {
     try {
       const result = await googleEmbed(GOOGLE_AI_API, texts);
       if (sql) await trackUsage(sql, 1, estimatedTokens, userId, projectId).catch(() => {});
@@ -126,11 +126,7 @@ export async function generateEmbeddings(
   }
 
   if (!byokKeys?.google && !byokKeys?.openai) {
-    throw new Error(
-      plan === "enterprise"
-        ? "Embedding failed. Please try again or configure your own API key in Settings."
-        : "No embedding provider available. Add a Google AI or OpenAI API key in Settings to use the knowledge base."
-    );
+    throw new Error("Embedding failed. Please try again later.");
   }
 
   throw new Error("Embedding failed with all configured providers. Please check your API keys.");
