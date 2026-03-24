@@ -25,6 +25,7 @@ const en = {
     customers: "Customers",
     emailTemplates: "Email Templates",
     emailReview: "Email Review",
+    mediaLibrary: "Media Library",
     activities: "Activities",
     referrals: "Referrals",
     intelligent: "Intelligent",

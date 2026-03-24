@@ -27,6 +27,7 @@ const zhTW: typeof en = {
     customers: "客戶資訊",
     emailTemplates: "郵件模板",
     emailReview: "郵件審核",
+    mediaLibrary: "素材庫",
     activities: "活動與任務",
     referrals: "推薦返佣",
     intelligent: "智慧中心",

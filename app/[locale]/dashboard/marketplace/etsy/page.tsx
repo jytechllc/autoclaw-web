@@ -30,7 +30,40 @@ export default function EtsyPage() {
   const isZh = locale === "zh" || locale === "zh-TW";
   const { user } = useUser();
 
-  const [activeTab, setActiveTab] = useState<"generator" | "about">("generator");
+  const [activeTab, setActiveTab] = useState<"generator" | "analyzer" | "about">("generator");
+
+  // Analyzer state
+  const [analyzeUrl, setAnalyzeUrl] = useState("");
+  const [analyzeFile, setAnalyzeFile] = useState<File | null>(null);
+  const [analyzePreview, setAnalyzePreview] = useState("");
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState("");
+
+  async function analyzeImage() {
+    if (!analyzeUrl && !analyzeFile) return;
+    setAnalyzing(true);
+    setAnalysisResult("");
+    try {
+      let imageData = analyzeUrl;
+      if (analyzeFile) {
+        const reader = new FileReader();
+        imageData = await new Promise((resolve) => {
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsDataURL(analyzeFile);
+        });
+      }
+      const res = await fetch("/api/etsy-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "analyze", image_url: imageData }),
+      });
+      const data = await res.json();
+      setAnalysisResult(data.analysis || data.error || "Analysis failed");
+    } catch {
+      setAnalysisResult(isZh ? "分析失败，请重试" : "Analysis failed");
+    }
+    setAnalyzing(false);
+  }
   const [productName, setProductName] = useState("");
   const [productDesc, setProductDesc] = useState("");
   const [selectedStyle, setSelectedStyle] = useState("product_white");
@@ -81,7 +114,11 @@ export default function EtsyPage() {
         {/* Tabs */}
         <div className="flex gap-1 mb-6 border-b border-gray-200">
           <button onClick={() => setActiveTab("generator")} className={`px-4 py-2 text-sm font-medium border-b-2 cursor-pointer ${activeTab === "generator" ? "border-red-700 text-red-700" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
-            {isZh ? "图片生成器" : "Image Generator"}
+            {isZh ? "图片生成" : "Image Generator"}
+          </button>
+          <button onClick={() => setActiveTab("analyzer")} className={`px-4 py-2 text-sm font-medium border-b-2 cursor-pointer ${activeTab === "analyzer" ? "border-red-700 text-red-700" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
+            {isZh ? "图片分析" : "Image Analyzer"}
+            <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">Free</span>
           </button>
           <button onClick={() => setActiveTab("about")} className={`px-4 py-2 text-sm font-medium border-b-2 cursor-pointer ${activeTab === "about" ? "border-red-700 text-red-700" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
             {isZh ? "平台指南" : "Platform Guide"}
@@ -196,6 +233,100 @@ export default function EtsyPage() {
                   ))}
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Analyzer Tab */}
+        {activeTab === "analyzer" && (
+          <div className="max-w-[800px] mx-auto">
+            <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-5 mb-6">
+              <h2 className="font-semibold text-green-800 mb-1">{isZh ? "AI 图片分析（免费）" : "AI Image Analysis (Free)"}</h2>
+              <p className="text-sm text-green-600">{isZh ? "上传产品图片，AI 会分析构图、光线、背景、风格，并给出 Etsy 优化建议" : "Upload a product photo. AI analyzes composition, lighting, background, styling and gives Etsy optimization tips"}</p>
+              <p className="text-xs text-green-500 mt-1">{isZh ? "由 GLM-4.6V-Flash 视觉模型提供支持" : "Powered by GLM-4.6V-Flash vision model"}</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Left: Upload */}
+              <div className="space-y-4">
+                <div className="bg-white border border-gray-200 rounded-xl p-5">
+                  <h3 className="font-medium mb-3">{isZh ? "上传图片" : "Upload Image"}</h3>
+
+                  {/* File upload */}
+                  <div
+                    className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center cursor-pointer hover:border-gray-400 transition-colors mb-3"
+                    onClick={() => document.getElementById("analyze-file-input")?.click()}
+                  >
+                    {analyzePreview ? (
+                      <img src={analyzePreview} alt="Preview" className="max-h-48 mx-auto rounded" />
+                    ) : (
+                      <>
+                        <div className="text-3xl mb-2">📷</div>
+                        <p className="text-sm text-gray-500">{isZh ? "点击上传或拖放图片" : "Click to upload or drag & drop"}</p>
+                      </>
+                    )}
+                    <input
+                      id="analyze-file-input"
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) {
+                          setAnalyzeFile(f);
+                          setAnalyzeUrl("");
+                          const reader = new FileReader();
+                          reader.onload = () => setAnalyzePreview(reader.result as string);
+                          reader.readAsDataURL(f);
+                        }
+                      }}
+                    />
+                  </div>
+
+                  {/* Or URL */}
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-xs text-gray-400">{isZh ? "或输入图片链接" : "or enter image URL"}</span>
+                    <div className="flex-1 h-px bg-gray-200" />
+                  </div>
+                  <input
+                    type="url"
+                    value={analyzeUrl}
+                    onChange={(e) => { setAnalyzeUrl(e.target.value); setAnalyzeFile(null); setAnalyzePreview(e.target.value); }}
+                    placeholder="https://..."
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                </div>
+
+                <button
+                  onClick={analyzeImage}
+                  disabled={analyzing || (!analyzeUrl && !analyzeFile)}
+                  className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white px-6 py-3 rounded-lg font-medium cursor-pointer"
+                >
+                  {analyzing ? (isZh ? "分析中..." : "Analyzing...") : (isZh ? "分析图片" : "Analyze Image")}
+                </button>
+              </div>
+
+              {/* Right: Results */}
+              <div>
+                <h3 className="font-medium mb-3">{isZh ? "分析结果" : "Analysis Results"}</h3>
+                {analysisResult ? (
+                  <div className="bg-white border border-gray-200 rounded-xl p-5 prose prose-sm max-w-none">
+                    <div className="whitespace-pre-wrap text-sm text-gray-700 leading-relaxed">{analysisResult}</div>
+                  </div>
+                ) : (
+                  <div className="bg-gray-50 border border-gray-200 rounded-xl p-12 text-center text-gray-400">
+                    <div className="text-4xl mb-3">🔍</div>
+                    <p>{isZh ? "上传图片后，AI 会给出详细的优化建议" : "Upload an image to get detailed optimization tips"}</p>
+                    <div className="mt-4 text-left text-xs text-gray-400 max-w-[250px] mx-auto space-y-1">
+                      <p>✓ {isZh ? "构图与排版" : "Composition & layout"}</p>
+                      <p>✓ {isZh ? "光线与色调" : "Lighting & color tone"}</p>
+                      <p>✓ {isZh ? "背景建议" : "Background suggestions"}</p>
+                      <p>✓ {isZh ? "Etsy 规范合规检查" : "Etsy compliance check"}</p>
+                      <p>✓ {isZh ? "提升转化率的建议" : "Conversion improvement tips"}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}

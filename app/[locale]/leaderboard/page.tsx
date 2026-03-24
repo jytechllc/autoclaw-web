@@ -70,7 +70,12 @@ const MODEL_MAINTAINERS: Record<string, string> = {
   "glm-5-turbo": "Zhipu AI (智谱)",
   // Embedding
   "text-embedding": "Google",
-  // Image / Video (xPilot / Google)
+  // Image / Video (free models / xPilot / Google)
+  "pixazo/flux-schnell": "Black Forest Labs",
+  "flux-schnell": "Black Forest Labs",
+  "pixazo/stable-diffusion": "Stability AI",
+  "pixazo/sdxl": "Stability AI",
+  "pixazo/sd-inpainting": "Stability AI",
   "google/nano-banana-2": "Google",
   "gemini-3.1-flash-image-preview": "Google",
   "bytedance/seedream-v4.5": "ByteDance",
@@ -113,6 +118,9 @@ const MARKET_LEADERBOARD: MarketModel[] = [
   { name: "DALL-E 3", provider: "OpenAI", category: "image", context: "—", pricing: "$0.04/img", highlight: "Best text understanding" },
   { name: "Midjourney v7", provider: "Midjourney", category: "image", context: "—", pricing: "$10/mo", highlight: "Best artistic quality" },
   { name: "Flux 1.1 Pro", provider: "Black Forest", category: "image", context: "—", pricing: "$0.04/img", highlight: "Best photorealism" },
+  { name: "Flux Schnell", provider: "Black Forest Labs", category: "image", context: "—", pricing: "Free", highlight: "Fastest free model (~1.2s), photorealistic" },
+  { name: "Stable Diffusion", provider: "Stability AI", category: "image", context: "—", pricing: "Free", highlight: "Versatile free workhorse" },
+  { name: "SDXL", provider: "Stability AI", category: "image", context: "—", pricing: "Free", highlight: "Free high-res generation" },
   { name: "Stable Diffusion 3.5", provider: "Stability AI", category: "image", context: "—", pricing: "Open / API paid", highlight: "Best open-source image (self-host free)" },
   { name: "Ideogram 3", provider: "Ideogram", category: "image", context: "—", pricing: "$0.04/img", highlight: "Best text-in-image" },
   // Video

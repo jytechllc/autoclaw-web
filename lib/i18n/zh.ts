@@ -27,6 +27,7 @@ const zh: typeof en = {
     customers: "客户信息",
     emailTemplates: "邮件模板",
     emailReview: "邮件审核",
+    mediaLibrary: "素材库",
     activities: "活动与任务",
     referrals: "推荐返佣",
     intelligent: "智能中心",

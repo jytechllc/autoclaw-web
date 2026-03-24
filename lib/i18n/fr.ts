@@ -27,6 +27,7 @@ const fr: typeof en = {
     customers: "Clients",
     emailTemplates: "Modèles d'email",
     emailReview: "Vérification des e-mails",
+    mediaLibrary: "Médiathèque",
     activities: "Activités",
     referrals: "Parrainage",
     intelligent: "Intelligence",

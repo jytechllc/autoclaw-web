@@ -43,6 +43,9 @@ const PLATFORM_MODELS: { model: string; provider: string; category: string }[] =
   { model: "openai/gpt-4o-mini", provider: "openai", category: "llm" },
   // Image
   { model: "google/nano-banana-2", provider: "google", category: "image" },
+  { model: "pixazo/flux-schnell", provider: "pixazo", category: "image" },
+  { model: "pixazo/stable-diffusion", provider: "pixazo", category: "image" },
+  { model: "pixazo/sdxl", provider: "pixazo", category: "image" },
   { model: "bytedance/seedream-v4.5", provider: "xpilot", category: "image" },
   { model: "dall-e-3", provider: "openai", category: "image" },
   // Video

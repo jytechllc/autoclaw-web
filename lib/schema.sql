@@ -461,3 +461,24 @@ CREATE TABLE IF NOT EXISTS user_budgets (
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS media_library (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+  title VARCHAR(500),
+  description TEXT,
+  image_url TEXT NOT NULL,
+  blob_url TEXT,
+  model VARCHAR(255),
+  provider VARCHAR(100),
+  prompt TEXT,
+  tags TEXT[] DEFAULT '{}',
+  width INTEGER,
+  height INTEGER,
+  file_size INTEGER,
+  status VARCHAR(20) DEFAULT 'ready',
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_media_library_user ON media_library(user_id);
+CREATE INDEX IF NOT EXISTS idx_media_library_project ON media_library(project_id);

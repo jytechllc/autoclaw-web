@@ -41,6 +41,7 @@ export default function DashboardShell({ children, user, plan, fullHeight }: Pro
         { href: `/${locale}/dashboard/knowledge`, label: tc.knowledge },
         { href: `/${locale}/dashboard/email-templates`, label: tc.emailTemplates },
         { href: `/${locale}/dashboard/email-review`, label: tc.emailReview || "Email Review" },
+        { href: `/${locale}/dashboard/media-library`, label: tc.mediaLibrary || "Media Library" },
       ],
     },
     {
@@ -76,6 +77,7 @@ export default function DashboardShell({ children, user, plan, fullHeight }: Pro
         { href: `/${locale}/dashboard/marketplace/amazon`, label: "Amazon" },
         { href: `/${locale}/dashboard/marketplace/dkwholesale`, label: "DK Wholesale" },
         { href: `/${locale}/dashboard/marketplace/etsy`, label: "Etsy" },
+        { href: `/${locale}/dashboard/marketplace/xianyu`, label: locale === "zh" || locale === "zh-TW" ? "闲鱼" : "Xianyu" },
       ],
     },
     {
