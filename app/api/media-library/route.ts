@@ -286,6 +286,8 @@ async function handleGenerate(
   return NextResponse.json({ id: rows[0].id, image_url: imageUrl, model: modelUsed, provider });
 }
 
+const VISION_PROMPT = "Describe this image in detail for use as alt text and social media caption. Provide: 1) A concise title (under 10 words) 2) A detailed description (2-3 sentences) 3) Suggested tags (comma-separated). Format as JSON: {\"title\": \"...\", \"description\": \"...\", \"tags\": [\"...\"]}";
+
 async function handleDescribe(
   body: { id?: number; image_url?: string },
   sql: ReturnType<typeof getDb>,
@@ -295,36 +297,72 @@ async function handleDescribe(
   const url = image_url || (id ? ((await sql`SELECT image_url FROM media_library WHERE id = ${id} AND user_id = ${userId}`)[0]?.image_url as string) : null);
   if (!url) return NextResponse.json({ error: "image_url or id required" }, { status: 400 });
 
-  // Use GLM-4.6V via z.ai for image description
-  const glmKey = process.env.ZAI_API_KEY;
-  if (!glmKey) return NextResponse.json({ error: "ZAI_API_KEY not configured" }, { status: 400 });
+  let content = "";
+  let modelUsed = "";
 
-  const res = await fetch("https://api.z.ai/api/paas/v4/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${glmKey}`,
-    },
-    body: JSON.stringify({
-      model: "GLM-4.6V-Flash",
-      messages: [{
-        role: "user",
-        content: [
-          { type: "image_url", image_url: { url } },
-          { type: "text", text: "Describe this image in detail for use as alt text and social media caption. Provide: 1) A concise title (under 10 words) 2) A detailed description (2-3 sentences) 3) Suggested tags (comma-separated). Format as JSON: {\"title\": \"...\", \"description\": \"...\", \"tags\": [\"...\"]}" },
-        ],
-      }],
-      max_tokens: 500,
-    }),
-  });
-
-  if (!res.ok) {
-    const err = await res.text();
-    return NextResponse.json({ error: `GLM-4.6V error: ${err}` }, { status: 500 });
+  // Primary: Nemotron Nano 12B V2 VL via OpenRouter (free, strong document/image understanding)
+  const openrouterKey = process.env.OPENROUTER_API_KEY;
+  if (openrouterKey) {
+    try {
+      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${openrouterKey}`,
+        },
+        body: JSON.stringify({
+          model: "nvidia/nemotron-nano-12b-v2-vl:free",
+          messages: [{
+            role: "user",
+            content: [
+              { type: "image_url", image_url: { url } },
+              { type: "text", text: VISION_PROMPT },
+            ],
+          }],
+          max_tokens: 500,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        content = data.choices?.[0]?.message?.content || "";
+        modelUsed = "nemotron-nano-12b-v2-vl";
+      }
+    } catch { /* fall through to GLM */ }
   }
 
-  const data = await res.json();
-  const content = data.choices?.[0]?.message?.content || "";
+  // Fallback: GLM-4.6V Flash via z.ai (free, unlimited)
+  if (!content) {
+    const glmKey = process.env.ZAI_API_KEY;
+    if (!glmKey) return NextResponse.json({ error: "No vision model available. Configure OPENROUTER_API_KEY or ZAI_API_KEY." }, { status: 400 });
+
+    const res = await fetch("https://api.z.ai/api/paas/v4/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${glmKey}`,
+      },
+      body: JSON.stringify({
+        model: "GLM-4.6V-Flash",
+        messages: [{
+          role: "user",
+          content: [
+            { type: "image_url", image_url: { url } },
+            { type: "text", text: VISION_PROMPT },
+          ],
+        }],
+        max_tokens: 500,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      return NextResponse.json({ error: `Vision model error: ${err}` }, { status: 500 });
+    }
+
+    const data = await res.json();
+    content = data.choices?.[0]?.message?.content || "";
+    modelUsed = "GLM-4.6V-Flash";
+  }
 
   // Parse JSON from response
   let parsed: { title?: string; description?: string; tags?: string[] } = {};
@@ -346,5 +384,5 @@ async function handleDescribe(
     `;
   }
 
-  return NextResponse.json({ ...parsed, model: "GLM-4.6V-Flash" });
+  return NextResponse.json({ ...parsed, model: modelUsed });
 }

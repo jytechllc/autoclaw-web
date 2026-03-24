@@ -1,6 +1,7 @@
 const CEREBRAS_API_KEY = process.env.CEREBRAS_API_KEY;
 const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
 const GOOGLE_AI_API = process.env.GOOGLE_AI_API;
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const ALIBABA_AI_BASE_URL = process.env.ALIBABA_AI_BASE_URL || "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
 
 interface ChatMessage {
@@ -180,6 +181,68 @@ async function callGoogle(apiKey: string, model: string, messages: ChatMessage[]
   };
 }
 
+// --- OpenRouter (routes to any model via OpenRouter API) ---
+async function callOpenRouter(model: string, messages: ChatMessage[], maxTokens: number): Promise<AIResponse> {
+  if (!OPENROUTER_API_KEY) throw new Error("OPENROUTER_API_KEY not set");
+
+  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+      "HTTP-Referer": "https://autoclaw.ai",
+      "X-Title": "AutoClaw",
+    },
+    body: JSON.stringify({ model, messages, max_tokens: maxTokens }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`OpenRouter error ${res.status}: ${err}`);
+  }
+
+  const data = await res.json();
+  return {
+    content: data.choices?.[0]?.message?.content || "",
+    provider: "openrouter",
+    model,
+    usage: data.usage ? {
+      prompt_tokens: data.usage.prompt_tokens || 0,
+      completion_tokens: data.usage.completion_tokens || 0,
+      total_tokens: data.usage.total_tokens || 0,
+    } : undefined,
+  };
+}
+
+// ── Benchmark-based auto model cache ──
+// In-memory cache of the best model from benchmarks (refreshed on cold start or every 1h)
+let _cachedBestModel: { modelId: string; provider: string; fetchedAt: number } | null = null;
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+async function getBenchmarkBestModel(): Promise<{ modelId: string; provider: string } | null> {
+  if (_cachedBestModel && Date.now() - _cachedBestModel.fetchedAt < CACHE_TTL_MS) {
+    return { modelId: _cachedBestModel.modelId, provider: _cachedBestModel.provider };
+  }
+  try {
+    const { neon } = await import("@neondatabase/serverless");
+    const sql = neon(process.env.DATABASE_URL!);
+    const rows = await sql`
+      SELECT model_id, provider FROM model_benchmarks
+      WHERE is_available = true AND score_total > 30
+      AND run_id = (SELECT run_id FROM model_benchmarks ORDER BY created_at DESC LIMIT 1)
+      ORDER BY score_total DESC LIMIT 1
+    `;
+    if (rows.length > 0) {
+      const best = { modelId: rows[0].model_id as string, provider: rows[0].provider as string };
+      _cachedBestModel = { ...best, fetchedAt: Date.now() };
+      return best;
+    }
+  } catch (e) {
+    console.warn("[AI] Failed to fetch benchmark best model:", e);
+  }
+  return null;
+}
+
 // ── Model ID → API model mapping ──
 const MODEL_API_MAP: Record<string, string> = {
   "cerebras/gpt-oss-120b": "gpt-oss-120b",
@@ -254,10 +317,31 @@ export async function chatWithAI(messages: ChatMessage[], maxTokens = 500, byok?
     return msg.slice(0, 300);
   };
 
-  // Build ordered provider list: most reliable first, limit fallbacks to reduce subrequests
+  // Build ordered provider list: benchmark winner first, then fallbacks
   const providers: { name: string; call: () => Promise<AIResponse> }[] = [];
 
-  // Platform keys first — prefer larger models that follow tool_call format reliably
+  // 1. Benchmark-selected best model (auto-adjusted weekly)
+  const benchBest = await getBenchmarkBestModel();
+  if (benchBest) {
+    const { modelId, provider: bestProvider } = benchBest;
+    // Route to correct API based on provider
+    if (bestProvider === "cerebras" && CEREBRAS_API_KEY) {
+      const apiModel = MODEL_API_MAP[modelId] || modelId.replace("cerebras/", "");
+      providers.push({ name: `Benchmark: ${modelId}`, call: () => callOpenAICompatible("https://api.cerebras.ai/v1/chat/completions", CEREBRAS_API_KEY, apiModel, "cerebras", messages, maxTokens) });
+    } else if (bestProvider === "nvidia" && NVIDIA_API_KEY) {
+      const apiModel = MODEL_API_MAP[modelId] || modelId.replace("nvidia/", "");
+      providers.push({ name: `Benchmark: ${modelId}`, call: () => callOpenAICompatible("https://integrate.api.nvidia.com/v1/chat/completions", NVIDIA_API_KEY, apiModel, "nvidia", messages, maxTokens) });
+    } else if (bestProvider === "google" && GOOGLE_AI_API) {
+      const apiModel = MODEL_API_MAP[modelId] || modelId.replace("google/", "");
+      providers.push({ name: `Benchmark: ${modelId}`, call: () => callGoogle(GOOGLE_AI_API, apiModel, messages, maxTokens) });
+    } else if (bestProvider === "openrouter" && OPENROUTER_API_KEY) {
+      // OpenRouter model ID is stored as "openrouter/actual-model-id", extract the actual ID
+      const orModel = modelId.replace("openrouter/", "");
+      providers.push({ name: `Benchmark: ${modelId}`, call: () => callOpenRouter(orModel, messages, maxTokens) });
+    }
+  }
+
+  // 2. Platform keys as fallback
   if (CEREBRAS_API_KEY) {
     providers.push({ name: "Cerebras qwen-3-235b", call: () => callOpenAICompatible("https://api.cerebras.ai/v1/chat/completions", CEREBRAS_API_KEY, "qwen-3-235b-a22b-instruct-2507", "cerebras", messages, maxTokens) });
   }
@@ -269,8 +353,8 @@ export async function chatWithAI(messages: ChatMessage[], maxTokens = 500, byok?
   if (byok?.google) providers.push({ name: "BYOK Google", call: () => callGoogle(byok.google!, "gemini-2.0-flash", messages, maxTokens) });
   if (byok?.alibaba) providers.push({ name: "BYOK Alibaba", call: () => callOpenAICompatible(`${ALIBABA_AI_BASE_URL}/chat/completions`, byok.alibaba!, "qwen-turbo", "alibaba", messages, maxTokens) });
 
-  // Try at most 2 providers to stay within subrequest limits (called 4× in orchestrator = max 8 API calls)
-  const MAX_FALLBACKS = 2;
+  // Try at most 3 providers: benchmark winner → platform key → BYOK fallback
+  const MAX_FALLBACKS = 3;
   for (const p of providers.slice(0, MAX_FALLBACKS)) {
     try {
       const result = await p.call();

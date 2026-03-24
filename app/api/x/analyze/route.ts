@@ -539,8 +539,8 @@ Return your response as JSON with this exact structure:
     "opportunities": "Specific opportunities based on comparing your posts with industry top performers"
   },` : ""}
   "variants": [
-    { "label": "A", "text": "First tweet variant (max 280 chars)", "tone": "e.g. professional / casual / bold", "imagePrompt": "A concise image description for this variant", "bestPostTimes": ["9:00 AM", "12:30 PM", "6:00 PM"], "estimatedCost": { "postsPerWeek": 3, "monthlyBudget": "$0.50-1.50", "breakdown": "3 posts/week × AI ($0.002/post) + image ($0.02/img) = ~$0.30/mo" } },
-    { "label": "B", "text": "Second tweet variant, different angle/tone (max 280 chars)", "tone": "...", "imagePrompt": "...", "bestPostTimes": ["8:00 AM", "1:00 PM"], "estimatedCost": { "postsPerWeek": 5, "monthlyBudget": "$0.80-2.00", "breakdown": "..." } },
+    { "label": "A", "text": "First tweet variant (max 280 chars)", "tone": "e.g. professional / casual / bold", "imagePrompt": "A concise image description for this variant", "bestPostTimes": ["9:00 AM", "12:30 PM", "6:00 PM"], "estimatedCost": { "postsPerWeek": 3, "monthlyBudget": "$0/mo (free models)", "breakdown": "3 posts/week × Cerebras (free) + Flux Schnell (free) = $0/mo" } },
+    { "label": "B", "text": "Second tweet variant, different angle/tone (max 280 chars)", "tone": "...", "imagePrompt": "...", "bestPostTimes": ["8:00 AM", "1:00 PM"], "estimatedCost": { "postsPerWeek": 5, "monthlyBudget": "$0/mo (free models)", "breakdown": "..." } },
     { "label": "C", "text": "Third tweet variant, most creative/experimental (max 280 chars)", "tone": "...", "imagePrompt": "...", "bestPostTimes": ["10:00 AM", "7:00 PM"], "estimatedCost": { "postsPerWeek": 7, "monthlyBudget": "$1.00-3.00", "breakdown": "..." } }
   ],
   "strategy": "1-2 sentence strategy recommendation"
@@ -550,9 +550,9 @@ For each variant:
 - "bestPostTimes": Array of 2-3 optimal daily posting times in "H:MM AM/PM" format. Base these on the user's post performance data (when posts got most engagement), the variant's target audience, and industry best practices. Each variant may have different optimal times based on its tone and audience.
 - "estimatedCost": Object with:
   - "postsPerWeek": recommended posting frequency for this strategy (number)
-  - "monthlyBudget": estimated monthly cost range for TOOL USAGE ONLY (string). Costs are: AI analysis ~$0.002/call (free if using BYOK Cerebras), image generation ~$0.02/image via xPilot. Do NOT include advertising or promotion costs — only the actual API/tool costs to generate and schedule the posts.
+  - "monthlyBudget": estimated monthly cost range for TOOL USAGE ONLY (string). Costs are: AI analysis ~$0.002/call (free with Cerebras), image generation FREE via Flux Schnell/SDXL or ~$0.02/image via Seedream. Do NOT include advertising or promotion costs — only the actual API/tool costs to generate and schedule the posts.
   - "breakdown": brief cost breakdown showing the math (1 sentence)
-Be realistic — most strategies cost under $5/month in tool costs.${langInstruction}`;
+Be realistic — with free models (Flux Schnell + Cerebras), most strategies cost $0/month in tool costs.${langInstruction}`;
 
   const userPrompt = `Here are my 5 most recent posts with their performance metrics:\n\n${myTweetsContext}${industryContext}${kbContext}${topic ? `\n\nThe user wants the new post to be about: ${topic}` : ""}\n\nAnalyze ${hasIndustryData ? "both my posts and the industry posts, compare them," : "my posts"} and generate a new optimized sample post.`;
 

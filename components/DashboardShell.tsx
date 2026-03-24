@@ -99,11 +99,11 @@ export default function DashboardShell({ children, user, plan, fullHeight }: Pro
 
   const isActive = (href: string) => pathname === href;
 
-  // Default to all groups expanded so the navigation is fully visible on first load.
+  // Default to collapsed — only expand the group containing the active page.
   const getInitialExpanded = () => {
     const expanded = new Set<string>();
     for (const item of navItems) {
-      if (isGroup(item)) {
+      if (isGroup(item) && item.children.some((c) => pathname === c.href)) {
         expanded.add(item.label);
       }
     }

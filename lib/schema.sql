@@ -482,3 +482,25 @@ CREATE TABLE IF NOT EXISTS media_library (
 );
 CREATE INDEX IF NOT EXISTS idx_media_library_user ON media_library(user_id);
 CREATE INDEX IF NOT EXISTS idx_media_library_project ON media_library(project_id);
+
+-- Model benchmarks: stores weekly OpenRouter free-model benchmark results
+CREATE TABLE IF NOT EXISTS model_benchmarks (
+  id SERIAL PRIMARY KEY,
+  model_id VARCHAR(255) NOT NULL,          -- OpenRouter model ID e.g. "qwen/qwen3-coder-480b-a35b:free"
+  model_name VARCHAR(255) NOT NULL,
+  provider VARCHAR(100),
+  context_length INTEGER DEFAULT 0,
+  score_tool_calling REAL DEFAULT 0,       -- 0-100: can it output tool_call JSON?
+  score_multilingual REAL DEFAULT 0,       -- 0-100: Chinese in → Chinese out
+  score_instruction REAL DEFAULT 0,        -- 0-100: follows complex system prompts
+  score_speed REAL DEFAULT 0,              -- 0-100: response latency
+  score_total REAL DEFAULT 0,              -- weighted average
+  latency_ms INTEGER DEFAULT 0,
+  is_available BOOLEAN DEFAULT true,
+  error_message TEXT,
+  run_id VARCHAR(50) NOT NULL,             -- groups results from same benchmark run
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_model_benchmarks_run ON model_benchmarks(run_id);
+CREATE INDEX IF NOT EXISTS idx_model_benchmarks_score ON model_benchmarks(score_total DESC);
+CREATE INDEX IF NOT EXISTS idx_model_benchmarks_created ON model_benchmarks(created_at DESC);

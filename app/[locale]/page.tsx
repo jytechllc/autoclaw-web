@@ -155,17 +155,17 @@ export default function Home() {
   const isChineseLocale = locale === "zh" || locale === "zh-TW";
 
   const pricingPlans = [
-    { name: t.planStarter, price: t.planStarterPrice, period: "", description: t.planStarterDesc, features: [t.feat2Agents, t.feat100Emails, t.feat1Project, t.featFreeModels, t.featBYOK, t.featCommunity, t.featBasicTemplates], cta: t.ctaStarterFree, highlight: false, plan: "starter", disabled: false, minCommitment: false },
-    { name: t.planGrowth, price: t.planGrowthPrice, period: t.perMonth, description: t.planGrowthDesc, features: [t.feat10Agents, t.feat2000Emails, t.feat5Projects, t.featCrm, t.featSeoContent, t.featSocialAuto, t.featPriority], cta: isChineseLocale ? t.ctaContactSales : t.ctaStartTrial, highlight: true, plan: "growth", disabled: false, minCommitment: true },
-    { name: t.planScale, price: t.planScalePrice, period: t.perMonth, description: t.planScaleDesc, features: [t.featUnlimitedAgents, t.feat10000Emails, t.featUnlimitedProjects, t.featCustomAgent, t.featMultiChannel, t.featAdvAnalytics, t.featDedicated, t.featWhiteLabel], cta: isChineseLocale ? t.ctaContactSales : t.ctaGetStarted, highlight: false, plan: "scale", disabled: false, minCommitment: true },
-    { name: t.planEnterprise, price: t.planEnterprisePrice, period: "", description: t.planEnterpriseDesc, features: [t.featEverythingScale, t.featDedicatedInfra, t.featCustomTraining, t.featSla, t.featSso, t.featOnPrem, t.featCustomApi, t.featAccountManager, t.featVolumeEmail], cta: t.ctaContactSales, highlight: false, plan: "enterprise", disabled: false, minCommitment: true },
+    { name: t.planStarter, price: t.planStarterPrice, period: "", description: t.planStarterDesc, features: [t.feat2Agents, t.featUnlimitedContacts, t.feat100Emails, t.feat1Project, t.featFreeModels, t.featFreeMedia, t.featSocialMedia, t.featBasicTemplates, t.featTeam5, t.featDashboardReports], cta: t.ctaStarterFree, highlight: false, plan: "starter", disabled: false, minCommitment: false },
+    { name: t.planGrowth, price: t.planGrowthPrice, period: t.perMonth, description: t.planGrowthDesc, features: [t.featUnlimitedAgents, t.featUnlimitedContacts, t.featFastModels, t.featByokMarket, t.featBYOK, t.feat2000Emails, t.featCrm, t.featSeoContent, t.featSocialAuto, t.featTeamUnlimited, t.featPriority], cta: isChineseLocale ? t.ctaContactSales : t.ctaStartTrial, highlight: true, plan: "growth", disabled: false, minCommitment: true },
+    { name: t.planScale, price: t.planScalePrice, period: t.perMonth, description: t.planScaleDesc, features: [t.featUnlimitedAgents, t.featUnlimitedContacts, t.featFastModels, t.featByokMarket, t.featBYOK, t.feat10000Emails, t.featCustomAgent, t.featTeamUnlimited, t.featAdvAnalytics, t.featDedicated], cta: isChineseLocale ? t.ctaContactSales : t.ctaGetStarted, highlight: false, plan: "scale", disabled: false, minCommitment: true },
+    { name: t.planEnterprise, price: t.planEnterprisePrice, period: "", description: t.planEnterpriseDesc, features: [t.featEverythingScale, t.featDedicatedInfra, t.featCustomTraining, t.featSla, t.featSso, t.featOnPrem, t.featCustomApi, t.featAccountManager, t.featVolumeEmail, t.featWhiteLabel], cta: t.ctaContactSales, highlight: false, plan: "enterprise", disabled: false, minCommitment: true },
   ];
 
   const stats = [
+    { value: "300+", label: t.statModels },
     { value: "30+", label: t.statSkills },
     { value: "24/7", label: t.statOperation },
     { value: "10K+", label: t.statEmails },
-    { value: "3", label: t.statProducts },
   ];
 
   const steps = [
@@ -388,8 +388,7 @@ export default function Home() {
               <h2 className="text-3xl md:text-4xl font-bold mb-4">{t.pricingTitle}</h2>
               <p className="text-lg text-gray-500 max-w-2xl mx-auto">{t.pricingSubtitle}</p>
             </div>
-            <p className="text-center text-sm text-gray-500 mb-8">{t.planMinCommitment}</p>
-            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
+            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto mt-8">
               {pricingPlans.map((plan) => (
                 <div key={plan.name} className={`rounded-xl p-8 relative flex flex-col ${plan.highlight ? "bg-primary text-white ring-4 ring-red-200 scale-105" : plan.disabled ? "bg-gray-50 border border-gray-200 opacity-60" : "bg-white border border-gray-200"}`}>
                   {plan.disabled && <span className="absolute top-3 right-3 bg-gray-200 text-gray-500 text-xs font-medium px-2 py-0.5 rounded-full">{t.planComingSoon}</span>}
@@ -433,6 +432,7 @@ export default function Home() {
                 </div>
               ))}
             </div>
+            <p className="text-xs text-gray-400 text-center mt-12">*{t.smtpDisclaimer}</p>
           </div>
         </section>
 
