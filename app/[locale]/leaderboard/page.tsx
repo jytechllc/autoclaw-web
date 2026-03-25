@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import type { Locale } from "@/lib/i18n";
@@ -133,7 +133,7 @@ const MARKET_LEADERBOARD: MarketModel[] = [
   { name: "GLM-4.6V Flash", provider: "Zhipu AI (智谱)", category: "llm", arena_elo: 1275, context: "128K", pricing: "Free", highlight: "Free multimodal vision model" },
   { name: "GLM-5", provider: "Zhipu AI (智谱)", category: "llm", arena_elo: 1320, context: "128K", pricing: "Paid", highlight: "Latest flagship Chinese model" },
   { name: "GLM-5 Turbo", provider: "Zhipu AI (智谱)", category: "llm", arena_elo: 1305, context: "128K", pricing: "Paid", highlight: "Fast flagship model" },
-  { name: "Llama 3.3 70B", provider: "Meta", category: "llm", arena_elo: 1260, context: "128K", pricing: "BYOK (NVIDIA)", highlight: "Best NVIDIA NIM model (~51 tok/s)" },
+  { name: "Llama 3.3 70B", provider: "Meta", category: "llm", arena_elo: 1260, context: "128K", pricing: "BYOK", highlight: "Best NVIDIA NIM model (~51 tok/s)" },
   { name: "Llama 3.1 8B", provider: "Meta", category: "llm", arena_elo: 1200, context: "128K", pricing: "Free", highlight: "Fastest inference (~2500 tok/s)" },
   // OpenRouter free models
   { name: "Step 3.5 Flash", provider: "StepFun", category: "llm", arena_elo: 1290, context: "256K", pricing: "Free", highlight: "1.63T tokens/week, ~30 tok/s" },
@@ -181,14 +181,55 @@ const MARKET_LEADERBOARD: MarketModel[] = [
 
 export default function LeaderboardPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const locale = (params.locale as Locale) || "en";
   const isZh = locale === "zh" || locale === "zh-TW";
-  const [activeTab, setActiveTab] = useState<"platform" | "market">("platform");
+
+  const tabParam = searchParams.get("tab");
+  const categoryParam = searchParams.get("category");
+
+  const [activeTab, setActiveTabState] = useState<"platform" | "market">(
+    tabParam === "market" ? "market" : "platform"
+  );
   const [rankings, setRankings] = useState<PlatformRanking[]>([]);
   const [autoPick, setAutoPick] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
-  const [marketCategory, setMarketCategory] = useState<"llm" | "image" | "video" | "audio" | "search">("llm");
-  const [platformCategory, setPlatformCategory] = useState<"all" | "llm" | "image" | "video" | "audio" | "search" | "embedding">("all");
+  const [marketCategory, setMarketCategoryState] = useState<"llm" | "image" | "video" | "audio" | "search">(
+    (tabParam === "market" && categoryParam && ["llm", "image", "video", "audio", "search"].includes(categoryParam))
+      ? categoryParam as "llm" | "image" | "video" | "audio" | "search"
+      : "llm"
+  );
+  const [platformCategory, setPlatformCategoryState] = useState<"all" | "llm" | "image" | "video" | "audio" | "search" | "embedding">(
+    (tabParam !== "market" && categoryParam && ["all", "llm", "image", "video", "audio", "search", "embedding"].includes(categoryParam))
+      ? categoryParam as "all" | "llm" | "image" | "video" | "audio" | "search" | "embedding"
+      : "all"
+  );
+
+  const updateURL = useCallback((tab: string, category?: string) => {
+    const params = new URLSearchParams();
+    params.set("tab", tab);
+    if (category && category !== (tab === "platform" ? "all" : "llm")) {
+      params.set("category", category);
+    }
+    router.replace(`/${locale}/leaderboard?${params.toString()}`, { scroll: false });
+  }, [locale, router]);
+
+  const setActiveTab = useCallback((tab: "platform" | "market") => {
+    setActiveTabState(tab);
+    const cat = tab === "platform" ? platformCategory : marketCategory;
+    updateURL(tab, cat);
+  }, [updateURL, platformCategory, marketCategory]);
+
+  const setPlatformCategory = useCallback((cat: "all" | "llm" | "image" | "video" | "audio" | "search" | "embedding") => {
+    setPlatformCategoryState(cat);
+    updateURL("platform", cat);
+  }, [updateURL]);
+
+  const setMarketCategory = useCallback((cat: "llm" | "image" | "video" | "audio" | "search") => {
+    setMarketCategoryState(cat);
+    updateURL("market", cat);
+  }, [updateURL]);
 
   const fetchRankings = useCallback(async () => {
     setLoading(true);
