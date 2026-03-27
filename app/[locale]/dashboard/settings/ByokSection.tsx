@@ -84,6 +84,9 @@ export default function ByokSection({
           { service: "clawhub", name: ts.byokClawhub, hint: ts.byokClawhubHint, tier: "free" as const, tierInfo: ts.byokClawhubTier },
           { service: "xpilot", name: ts.byokXpilot, hint: ts.byokXpilotHint, tier: "free" as const, tierInfo: ts.byokXpilotTier },
           { service: "blob_token", name: ts.byokBlobToken, hint: ts.byokBlobTokenHint, tier: "free" as const, tierInfo: ts.byokBlobTokenTier },
+          ...(userPlan !== "starter" ? [
+            { service: "llamaindex" as const, name: ts.byokLlamaindex || "LlamaIndex Cloud", hint: ts.byokLlamaindexHint || "Dedicated document indexing & retrieval. Get key at cloud.llamaindex.ai.", tier: "freemium" as const, tierInfo: ts.byokLlamaindexTier || "Shared included. BYOK for unlimited docs (Growth+)." },
+          ] : []),
           { service: "brevo", name: ts.byokBravo, hint: ts.byokBrevoHint, tier: "free" as const, tierInfo: ts.byokBrevoTier },
           { service: "sendgrid", name: ts.byokSendGrid, hint: ts.byokSendGridHint, tier: "free" as const, tierInfo: ts.byokSendGridTier },
           // SMTP fields are grouped into a single card below (after Twitter)

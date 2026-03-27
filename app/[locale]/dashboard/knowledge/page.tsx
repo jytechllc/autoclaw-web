@@ -377,6 +377,12 @@ export default function KnowledgePage() {
           <p className="text-sm text-gray-500 mt-1">{t.subtitle}</p>
         </div>
 
+        {/* LlamaIndex shared banner */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800 flex items-start gap-2">
+          <svg className="w-4 h-4 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg>
+          <span>{t.kbLlamaindexBanner || "Documents are stored on shared LlamaIndex Cloud. Add your own LlamaIndex key in Settings → API Keys for dedicated storage and unlimited documents."}</span>
+        </div>
+
         {/* Usage bar */}
         <div className="bg-white rounded-lg border border-gray-200 p-4 flex flex-wrap items-center gap-4 text-sm">
           <div className="flex items-center gap-2">

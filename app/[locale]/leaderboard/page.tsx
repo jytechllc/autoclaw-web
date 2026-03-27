@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
@@ -180,6 +180,14 @@ const MARKET_LEADERBOARD: MarketModel[] = [
 ];
 
 export default function LeaderboardPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gray-50 flex items-center justify-center text-gray-400">Loading...</div>}>
+      <LeaderboardContent />
+    </Suspense>
+  );
+}
+
+function LeaderboardContent() {
   const params = useParams();
   const searchParams = useSearchParams();
   const router = useRouter();
