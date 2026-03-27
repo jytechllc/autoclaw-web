@@ -60,7 +60,19 @@ function SuccessContent({
             setError(errorMessage);
           }
         } else if (sessionId) {
-          setPaymentInfo({ status: "success" });
+          // Verify Stripe session and record payment
+          const response = await fetch(`/api/checkout/verify?session_id=${sessionId}`);
+          if (response.ok) {
+            const data = await response.json();
+            setPaymentInfo({
+              plan: data.plan,
+              amount: data.amount,
+              status: data.status,
+            });
+          } else {
+            // Still show success even if verify fails (payment went through Stripe)
+            setPaymentInfo({ status: "success" });
+          }
         } else {
           setPaymentInfo({ status: "success" });
         }

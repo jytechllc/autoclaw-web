@@ -7,6 +7,18 @@ import { useParams } from "next/navigation";
 import { getDictionary, type Locale } from "@/lib/i18n";
 import DashboardShell from "@/components/DashboardShell";
 
+interface Payment {
+  order_no: string;
+  transaction_id: string | null;
+  payment_method: string;
+  amount: number;
+  currency: string;
+  status: string;
+  plan: string | null;
+  paid_at: string | null;
+  created_at: string;
+}
+
 interface Invoice {
   id: string;
   number: string | null;
@@ -151,6 +163,7 @@ export default function BillingPage() {
   const [totalBudgetLimit, setTotalBudgetLimit] = useState<string>("");
   const [alertThresholds, setAlertThresholds] = useState<boolean[]>([false, true, true]); // 50%, 80%, 100%
   const [autoPause, setAutoPause] = useState(true);
+  const [payments, setPayments] = useState<Payment[]>([]);
   const [budgetSaving, setBudgetSaving] = useState(false);
   const [budgetMsg, setBudgetMsg] = useState("");
 
@@ -161,8 +174,10 @@ export default function BillingPage() {
     const fetchTokens = fetch("/api/token-usage").then((r) => r.json()).catch(() => ({}));
     const fetchKeys = fetch("/api/api-keys").then((r) => r.json()).catch(() => ({}));
     const fetchBudget = fetch("/api/budget").then((r) => r.json()).catch(() => ({}));
-    Promise.all([fetchBilling, fetchTokens, fetchKeys, fetchBudget])
-      .then(([billingData, tokenData, keyData, budgetData]) => {
+    const fetchPayments = fetch("/api/payments").then((r) => r.json()).catch(() => ({}));
+    Promise.all([fetchBilling, fetchTokens, fetchKeys, fetchBudget, fetchPayments])
+      .then(([billingData, tokenData, keyData, budgetData, paymentData]) => {
+        setPayments(paymentData.payments || []);
         setInvoices(billingData.invoices || []);
         setSubscriptions(billingData.subscriptions || []);
         if (billingData.userPlan) setUserPlan(billingData.userPlan);
@@ -672,6 +687,47 @@ export default function BillingPage() {
                 </div>
               )}
             </section>
+
+            {/* Payment History */}
+            {payments.length > 0 && (
+              <section className="mb-8">
+                <h2 className="text-lg font-semibold mb-4">{locale === "zh" || locale === "zh-TW" ? "购买记录" : "Payment History"}</h2>
+                <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-gray-50 border-b border-gray-200">
+                          <th className="text-left px-4 py-3 font-medium text-gray-600">{locale === "zh" || locale === "zh-TW" ? "订单号" : "Order"}</th>
+                          <th className="text-left px-4 py-3 font-medium text-gray-600">{locale === "zh" || locale === "zh-TW" ? "方案" : "Plan"}</th>
+                          <th className="text-left px-4 py-3 font-medium text-gray-600">{td.amount}</th>
+                          <th className="text-left px-4 py-3 font-medium text-gray-600">{locale === "zh" || locale === "zh-TW" ? "支付方式" : "Method"}</th>
+                          <th className="text-left px-4 py-3 font-medium text-gray-600">{td.status}</th>
+                          <th className="text-left px-4 py-3 font-medium text-gray-600">{td.date}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {payments.map((p) => (
+                          <tr key={p.order_no} className="border-b border-gray-100 last:border-0">
+                            <td className="px-4 py-3 font-mono text-xs">{p.order_no}</td>
+                            <td className="px-4 py-3 capitalize">{p.plan || "—"}</td>
+                            <td className="px-4 py-3 font-medium">
+                              {p.currency === "CNY" ? `¥${(p.amount / 100).toFixed(2)}` : formatCurrency(p.amount, p.currency)}
+                            </td>
+                            <td className="px-4 py-3">
+                              {p.payment_method === "wechat_pay" ? "WeChat Pay" : p.payment_method === "stripe" ? "Stripe" : p.payment_method}
+                            </td>
+                            <td className="px-4 py-3">{statusBadge(p.status, locale)}</td>
+                            <td className="px-4 py-3 text-gray-600">
+                              {p.paid_at ? new Date(p.paid_at).toLocaleDateString() : new Date(p.created_at).toLocaleDateString()}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </section>
+            )}
 
             {/* Invoices */}
             <section>
