@@ -85,6 +85,7 @@ export default function ByokSection({
             { service: "clawhub" as const, name: ts.byokClawhub, hint: ts.byokClawhubHint, tier: "free" as const, tierInfo: ts.byokClawhubTier },
           ] : []),
           { service: "xpilot", name: ts.byokXpilot, hint: ts.byokXpilotHint, tier: "free" as const, tierInfo: ts.byokXpilotTier },
+          { service: "buffer", name: ts.byokBuffer || "Buffer", hint: ts.byokBufferHint || "Social media scheduling & publishing.", tier: "freemium" as const, tierInfo: ts.byokBufferTier || "Free: 3 channels." },
           ...(userPlan !== "starter" ? [
             { service: "blob_token" as const, name: ts.byokBlobToken, hint: ts.byokBlobTokenHint, tier: "free" as const, tierInfo: ts.byokBlobTokenTier },
             { service: "llamaindex" as const, name: ts.byokLlamaindex || "LlamaIndex Cloud", hint: ts.byokLlamaindexHint || "Dedicated document indexing & retrieval. Get key at cloud.llamaindex.ai.", tier: "freemium" as const, tierInfo: ts.byokLlamaindexTier || "Shared included. BYOK for unlimited docs (Growth+)." },
