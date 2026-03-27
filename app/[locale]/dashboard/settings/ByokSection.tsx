@@ -75,20 +75,22 @@ export default function ByokSection({
 
       <div className="space-y-3">
         {([
-          { service: "openai", name: ts.byokOpenai, hint: ts.byokOpenaiHint, tier: "freemium" as const, tierInfo: ts.byokOpenaiTier },
-          { service: "anthropic", name: ts.byokAnthropic, hint: ts.byokAnthropicHint, tier: "freemium" as const, tierInfo: ts.byokAnthropicTier },
-          { service: "google", name: ts.byokGoogle, hint: ts.byokGoogleHint, tier: "free" as const, tierInfo: ts.byokGoogleTier },
-          { service: "alibaba", name: ts.byokAlibaba, hint: ts.byokAlibabaHint, tier: "free" as const, tierInfo: ts.byokAlibabaTier },
-          { service: "cerebras", name: ts.byokCerebras, hint: ts.byokCerebrasHint, tier: "free" as const, tierInfo: ts.byokCerebrasTier },
-          { service: "vercel", name: ts.byokVercel, hint: ts.byokVercelHint, tier: "free" as const, tierInfo: ts.byokVercelTier },
-          { service: "clawhub", name: ts.byokClawhub, hint: ts.byokClawhubHint, tier: "free" as const, tierInfo: ts.byokClawhubTier },
-          { service: "xpilot", name: ts.byokXpilot, hint: ts.byokXpilotHint, tier: "free" as const, tierInfo: ts.byokXpilotTier },
-          { service: "blob_token", name: ts.byokBlobToken, hint: ts.byokBlobTokenHint, tier: "free" as const, tierInfo: ts.byokBlobTokenTier },
           ...(userPlan !== "starter" ? [
-            { service: "llamaindex" as const, name: ts.byokLlamaindex || "LlamaIndex Cloud", hint: ts.byokLlamaindexHint || "Dedicated document indexing & retrieval. Get key at cloud.llamaindex.ai.", tier: "freemium" as const, tierInfo: ts.byokLlamaindexTier || "Shared included. BYOK for unlimited docs (Growth+)." },
+            { service: "openai" as const, name: ts.byokOpenai, hint: ts.byokOpenaiHint, tier: "freemium" as const, tierInfo: ts.byokOpenaiTier },
+            { service: "anthropic" as const, name: ts.byokAnthropic, hint: ts.byokAnthropicHint, tier: "freemium" as const, tierInfo: ts.byokAnthropicTier },
+            { service: "google" as const, name: ts.byokGoogle, hint: ts.byokGoogleHint, tier: "free" as const, tierInfo: ts.byokGoogleTier },
+            { service: "alibaba" as const, name: ts.byokAlibaba, hint: ts.byokAlibabaHint, tier: "free" as const, tierInfo: ts.byokAlibabaTier },
+            { service: "cerebras" as const, name: ts.byokCerebras, hint: ts.byokCerebrasHint, tier: "free" as const, tierInfo: ts.byokCerebrasTier },
+            { service: "vercel" as const, name: ts.byokVercel, hint: ts.byokVercelHint, tier: "free" as const, tierInfo: ts.byokVercelTier },
+            { service: "clawhub" as const, name: ts.byokClawhub, hint: ts.byokClawhubHint, tier: "free" as const, tierInfo: ts.byokClawhubTier },
           ] : []),
-          { service: "brevo", name: ts.byokBravo, hint: ts.byokBrevoHint, tier: "free" as const, tierInfo: ts.byokBrevoTier },
-          { service: "sendgrid", name: ts.byokSendGrid, hint: ts.byokSendGridHint, tier: "free" as const, tierInfo: ts.byokSendGridTier },
+          { service: "xpilot", name: ts.byokXpilot, hint: ts.byokXpilotHint, tier: "free" as const, tierInfo: ts.byokXpilotTier },
+          ...(userPlan !== "starter" ? [
+            { service: "blob_token" as const, name: ts.byokBlobToken, hint: ts.byokBlobTokenHint, tier: "free" as const, tierInfo: ts.byokBlobTokenTier },
+            { service: "llamaindex" as const, name: ts.byokLlamaindex || "LlamaIndex Cloud", hint: ts.byokLlamaindexHint || "Dedicated document indexing & retrieval. Get key at cloud.llamaindex.ai.", tier: "freemium" as const, tierInfo: ts.byokLlamaindexTier || "Shared included. BYOK for unlimited docs (Growth+)." },
+            { service: "brevo" as const, name: ts.byokBravo, hint: ts.byokBrevoHint, tier: "free" as const, tierInfo: ts.byokBrevoTier },
+            { service: "sendgrid" as const, name: ts.byokSendGrid, hint: ts.byokSendGridHint, tier: "free" as const, tierInfo: ts.byokSendGridTier },
+          ] : []),
           // SMTP fields are grouped into a single card below (after Twitter)
           ...(userPlan !== "starter" ? [
             { service: "tavily" as const, name: "Tavily", hint: ts.byokTavilyHint || "AI-optimized web search. Get key at tavily.com.", tier: "freemium" as const, tierInfo: ts.byokTavilyTier || "Free: 1000 searches/mo. Pro: $20/mo." },
@@ -269,8 +271,8 @@ export default function ByokSection({
           );
         })}
 
-        {/* X (Twitter) - 4 keys grouped */}
-        {(() => {
+        {/* X (Twitter) - 4 keys grouped (Growth+ only) */}
+        {userPlan !== "starter" && (() => {
           const twitterKeys = [
             { service: "twitter_api_key" as const, name: ts.byokTwitterApiKey },
             { service: "twitter_api_secret" as const, name: ts.byokTwitterApiSecret },
@@ -456,6 +458,26 @@ export default function ByokSection({
                       </div>
                     ) : null;
                   })}
+                  <button
+                    onClick={async () => {
+                      setByokMsg("");
+                      setByokSaving(true);
+                      try {
+                        const res = await fetch("/api/smtp-test", { method: "POST" });
+                        const data = await res.json();
+                        setByokMsg(res.ok ? `✓ ${data.message}` : `✗ ${data.error}`);
+                      } catch {
+                        setByokMsg("✗ Failed to send test email");
+                      } finally {
+                        setByokSaving(false);
+                        setTimeout(() => setByokMsg(""), 5000);
+                      }
+                    }}
+                    disabled={byokSaving}
+                    className="mt-2 text-xs bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white px-3 py-1.5 rounded font-medium transition-colors cursor-pointer"
+                  >
+                    {byokSaving ? "..." : "📧 Send Test Email"}
+                  </button>
                 </div>
               )}
 

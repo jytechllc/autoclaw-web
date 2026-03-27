@@ -1031,7 +1031,9 @@ export async function GET(request: Request) {
     contactAnalytics,
   ] = await Promise.all([
     readOpenClawData(),
-    fetchBrevoData(brevoByokKey),
+    userPlan === "starter" && !brevoByokKey
+      ? Promise.resolve({ brevoStats: { emailsSent: 0, delivered: 0, opened: 0, clicked: 0 }, brevoCampaigns: [], brevoLists: [] } as BrevoResult)
+      : fetchBrevoData(brevoByokKey),
     fetchGaData(propertyProjectMap),
     fetchTokenUsage(sql, userId as number, projectIds, isAdmin, isEnterprise),
     fetchDbAgentReports(sql),
