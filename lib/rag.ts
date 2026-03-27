@@ -1,5 +1,6 @@
 import { NeonQueryFunction } from "@neondatabase/serverless";
 import { generateEmbeddings } from "@/lib/embeddings";
+import { queryLlamaIndex, loadLlamaIndexConfig } from "@/lib/llamaindex";
 
 export interface RagResult {
   content: string;
@@ -10,7 +11,7 @@ export interface RagResult {
 }
 
 /**
- * Search the knowledge base using vector similarity.
+ * Search the knowledge base using LlamaIndex Cloud (primary) or pgvector (fallback).
  * Returns the top-k most relevant chunks for the given query.
  */
 export async function searchKnowledgeBase(
@@ -27,11 +28,25 @@ export async function searchKnowledgeBase(
 ): Promise<RagResult[]> {
   const topK = opts.topK || 5;
 
-  // Generate query embedding — uses user's BYOK keys first, system key for enterprise
+  // Try LlamaIndex Cloud first
+  const liConfig = await loadLlamaIndexConfig(sql, opts.userId, opts.plan || "starter");
+  if (liConfig) {
+    try {
+      return await queryLlamaIndex(liConfig, query, {
+        userId: opts.userId,
+        orgId: opts.orgId,
+        projectId: opts.projectId,
+        topK,
+      }, sql);
+    } catch (e) {
+      console.error("LlamaIndex query failed, falling back to pgvector:", e);
+    }
+  }
+
+  // Fallback: pgvector (for existing data or if LlamaIndex is not configured)
   const [queryEmbedding] = await generateEmbeddings([query], opts.byokKeys, undefined, opts.plan);
   const embeddingStr = `[${queryEmbedding.join(",")}]`;
 
-  // Build scope filter: personal docs + org docs + project docs the user has access to
   const results = await sql`
     SELECT
       c.content,

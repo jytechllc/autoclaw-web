@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth0 } from "@/lib/auth0";
 import { getDb, resolveUserPlan } from "@/lib/db";
-import { generateEmbeddings, loadEmbeddingKeys, isOverBudget } from "@/lib/embeddings";
+import { loadEmbeddingKeys, isOverBudget } from "@/lib/embeddings";
+import { generateEmbeddings } from "@/lib/embeddings";
 import { extractPdf, extractDocx, extractUrl, chunkText, estimateTokens } from "@/lib/chunking";
+import { loadLlamaIndexConfig, uploadToLlamaIndex, deleteFromLlamaIndex, isLlamaIndexByok } from "@/lib/llamaindex";
 import { put, list } from "@vercel/blob";
 import { decrypt } from "@/lib/crypto";
 
@@ -29,9 +31,9 @@ export const maxDuration = 60;
 
 const PLAN_LIMITS: Record<string, { maxDocs: number; maxSizeMB: number }> = {
   starter: { maxDocs: 10, maxSizeMB: 500 },
-  growth: { maxDocs: 100, maxSizeMB: 500 },
-  scale: { maxDocs: 1000, maxSizeMB: 5000 },
-  enterprise: { maxDocs: 1000, maxSizeMB: 500 },
+  growth: { maxDocs: 30, maxSizeMB: 500 },
+  scale: { maxDocs: 4000, maxSizeMB: 5000 },
+  enterprise: { maxDocs: 10000, maxSizeMB: 5000 },
 };
 
 // GET: list knowledge base documents
@@ -212,7 +214,7 @@ export async function POST(req: NextRequest) {
     case "add_text":
       return handleAddText(body, sql, userId, plan, limits);
     case "delete":
-      return handleDelete(body, sql, userId);
+      return handleDelete(body, sql, userId, plan);
     case "reprocess":
       return handleReprocess(body, sql, userId, plan);
     case "get_chunks":
@@ -235,7 +237,14 @@ async function checkLimits(
   userId: number,
   limits: { maxDocs: number; maxSizeMB: number },
   addSize = 0,
+  plan?: string,
 ): Promise<string | null> {
+  // BYOK users on Growth+ have unlimited documents
+  if (plan && plan !== "starter") {
+    const hasByok = await isLlamaIndexByok(sql, userId);
+    if (hasByok) return null;
+  }
+
   const countResult = await sql`
     SELECT COUNT(*)::int as count, COALESCE(SUM(file_size), 0)::bigint as total_size
     FROM kb_documents WHERE user_id = ${userId}
@@ -244,7 +253,7 @@ async function checkLimits(
   const totalSize = Number(countResult[0].total_size);
 
   if (docCount >= limits.maxDocs) {
-    return `Document limit reached (${limits.maxDocs} documents on your plan). Upgrade for more.`;
+    return `Document limit reached (${limits.maxDocs} documents on your plan). Upgrade or add your own LlamaIndex key for unlimited.`;
   }
   if ((totalSize + addSize) / (1024 * 1024) > limits.maxSizeMB) {
     return `Storage limit reached (${limits.maxSizeMB}MB). Contact admin to increase your storage quota.`;
@@ -252,15 +261,42 @@ async function checkLimits(
   return null;
 }
 
-async function processAndEmbed(
+async function processAndIndex(
   sql: ReturnType<typeof getDb>,
   docId: number,
   text: string,
   userId: number,
   plan?: string,
+  scope?: string,
+  orgId?: number,
+  projectId?: number,
 ) {
   try {
-    // Check embedding budget before processing
+    if (!text.trim()) {
+      await sql`UPDATE kb_documents SET status = 'error', error_message = 'No extractable text found' WHERE id = ${docId}`;
+      return;
+    }
+
+    await sql`UPDATE kb_documents SET status = 'processing' WHERE id = ${docId}`;
+
+    // Get document title
+    const docRows = await sql`SELECT title, doc_type FROM kb_documents WHERE id = ${docId}`;
+    const title = (docRows[0]?.title as string) || "Untitled";
+    const docType = (docRows[0]?.doc_type as string) || "text";
+
+    // Try LlamaIndex Cloud first
+    const liConfig = await loadLlamaIndexConfig(sql, userId, plan || "starter");
+    if (liConfig) {
+      const fileId = await uploadToLlamaIndex(
+        liConfig, docId, title, text,
+        { user_id: userId, org_id: orgId, scope: scope || "personal", doc_type: docType },
+        sql, projectId,
+      );
+      await sql`UPDATE kb_documents SET status = 'ready', llamaindex_file_id = ${fileId}, chunk_count = ${Math.ceil(text.length / 2400)}, updated_at = NOW() WHERE id = ${docId}`;
+      return;
+    }
+
+    // Fallback: pgvector (if LlamaIndex not configured)
     const overBudget = await isOverBudget(sql);
     if (overBudget) {
       await sql`UPDATE kb_documents SET status = 'queued', error_message = 'Embedding budget exceeded — queued for next period' WHERE id = ${docId}`;
@@ -273,17 +309,13 @@ async function processAndEmbed(
       return;
     }
 
-    await sql`UPDATE kb_documents SET status = 'processing', chunk_count = ${chunks.length} WHERE id = ${docId}`;
-
-    // Load user's embedding keys
+    await sql`UPDATE kb_documents SET chunk_count = ${chunks.length} WHERE id = ${docId}`;
     const byokKeys = await loadEmbeddingKeys(sql, userId);
 
-    // Generate embeddings in batches of 20
     const BATCH_SIZE = 20;
     for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
       const batch = chunks.slice(i, i + BATCH_SIZE);
       const embeddings = await generateEmbeddings(batch, byokKeys, sql, plan, userId);
-
       for (let j = 0; j < batch.length; j++) {
         const chunkIndex = i + j;
         const embeddingStr = `[${embeddings[j].join(",")}]`;
@@ -323,7 +355,7 @@ async function handleFileUpload(
 
   for (const file of files) {
     const fileSize = file.size;
-    const limitErr = await checkLimits(sql, userId, limits, fileSize);
+    const limitErr = await checkLimits(sql, userId, limits, fileSize, plan);
     if (limitErr) {
       results.push({ name: file.name, error: limitErr });
       continue;
@@ -374,7 +406,7 @@ async function handleFileUpload(
       }
 
       // Process: chunking + embedding
-      await processAndEmbed(sql, docId, text, userId, plan);
+      await processAndIndex(sql, docId, text, userId, plan, scope, orgId ?? undefined, projectId ?? undefined);
       results.push({ name: file.name, id: docId });
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : "Processing failed";
@@ -405,7 +437,7 @@ async function handleAddUrl(
     return NextResponse.json({ error: "URL required" }, { status: 400 });
   }
 
-  const limitErr = await checkLimits(sql, userId, limits);
+  const limitErr = await checkLimits(sql, userId, limits, 0, plan);
   if (limitErr) {
     return NextResponse.json({ error: limitErr }, { status: 403 });
   }
@@ -477,7 +509,7 @@ async function handleAddUrl(
       if (text) {
         const textSize = Buffer.byteLength(text, "utf-8");
         await sql`UPDATE kb_documents SET file_size = ${textSize} WHERE id = ${docId}`;
-        await processAndEmbed(sql, docId, text, userId, plan);
+        await processAndIndex(sql, docId, text, userId, plan, scope, org_id ?? undefined, project_id ?? undefined);
       }
     } catch {
       // Content extraction failed — URL is saved as a reference
@@ -503,7 +535,7 @@ async function handleAddText(
     return NextResponse.json({ error: "Text content required" }, { status: 400 });
   }
 
-  const limitErr = await checkLimits(sql, userId, limits);
+  const limitErr = await checkLimits(sql, userId, limits, 0, plan);
   if (limitErr) {
     return NextResponse.json({ error: limitErr }, { status: 403 });
   }
@@ -517,7 +549,7 @@ async function handleAddText(
   const docId = docs[0].id as number;
 
   try {
-    await processAndEmbed(sql, docId, text, userId, plan);
+    await processAndIndex(sql, docId, text, userId, plan, scope, org_id ?? undefined, project_id ?? undefined);
     return NextResponse.json({ id: docId, status: "ready" });
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : "Processing failed";
@@ -530,6 +562,7 @@ async function handleDelete(
   body: { document_id?: number },
   sql: ReturnType<typeof getDb>,
   userId: number,
+  plan?: string,
 ) {
   const { document_id } = body;
   if (!document_id) {
@@ -537,7 +570,7 @@ async function handleDelete(
   }
 
   // Verify ownership (user owns the doc, or is admin of the org that owns it)
-  const docs = await sql`SELECT id, user_id, org_id FROM kb_documents WHERE id = ${document_id}`;
+  const docs = await sql`SELECT id, user_id, org_id, llamaindex_file_id FROM kb_documents WHERE id = ${document_id}`;
   if (docs.length === 0) {
     return NextResponse.json({ error: "Document not found" }, { status: 404 });
   }
@@ -558,7 +591,17 @@ async function handleDelete(
     }
   }
 
-  // Cascade delete handles chunks
+  // Delete from LlamaIndex Cloud if indexed there
+  if (doc.llamaindex_file_id) {
+    try {
+      const liConfig = await loadLlamaIndexConfig(sql, userId, plan || "starter");
+      if (liConfig) {
+        await deleteFromLlamaIndex(liConfig, doc.llamaindex_file_id as string, sql, userId);
+      }
+    } catch { /* best-effort */ }
+  }
+
+  // Cascade delete handles chunks (pgvector fallback)
   await sql`DELETE FROM kb_documents WHERE id = ${document_id}`;
   return NextResponse.json({ deleted: true });
 }
@@ -589,7 +632,7 @@ async function handleReprocess(
   if (docs[0].doc_type === "url" && docs[0].source_url) {
     try {
       const text = await extractUrl(docs[0].source_url as string);
-      await processAndEmbed(sql, document_id, text, userId);
+      await processAndIndex(sql, document_id, text, userId);
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : "Reprocess failed";
       await sql`UPDATE kb_documents SET status = 'error', error_message = ${errMsg} WHERE id = ${document_id}`;
@@ -698,7 +741,7 @@ async function handleEditUrl(
       const text = await extractUrl(newUrl);
       const textSize = Buffer.byteLength(text, "utf-8");
       await sql`UPDATE kb_documents SET file_size = ${textSize} WHERE id = ${document_id}`;
-      await processAndEmbed(sql, document_id, text, userId, plan);
+      await processAndIndex(sql, document_id, text, userId, plan);
     } catch {
       // Extraction failed — still saved as reference
       await sql`UPDATE kb_documents SET status = 'ready' WHERE id = ${document_id}`;
@@ -736,7 +779,7 @@ async function handleEditDoc(
     await sql`UPDATE kb_documents SET file_size = ${textSize}, status = 'processing', chunk_count = 0, error_message = NULL, updated_at = NOW() WHERE id = ${document_id}`;
 
     try {
-      await processAndEmbed(sql, document_id, text, userId, plan);
+      await processAndIndex(sql, document_id, text, userId, plan);
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : "Processing failed";
       await sql`UPDATE kb_documents SET status = 'error', error_message = ${errMsg} WHERE id = ${document_id}`;

@@ -220,6 +220,10 @@ const zhTW: typeof en = {
     byokVercelTier: "Hobby 方案免費。Pro：$20/月。",
     byokClawhubTier: "AutoClaw 帳戶免費。",
     byokXpilotTier: "AutoClaw 方案內含。",
+    byokLlamaindex: "LlamaIndex Cloud",
+    byokLlamaindexHint: "專屬文件索引與檢索。在 cloud.llamaindex.ai 取得金鑰。",
+    byokLlamaindexTier: "共享額度已含。自帶金鑰可無限文件（Growth+）��",
+    kbLlamaindexBanner: "文件儲存���共享 LlamaIndex Cloud 上。在 設定 → API 金鑰 中加入您自己的 LlamaIndex 金鑰，即可取得專屬儲存和無限文件。",
     byokBlobTokenTier: "Vercel Hobby 方案免費。Pro：$20/月。",
     byokBrevoTier: "免費：每天 300 封郵件。入門版：$25/月。",
     byokSendGridTier: "免費：每天 100 封郵件。基礎版：$19.95/月。",
@@ -1474,6 +1478,7 @@ const zhTW: typeof en = {
     documents: "文件",
     storage: "儲存",
     upgradeHint: "升級方案以取得更多儲存空間和文件數量。",
+    kbLlamaindexBanner: "文件儲存在共享的 LlamaIndex Cloud 上。在設定 → API 金鑰中新增您自己的 LlamaIndex 金鑰，以獲得專屬儲存和無限文件。",
   },
   workflowsPage: {
     title: "工作流程",

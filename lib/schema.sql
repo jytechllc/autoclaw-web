@@ -233,6 +233,7 @@ CREATE TABLE IF NOT EXISTS kb_documents (
   chunk_count INTEGER DEFAULT 0,
   status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'processing', 'ready', 'error'
   error_message TEXT,
+  llamaindex_file_id VARCHAR(255), -- LlamaIndex Cloud file reference
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );

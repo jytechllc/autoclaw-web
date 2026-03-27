@@ -218,6 +218,10 @@ const en = {
     byokVercelTier: "Free with Hobby plan. Pro: $20/mo.",
     byokClawhubTier: "Free with AutoClaw account.",
     byokXpilotTier: "Included with AutoClaw plan.",
+    byokLlamaindex: "LlamaIndex Cloud",
+    byokLlamaindexHint: "Dedicated document indexing & retrieval. Get key at cloud.llamaindex.ai.",
+    byokLlamaindexTier: "Shared included. BYOK for unlimited docs (Growth+).",
+    kbLlamaindexBanner: "Documents are stored on shared LlamaIndex Cloud. Add your own LlamaIndex key in Settings → API Keys for dedicated storage and unlimited documents.",
     byokBlobTokenTier: "Free with Vercel Hobby plan. Pro: $20/mo.",
     byokBrevoTier: "Free: 300 emails/day. Starter: $25/mo.",
     byokSendGridTier: "Free: 100 emails/day. Essentials: $19.95/mo.",
@@ -1514,6 +1518,7 @@ const en = {
     documents: "documents",
     storage: "storage",
     upgradeHint: "Upgrade your plan for more storage and documents.",
+    kbLlamaindexBanner: "Documents are stored on shared LlamaIndex Cloud. Add your own LlamaIndex key in Settings → API Keys for dedicated storage and unlimited documents.",
   },
   workflowsPage: {
     title: "Workflows",
