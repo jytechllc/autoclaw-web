@@ -1509,6 +1509,7 @@ const en = {
     documents: "documents",
     storage: "storage",
     upgradeHint: "Upgrade your plan for more storage and documents.",
+    kbLlamaindexBanner: "Documents are stored on shared LlamaIndex Cloud. Add your own LlamaIndex key in Settings → API Keys for dedicated storage and unlimited documents.",
   },
   workflowsPage: {
     title: "Workflows",

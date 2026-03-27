@@ -1478,6 +1478,7 @@ const fr: typeof en = {
     documents: "documents",
     storage: "stockage",
     upgradeHint: "Mettez à niveau votre plan pour plus de stockage et de documents.",
+    kbLlamaindexBanner: "Les documents sont stockés sur LlamaIndex Cloud partagé. Ajoutez votre propre clé LlamaIndex dans Paramètres → Clés API pour un stockage dédié et des documents illimités.",
   },
   workflowsPage: {
     title: "Workflows",

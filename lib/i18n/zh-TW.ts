@@ -1478,6 +1478,7 @@ const zhTW: typeof en = {
     documents: "文件",
     storage: "儲存",
     upgradeHint: "升級方案以取得更多儲存空間和文件數量。",
+    kbLlamaindexBanner: "文件儲存在共享的 LlamaIndex Cloud 上。在設定 → API 金鑰中新增您自己的 LlamaIndex 金鑰，以獲得專屬儲存和無限文件。",
   },
   workflowsPage: {
     title: "工作流程",

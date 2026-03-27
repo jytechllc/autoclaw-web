@@ -1482,6 +1482,7 @@ const zh: typeof en = {
     documents: "文档",
     storage: "存储",
     upgradeHint: "升级方案以获取更多存储空间和文档数量。",
+    kbLlamaindexBanner: "文档存储在共享的 LlamaIndex Cloud 上。在设置 → API 密钥中添加您自己的 LlamaIndex 密钥，以获得专属存储和无限文档。",
   },
   workflowsPage: {
     title: "工作流",
