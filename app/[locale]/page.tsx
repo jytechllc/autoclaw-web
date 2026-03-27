@@ -457,11 +457,15 @@ export default function Home() {
                     onClick={async () => {
                       if (plan.disabled) return;
                       const isChina = locale === "zh" || locale === "zh-TW";
-                      if (plan.plan === "enterprise" || (isChina && (plan.plan === "growth" || plan.plan === "scale"))) {
+                      if (plan.plan === "enterprise") {
                         window.location.href = isChina ? "tel:+8617318011997" : "mailto:jay.lin@jytech.us?subject=AutoClaw " + plan.name + " Plan Inquiry";
                       } else if (plan.plan === "starter") {
                         window.location.href = `/auth/login?returnTo=/${locale}/dashboard/reports`;
+                      } else if (isChina) {
+                        // For Chinese users, redirect to WeChat Pay
+                        window.location.href = `/${locale}/wechat-pay?plan=${plan.plan}`;
                       } else {
+                        // For non-Chinese users, use Stripe
                         try {
                           const res = await fetch("/api/checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ plan: plan.plan }) });
                           const data = await res.json();
