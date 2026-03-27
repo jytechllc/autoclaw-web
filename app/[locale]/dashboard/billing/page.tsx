@@ -92,14 +92,14 @@ const MODEL_PRICING: Record<string, [number, number]> = {
   "anthropic/claude-opus-4": [75, 375],
   "openai/gpt-4o": [12.5, 50],
   "openai/gpt-4o-mini": [0.75, 3],
+  "openai/gpt-oss-120b": [0.30, 0.30],
   // Open models — compute cost only
-  "meta/llama-3.3-70b-instruct": [0.20, 0.20],
-  "llama-3.1-nemotron-nano-8b-v1": [0.10, 0.10],
-  "llama3.1-8b": [0.05, 0.05],
-  "gpt-oss-120b": [0.30, 0.30],
-  "qwen2.5:3b": [0.05, 0.05],
-  "qwen2.5:7b": [0.10, 0.10],
-  "gemini-2.0-flash": [0.05, 0.05],
+  "meta/llama-3.3-70b": [0.20, 0.20],
+  "meta/llama-3.1-8b": [0.05, 0.05],
+  "alibaba/qwen-3-235b": [0.15, 0.15],
+  "alibaba/qwen-2.5-3b": [0.05, 0.05],
+  "alibaba/qwen-2.5-7b": [0.10, 0.10],
+  "google/gemini-2.0-flash": [0.05, 0.05],
 };
 
 function estimateCost(model: string, promptTokens: number, completionTokens: number): number {

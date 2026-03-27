@@ -40,9 +40,9 @@ export interface ModelInfo {
 
 export const AVAILABLE_MODELS: ModelInfo[] = [
   // Platform-provided (free for users)
-  { id: "cerebras/gpt-oss-120b", name: "Cerebras GPT-OSS 120B", provider: "cerebras", costPer1MInput: 0, costPer1MOutput: 0 },
-  { id: "cerebras/llama-3.3-70b", name: "Cerebras Llama 3.3 70B", provider: "cerebras", costPer1MInput: 0, costPer1MOutput: 0 },
-  { id: "nvidia/llama-3.1-8b", name: "NVIDIA Llama 3.1 8B", provider: "nvidia", costPer1MInput: 0, costPer1MOutput: 0 },
+  { id: "cerebras/gpt-oss-120b", name: "OpenAI GPT-OSS 120B", provider: "cerebras", costPer1MInput: 0, costPer1MOutput: 0 },
+  { id: "cerebras/llama-3.3-70b", name: "Meta Llama 3.3 70B", provider: "cerebras", costPer1MInput: 0, costPer1MOutput: 0 },
+  { id: "nvidia/llama-3.1-8b", name: "Meta Llama 3.1 8B", provider: "nvidia", costPer1MInput: 0, costPer1MOutput: 0 },
   { id: "google/gemini-2.0-flash", name: "Gemini 2.0 Flash", provider: "google", costPer1MInput: 10, costPer1MOutput: 40 },
   // BYOK models
   { id: "openai/gpt-4o-mini", name: "GPT-4o Mini", provider: "openai", costPer1MInput: 15, costPer1MOutput: 60, requiresByok: "openai" },
@@ -54,9 +54,9 @@ export const AVAILABLE_MODELS: ModelInfo[] = [
   { id: "alibaba/qwen-plus", name: "Alibaba Qwen Plus", provider: "alibaba", costPer1MInput: 11.5, costPer1MOutput: 28.7, requiresByok: "alibaba" },
   { id: "alibaba/qwen-turbo", name: "Alibaba Qwen Turbo", provider: "alibaba", costPer1MInput: 5, costPer1MOutput: 20, requiresByok: "alibaba" },
   // BYOK Cerebras
-  { id: "cerebras/qwen-3-235b", name: "Cerebras Qwen 3 235B", provider: "cerebras", costPer1MInput: 0, costPer1MOutput: 0, requiresByok: "cerebras" },
-  { id: "cerebras/qwen-3-coder-480b", name: "Cerebras Qwen 3 Coder 480B", provider: "cerebras", costPer1MInput: 0, costPer1MOutput: 0, requiresByok: "cerebras" },
-  { id: "cerebras/llama3.1-8b", name: "Cerebras Llama 3.1 8B", provider: "cerebras", costPer1MInput: 0, costPer1MOutput: 0, requiresByok: "cerebras" },
+  { id: "cerebras/qwen-3-235b", name: "Alibaba Qwen 3 235B", provider: "cerebras", costPer1MInput: 0, costPer1MOutput: 0, requiresByok: "cerebras" },
+  { id: "cerebras/qwen-3-coder-480b", name: "Alibaba Qwen 3 Coder 480B", provider: "cerebras", costPer1MInput: 0, costPer1MOutput: 0, requiresByok: "cerebras" },
+  { id: "cerebras/llama3.1-8b", name: "Meta Llama 3.1 8B", provider: "cerebras", costPer1MInput: 0, costPer1MOutput: 0, requiresByok: "cerebras" },
 ];
 
 export const DEFAULT_MODEL = "cerebras/gpt-oss-120b";

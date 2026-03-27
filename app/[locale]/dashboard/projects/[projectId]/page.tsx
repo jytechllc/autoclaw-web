@@ -1055,10 +1055,11 @@ export default function AgentDetailPage() {
     <DashboardShell user={user} plan={planInfo.plan}>
       <div className="px-4 sm:px-6 py-6 w-full">
         <div className="flex items-center gap-3 mb-6">
-          <a href={`/${locale}/dashboard/agents`} className="text-gray-400 hover:text-gray-600">
+          <a href={`/${locale}/dashboard/projects`} className="text-gray-400 hover:text-gray-600">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           </a>
           <h1 className="text-2xl font-bold">{projects.find((p) => p.id === projectId)?.name || ta.title}</h1>
+          {projectId && <span className="text-xs text-gray-400 font-mono">ID: {projectId}</span>}
         </div>
 
         {loading ? (
@@ -1204,7 +1205,7 @@ export default function AgentDetailPage() {
               </div>
             )}
 
-            {projects.map((project) => {
+            {projects.filter((p) => !projectId || p.id === projectId).map((project) => {
               const projectAgents = agents.filter(
                 (a) => a.project_name === project.name,
               );
@@ -1219,6 +1220,7 @@ export default function AgentDetailPage() {
                     <div>
                       <h2 className="text-base font-semibold">
                         {project.name}
+                        <span className="ml-2 text-xs text-gray-400 font-mono font-normal">ID: {project.id}</span>
                       </h2>
                       {project.website && (
                         <p className="text-xs text-gray-400 break-all">
