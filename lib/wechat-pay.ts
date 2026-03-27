@@ -13,9 +13,11 @@ export interface WechatPayConfig {
 }
 
 export function getWechatPayConfig(): WechatPayConfig {
-  let rawPrivateKey = process.env.WECHAT_PAY_PRIVATE_KEY!;
-  
-  console.log('Raw private key (first 100 chars):', rawPrivateKey.substring(0, 100));
+  let rawPrivateKey = process.env.WECHAT_PAY_PRIVATE_KEY || "";
+
+  if (!rawPrivateKey) {
+    throw new Error("Missing WeChat Pay config: privateKey");
+  }
   
   // Handle multi-line private key in .env file
   // If the key contains actual newlines (not \n), join them with \n
@@ -198,7 +200,7 @@ export function decryptWebhook(
   const authTag = cipherBuffer.slice(-16);
   const encryptedData = cipherBuffer.slice(0, -16);
 
-  const decipher = crypto.createDecipherGCM("aes-256-gcm", key);
+  const decipher = crypto.createDecipheriv("aes-256-gcm", key, Buffer.from(nonce));
   decipher.setAAD(Buffer.from(associatedData));
   decipher.setAuthTag(authTag);
 
