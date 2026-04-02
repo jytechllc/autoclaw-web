@@ -120,22 +120,17 @@ export default function Home() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const closeMobileMenu = useCallback(() => setMobileMenuOpen(false), []);
 
-  const [user, setUser] = useState<{ name?: string; picture?: string; email?: string } | null>(null);
-  const [platformStats, setPlatformStats] = useState<{
-    today: { total_tokens: number; request_count: number };
-    users: number;
-    nextResetUtc: string;
-    user?: { todayTokens: number; dailyTokenLimit: number; remainingTokens: number | null; plan: string; unlimited: boolean };
-  } | null>(null);
+  const isYeoso = typeof window !== "undefined" && window.location.hostname.endsWith("yeoso.com");
+  const cnContact = isYeoso ? { name: "Jason", phone: "15221611137" } : { name: "Helen Lan", phone: "17318011997" };
+  const siteLinks = isYeoso
+    ? [{ href: "https://www.tsoai.com", label: "www.tsoai.com" }, { href: "https://yeoso.com", label: "yeoso.com" }]
+    : [{ href: "https://jytech.us", label: "jytech.us" }];
 
+  const [user, setUser] = useState<{ name?: string; picture?: string; email?: string } | null>(null);
   useEffect(() => {
     fetch("/auth/profile")
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => { if (data?.email || data?.name) setUser(data); })
-      .catch(() => {});
-    fetch("/api/status")
-      .then((res) => res.json())
-      .then((data) => setPlatformStats(data))
       .catch(() => {});
   }, []);
 
@@ -374,57 +369,6 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Live Platform Stats + User Quota */}
-        {platformStats && (
-          <section className="py-8 bg-white border-b border-gray-100">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-6 sm:gap-10 text-center">
-                <div>
-                  <p className="text-2xl font-bold">{Number(platformStats.today.total_tokens) >= 1_000_000 ? `${(Number(platformStats.today.total_tokens) / 1_000_000).toFixed(1)}M` : Number(platformStats.today.total_tokens) >= 1_000 ? `${(Number(platformStats.today.total_tokens) / 1_000).toFixed(1)}K` : String(platformStats.today.total_tokens)}</p>
-                  <p className="text-xs text-gray-500">{t.statTokensToday}</p>
-                </div>
-                <div className="hidden sm:block w-px h-8 bg-gray-200" />
-                <div>
-                  <p className="text-2xl font-bold">{platformStats.users}</p>
-                  <p className="text-xs text-gray-500">{t.statUsers}</p>
-                </div>
-                {platformStats.user && !platformStats.user.unlimited && (
-                  <>
-                    <div className="hidden sm:block w-px h-8 bg-gray-200" />
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <div className="w-24 bg-gray-100 rounded-full h-2 overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${
-                              platformStats.user.todayTokens / platformStats.user.dailyTokenLimit > 0.9 ? "bg-red-500" :
-                              platformStats.user.todayTokens / platformStats.user.dailyTokenLimit > 0.7 ? "bg-yellow-500" : "bg-green-500"
-                            }`}
-                            style={{ width: `${Math.min(100, (platformStats.user.todayTokens / platformStats.user.dailyTokenLimit) * 100)}%` }}
-                          />
-                        </div>
-                        <span className="text-sm font-bold">
-                          {platformStats.user.remainingTokens !== null
-                            ? (platformStats.user.remainingTokens >= 1_000_000
-                              ? `${(platformStats.user.remainingTokens / 1_000_000).toFixed(1)}M`
-                              : platformStats.user.remainingTokens >= 1_000
-                              ? `${(platformStats.user.remainingTokens / 1_000).toFixed(0)}K`
-                              : String(platformStats.user.remainingTokens))
-                            : "0"}
-                        </span>
-                      </div>
-                      <p className="text-xs text-gray-500">{t.statFreeRemaining}</p>
-                    </div>
-                  </>
-                )}
-                <div className="hidden sm:block w-px h-8 bg-gray-200" />
-                <Link href={`/${locale}/status`} className="text-xs text-red-600 hover:text-red-700 font-medium">
-                  {t.statViewStatus} &rarr;
-                </Link>
-              </div>
-            </div>
-          </section>
-        )}
-
         {/* Pricing */}
         <section id="pricing" className="py-20 bg-gray-50">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -458,7 +402,7 @@ export default function Home() {
                       if (plan.disabled) return;
                       const isChina = locale === "zh" || locale === "zh-TW";
                       if (plan.plan === "enterprise") {
-                        window.location.href = isChina ? "tel:+8617318011997" : "mailto:jay.lin@jytech.us?subject=AutoClaw " + plan.name + " Plan Inquiry";
+                        window.location.href = isChina ? `tel:+86${cnContact.phone}` : "mailto:jay.lin@jytech.us?subject=AutoClaw " + plan.name + " Plan Inquiry";
                       } else if (plan.plan === "starter") {
                         window.location.href = `/auth/login?returnTo=/${locale}/dashboard/reports`;
                       } else if (isChina) {
@@ -495,7 +439,7 @@ export default function Home() {
               {locale === "en" ? (
                 <a href="mailto:jay.lin@jytech.us" className="text-red-400 hover:underline">jay.lin@jytech.us</a>
               ) : (
-                <a href="tel:+8617318011997" className="text-red-400 hover:underline">Helen Lan +86 17318011997</a>
+                <a href={`tel:+86${cnContact.phone}`} className="text-red-400 hover:underline">{cnContact.name} +86 {cnContact.phone}</a>
               )}
             </p>
           </div>
@@ -524,10 +468,11 @@ export default function Home() {
                 {locale === "en" ? (
                   <li><a href="mailto:jay.lin@jytech.us" className="hover:text-white transition-colors">jay.lin@jytech.us</a></li>
                 ) : (
-                  <li><a href="tel:+8617318011997" className="hover:text-white transition-colors">Helen Lan +86 17318011997</a></li>
+                  <li><a href={`tel:+86${cnContact.phone}`} className="hover:text-white transition-colors">{cnContact.name} +86 {cnContact.phone}</a></li>
                 )}
-                <li><a href="https://jytech.us" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">jytech.us</a></li>
-                <li><a href="https://xpilot.jytech.us/" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">xPilot — AI Social Media Copilot</a></li>
+                {siteLinks.map((link) => (
+                  <li key={link.href}><a href={link.href} target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">{link.label}</a></li>
+                ))}
               </ul>
             </div>
           </div>
