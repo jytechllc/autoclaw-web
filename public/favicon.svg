@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ef4444"/>
+      <stop offset="1" stop-color="#991b1b"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded square background -->
+  <rect width="32" height="32" rx="7" fill="url(#bg)"/>
+  <!-- Simplified claw icon - white -->
+  <path d="M10 16C6 15 4 12 3 8C6 7 9 7 11 9C9.5 6 9.5 3.5 10.5 1.5C15 4 17 8.5 17 12.5" fill="#fff" fill-opacity="0.95"/>
+  <path d="M22 16C26 15 28 12 29 8C26 7 23 7 21 9C22.5 6 22.5 3.5 21.5 1.5C17 4 15 8.5 15 12.5" fill="#fff" fill-opacity="0.95"/>
+  <!-- Body -->
+  <ellipse cx="16" cy="19" rx="6" ry="5" fill="#fff" fill-opacity="0.9"/>
+  <ellipse cx="16" cy="24.5" rx="4.5" ry="3" fill="#fff" fill-opacity="0.8"/>
+  <ellipse cx="16" cy="28.5" rx="3" ry="2" fill="#fff" fill-opacity="0.7"/>
+  <!-- Eyes -->
+  <circle cx="14" cy="17.5" r="1.2" fill="#991b1b"/>
+  <circle cx="18" cy="17.5" r="1.2" fill="#991b1b"/>
+</svg>

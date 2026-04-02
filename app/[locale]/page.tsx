@@ -275,11 +275,11 @@ export default function Home() {
               <a href={`/auth/login?returnTo=/${locale}/dashboard/reports`} className="bg-red-700 hover:bg-red-800 text-white px-8 py-4 rounded-lg font-medium text-lg transition-colors">{t.startFree}</a>
               <a href="#try-it" className="border border-red-400/50 hover:border-red-300 text-white px-8 py-4 rounded-lg font-medium text-lg transition-colors">{t.trialSearchBtn}</a>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mt-20 pt-12 border-t border-gray-700 max-w-3xl mx-auto">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mt-20 pt-12 border-t border-red-500/30 max-w-3xl mx-auto">
               {stats.map((stat) => (
                 <div key={stat.label} className="text-center">
-                  <p className="text-3xl font-bold text-white">{stat.value}</p>
-                  <p className="text-gray-400 text-sm mt-1">{stat.label}</p>
+                  <p className="text-3xl font-bold text-red-300">{stat.value}</p>
+                  <p className="text-red-100/70 text-sm mt-1">{stat.label}</p>
                 </div>
               ))}
             </div>
