@@ -22,7 +22,14 @@ export const metadata: Metadata = {
   title: "AutoClaw | AI Marketing Agents That Run 24/7",
   description:
     "Deploy AI-powered marketing agents that run 24/7. Email outreach, content creation, lead generation, SEO, and social media — all automated. Free tier available.",
-  icons: { icon: "/logo.svg" },
+  icons: {
+    icon: [
+      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+      { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
+    ],
+    apple: "/apple-touch-icon.png",
+  },
   alternates: {
     canonical: "https://autoclaw.jytech.us",
   },
