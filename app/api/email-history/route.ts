@@ -14,9 +14,10 @@ export async function GET(req: NextRequest) {
 
     const sql = getDb();
     const email = session.user.email as string;
-    const users = await sql`SELECT id FROM users WHERE email = ${email}`;
+    const users = await sql`SELECT id, plan FROM users WHERE email = ${email}`;
     if (users.length === 0) return NextResponse.json({ events: [] });
     const userId = users[0].id as number;
+    const userPlan = (users[0].plan as string) || "starter";
 
     const limit = Math.min(Number(req.nextUrl.searchParams.get("limit") || "50"), 100);
     const offset = Number(req.nextUrl.searchParams.get("offset") || "0");
@@ -83,7 +84,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ events, total: events.length, source: "local" });
     } catch { /* table may not exist yet, fall through to Brevo */ }
 
-    // Fallback: Brevo API
+    // Starter users can only see emails from their own projects (local logs only)
+    if (userPlan === "starter") {
+      return NextResponse.json({ events, total: events.length, source: "local" });
+    }
+
+    // Fallback: Brevo API (Growth+ only)
     let url = `https://api.brevo.com/v3/smtp/statistics/events?limit=${limit}&offset=${offset}&sort=desc`;
     if (eventFilter) url += `&event=${eventFilter}`;
 

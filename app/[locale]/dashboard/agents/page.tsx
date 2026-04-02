@@ -137,7 +137,7 @@ export default function AgentsOverviewPage() {
               return (
                 <Link
                   key={p.id}
-                  href={`/${locale}/dashboard/agents/${p.id}`}
+                  href={`/${locale}/dashboard/projects/${p.id}`}
                   className="block bg-white border border-gray-200 rounded-xl hover:shadow-md hover:border-gray-300 transition-all"
                 >
                   {/* Header */}

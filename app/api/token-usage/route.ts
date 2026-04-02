@@ -78,13 +78,22 @@ export async function GET() {
       COUNT(*)::int as request_count
     FROM token_usage WHERE ${scopeFilter}`,
     sql`SELECT
-      model,
+      CASE
+        WHEN model = 'claude-sonnet-4.5' THEN 'anthropic/claude-sonnet-4.5'
+        WHEN model = 'gemini-2.0-flash' THEN 'google/gemini-2.0-flash'
+        WHEN model IN ('gpt-oss-120b', 'cerebras/gpt-oss-120b') THEN 'openai/gpt-oss-120b'
+        WHEN model = 'text-embedding' THEN 'google/text-embedding'
+        WHEN model = 'sdxl' THEN 'stability/sdxl'
+        WHEN model IN ('qwen-3-235b-a22b-instruct-2507', 'cerebras/qwen-3-235b') THEN 'alibaba/qwen-3-235b'
+        WHEN model IN ('meta/llama-3.1-8b-instruct', 'cerebras/llama3.1-8b') THEN 'meta/llama-3.1-8b'
+        ELSE model
+      END as model,
       COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
       COALESCE(SUM(completion_tokens), 0) as completion_tokens,
       COALESCE(SUM(total_tokens), 0) as total_tokens,
       COUNT(*)::int as request_count
     FROM token_usage WHERE ${scopeFilter}
-    GROUP BY model
+    GROUP BY 1
     ORDER BY SUM(total_tokens) DESC`,
     sql`SELECT
       DATE(created_at) as date,

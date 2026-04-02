@@ -342,7 +342,7 @@ export default function ProjectsPage() {
                           className="font-semibold text-base px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
                         />
                       ) : (
-                        <h2 className="text-lg font-semibold">{project.name}</h2>
+                        <Link href={`/${locale}/dashboard/projects/${project.id}`} className="text-lg font-semibold hover:text-red-700 transition-colors">{project.name}</Link>
                       )}
                       <p className="text-xs text-gray-400 mt-1">#{project.id}</p>
                     </div>

@@ -223,6 +223,7 @@ export const BYOK_SERVICES: Record<string, string> = {
   "worker_url": "worker_url",
   "worker_secret": "worker_secret",
   "cloudflare": "worker_url",
+  "buffer": "buffer",
 };
 
 export const DAILY_LIMIT_CENTS: Record<string, number> = {

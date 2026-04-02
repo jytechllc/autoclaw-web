@@ -35,6 +35,10 @@ export async function POST(req: NextRequest) {
       success_url: `${req.nextUrl.origin}/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${req.nextUrl.origin}/#pricing`,
       allow_promotion_codes: true,
+      metadata: { plan },
+      subscription_data: {
+        trial_period_days: 7,
+      },
     });
 
     return NextResponse.json({ url: session.url });

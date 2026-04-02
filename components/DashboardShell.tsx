@@ -7,6 +7,7 @@ import { getDictionary, type Locale } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import UserPlanBadge from "@/components/UserPlanBadge";
 import ChatWidget from "@/components/ChatWidget";
+import { OrgProvider, useOrg } from "@/components/OrgContext";
 
 interface Props {
   children: React.ReactNode;
@@ -23,7 +24,15 @@ function isGroup(item: NavItem): item is NavGroup {
   return "children" in item;
 }
 
-export default function DashboardShell({ children, user, plan, fullHeight }: Props) {
+export default function DashboardShell(props: Props) {
+  return (
+    <OrgProvider>
+      <DashboardShellInner {...props} />
+    </OrgProvider>
+  );
+}
+
+function DashboardShellInner({ children, user, plan, fullHeight }: Props) {
   const params = useParams();
   const pathname = usePathname();
   const locale = (params.locale as Locale) || "en";
@@ -64,6 +73,7 @@ export default function DashboardShell({ children, user, plan, fullHeight }: Pro
     {
       label: tc.socialMediaMarketing,
       children: [
+        { href: `/${locale}/dashboard/buffer`, label: tc.buffer || "Buffer" },
         { href: `/${locale}/dashboard/tiktok`, label: tc.tiktok },
         { href: `/${locale}/dashboard/x`, label: tc.x },
         { href: `/${locale}/dashboard/facebook`, label: tc.facebook },
@@ -112,6 +122,8 @@ export default function DashboardShell({ children, user, plan, fullHeight }: Pro
 
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(getInitialExpanded);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [orgDropdownOpen, setOrgDropdownOpen] = useState(false);
+  const { orgs: userOrgs, activeOrg, setActiveOrgId } = useOrg();
 
   const toggleGroup = (label: string) => {
     setExpandedGroups((prev) => {
@@ -214,6 +226,51 @@ export default function DashboardShell({ children, user, plan, fullHeight }: Pro
             </Link>
           </div>
           <div className="flex items-center gap-3">
+            {/* Org selector */}
+            {userOrgs.length > 0 && (
+              <div className="relative hidden sm:block">
+                <button
+                  onClick={() => setOrgDropdownOpen(!orgDropdownOpen)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors cursor-pointer"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                  </svg>
+                  {activeOrg?.name || (locale === "zh" ? "选择组织" : locale === "zh-TW" ? "選擇組織" : "Select Org")}
+                  <svg className={`w-3 h-3 transition-transform ${orgDropdownOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {orgDropdownOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setOrgDropdownOpen(false)} />
+                    <div className="absolute right-0 mt-1 z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-45">
+                      {userOrgs.map((org) => (
+                        <button
+                          key={org.id}
+                          onClick={() => { setActiveOrgId(org.id); setOrgDropdownOpen(false); }}
+                          className={`w-full px-3 py-2 flex items-center justify-between cursor-pointer transition-colors ${
+                            activeOrg?.id === org.id ? "bg-blue-50 text-blue-700" : "hover:bg-gray-50 text-gray-700"
+                          }`}
+                        >
+                          <span className="text-sm font-medium">{org.name}</span>
+                          <div className="flex items-center gap-2">
+                            {org.member_role && (
+                              <span className="text-xs text-gray-400 capitalize">{org.member_role}</span>
+                            )}
+                            {activeOrg?.id === org.id && (
+                              <svg className="w-3.5 h-3.5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                              </svg>
+                            )}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
             <LanguageSwitcher locale={locale} />
             <span className="text-sm text-gray-600 hidden sm:flex items-center gap-1.5">
               {user.email} <UserPlanBadge plan={plan} />

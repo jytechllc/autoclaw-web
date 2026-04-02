@@ -505,3 +505,34 @@ CREATE TABLE IF NOT EXISTS model_benchmarks (
 CREATE INDEX IF NOT EXISTS idx_model_benchmarks_run ON model_benchmarks(run_id);
 CREATE INDEX IF NOT EXISTS idx_model_benchmarks_score ON model_benchmarks(score_total DESC);
 CREATE INDEX IF NOT EXISTS idx_model_benchmarks_created ON model_benchmarks(created_at DESC);
+
+-- ============================================
+-- WeChat Pay Integration
+-- ============================================
+
+-- Add WeChat Pay columns to users table
+ALTER TABLE users ADD COLUMN IF NOT EXISTS wechat_order_no VARCHAR(255);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS wechat_transaction_id VARCHAR(255);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS payment_method VARCHAR(50) DEFAULT 'stripe'; -- 'stripe', 'wechat_pay'
+ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(50) DEFAULT 'inactive'; -- 'active', 'inactive', 'cancelled'
+
+-- Payments table for tracking all payment transactions
+CREATE TABLE IF NOT EXISTS payments (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  order_no VARCHAR(255) UNIQUE NOT NULL,
+  transaction_id VARCHAR(255),
+  payment_method VARCHAR(50) NOT NULL, -- 'stripe', 'wechat_pay'
+  amount NUMERIC NOT NULL, -- amount in cents
+  currency VARCHAR(3) DEFAULT 'USD',
+  status VARCHAR(50) DEFAULT 'pending', -- 'pending', 'success', 'failed', 'refunded', 'closed'
+  plan VARCHAR(50), -- 'growth', 'scale', etc.
+  paid_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id);
+CREATE INDEX IF NOT EXISTS idx_payments_order_no ON payments(order_no);
+CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
+CREATE INDEX IF NOT EXISTS idx_payments_created ON payments(created_at DESC);

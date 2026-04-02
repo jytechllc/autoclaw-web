@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useOrg } from "@/components/OrgContext";
 
 interface Org {
   id: number;
@@ -23,7 +24,7 @@ interface OrgKeysSectionProps {
 }
 
 export default function OrgKeysSection({ orgs, orgKeys, setOrgKeys, apiKeys, collapsed, setCollapsed, ts, tc }: OrgKeysSectionProps) {
-  const [selectedOrgForKeys, setSelectedOrgForKeys] = useState<number | null>(null);
+  const { activeOrg: globalActiveOrg } = useOrg();
   const [orgKeyEditing, setOrgKeyEditing] = useState<string | null>(null);
   const [orgKeyInput, setOrgKeyInput] = useState("");
   const [orgKeyLabelInput, setOrgKeyLabelInput] = useState("");
@@ -38,7 +39,14 @@ export default function OrgKeysSection({ orgs, orgKeys, setOrgKeys, apiKeys, col
         className="w-full flex items-center justify-between p-6 cursor-pointer hover:bg-gray-50 transition-colors"
       >
         <div className="text-left">
-          <h2 className="text-lg font-semibold">{ts.orgKeysTitle || "Organization API Keys"}</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-semibold">{ts.orgKeysTitle || "Organization API Keys"}</h2>
+            {globalActiveOrg && (
+              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                {globalActiveOrg.name}
+              </span>
+            )}
+          </div>
           <p className="text-sm text-gray-500">{ts.orgKeysDesc}</p>
         </div>
         <svg className={`w-5 h-5 text-gray-400 transition-transform ${collapsed ? "" : "rotate-180"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -46,28 +54,10 @@ export default function OrgKeysSection({ orgs, orgKeys, setOrgKeys, apiKeys, col
         </svg>
       </button>
       {!collapsed && <div className="px-6 pb-6 border-t border-gray-100 pt-4">
-        {/* Org selector (only orgs where user is admin/operator) */}
         {(() => {
           const adminOrgs = orgs.filter((o) => o.member_role === "admin" || o.member_role === "operator");
-          return adminOrgs.length > 1 ? (
-            <div className="mb-4">
-              <label className="text-xs font-medium text-gray-500 mb-1 block">{ts.orgKeysSelectOrg}</label>
-              <select
-                value={selectedOrgForKeys || adminOrgs[0]?.id || ""}
-                onChange={(e) => setSelectedOrgForKeys(Number(e.target.value))}
-                className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full max-w-xs"
-              >
-                {adminOrgs.map((o) => (
-                  <option key={o.id} value={o.id}>{o.name}</option>
-                ))}
-              </select>
-            </div>
-          ) : null;
-        })()}
-
-        {(() => {
-          const adminOrgs = orgs.filter((o) => o.member_role === "admin" || o.member_role === "operator");
-          const activeOrgId = selectedOrgForKeys || adminOrgs[0]?.id;
+          // Use global active org if user is admin/operator there, otherwise fall back to first admin org
+          const activeOrgId = (globalActiveOrg && adminOrgs.some((o) => o.id === globalActiveOrg.id)) ? globalActiveOrg.id : adminOrgs[0]?.id;
           if (!activeOrgId) return null;
           const activeOrg = orgs.find((o) => o.id === activeOrgId);
 
@@ -80,14 +70,11 @@ export default function OrgKeysSection({ orgs, orgKeys, setOrgKeys, apiKeys, col
             { service: "vercel", name: ts.byokVercel, hint: ts.byokVercelHint, tier: "free" as const, tierInfo: ts.byokVercelTier },
             { service: "clawhub", name: ts.byokClawhub, hint: ts.byokClawhubHint, tier: "free" as const, tierInfo: ts.byokClawhubTier },
             { service: "xpilot", name: ts.byokXpilot, hint: ts.byokXpilotHint, tier: "free" as const, tierInfo: ts.byokXpilotTier },
+            { service: "buffer", name: ts.byokBuffer || "Buffer", hint: ts.byokBufferHint || "Social media scheduling & publishing.", tier: "freemium" as const, tierInfo: ts.byokBufferTier || "Free: 3 channels." },
             { service: "blob_token", name: ts.byokBlobToken, hint: ts.byokBlobTokenHint, tier: "free" as const, tierInfo: ts.byokBlobTokenTier },
             { service: "brevo", name: ts.byokBravo, hint: ts.byokBrevoHint, tier: "free" as const, tierInfo: ts.byokBrevoTier },
             { service: "sendgrid", name: ts.byokSendGrid, hint: ts.byokSendGridHint, tier: "free" as const, tierInfo: ts.byokSendGridTier },
-            { service: "smtp_host", name: "SMTP Host", hint: "Gmail: smtp.gmail.com | Outlook: smtp-mail.outlook.com", tier: "free" as const, tierInfo: "Use your own email server" },
-            { service: "smtp_port", name: "SMTP Port", hint: "Usually 587 (TLS) or 465 (SSL)", tier: "free" as const, tierInfo: "587 for most providers" },
-            { service: "smtp_user", name: "SMTP Username", hint: "Your email address", tier: "free" as const, tierInfo: "Gmail/Outlook: full email" },
-            { service: "smtp_pass", name: "SMTP Password", hint: "Gmail: App Password | Outlook: your password", tier: "free" as const, tierInfo: "Gmail: App Passwords" },
-            { service: "smtp_from", name: "SMTP From Email", hint: "Sender email for recipients", tier: "free" as const, tierInfo: "Must match SMTP provider" },
+            // SMTP fields are grouped into a single card below (after Snov.io)
             { service: "tavily", name: ts.byokTavily || "Tavily", hint: ts.byokTavilyHint || "AI-optimized web search. Get key at tavily.com.", tier: "freemium" as const, tierInfo: ts.byokTavilyTier || "Free: 1000 searches/mo. Pro: $20/mo." },
             { service: "firecrawl", name: "Firecrawl", hint: "Web scraping with JS rendering. Get key at firecrawl.dev.", tier: "freemium" as const, tierInfo: "Free: 500 pages/mo. Starter: $19/mo." },
             { service: "apollo", name: ts.byokApollo || "Apollo", hint: ts.byokApolloHint, tier: "freemium" as const, tierInfo: ts.byokApolloTier },
@@ -445,6 +432,163 @@ export default function OrgKeysSection({ orgs, orgKeys, setOrgKeys, apiKeys, col
                   </div>
                 )}
               </div>
+
+              {/* SMTP — 5 fields grouped into one card */}
+              {(() => {
+                const smtpKeys = [
+                  { service: "smtp_host" as const, name: "SMTP Host", placeholder: "smtp.gmail.com" },
+                  { service: "smtp_port" as const, name: "SMTP Port", placeholder: "587" },
+                  { service: "smtp_user" as const, name: "SMTP Username", placeholder: "you@gmail.com" },
+                  { service: "smtp_pass" as const, name: "SMTP Password", placeholder: "App Password" },
+                  { service: "smtp_from" as const, name: "SMTP From Email", placeholder: "sales@yourcompany.com" },
+                ];
+                const smtpConfigured = smtpKeys.filter((k) => orgKeys.some((ok) => ok.org_id === activeOrgId && ok.service === k.service));
+                const smtpPersonalExists = smtpKeys.some((k) => apiKeys.some((a) => a.service === k.service));
+                const isEditingOrgSmtp = orgKeyEditing === `org_${activeOrgId}_smtp`;
+
+                return (
+                  <div className="border border-gray-200 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-semibold">SMTP</h3>
+                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${smtpConfigured.length >= 3 ? "bg-green-100 text-green-800" : smtpConfigured.length > 0 ? "bg-yellow-100 text-yellow-800" : "bg-gray-100 text-gray-500"}`}>
+                          {smtpConfigured.length >= 3 ? ts.byokMasked : smtpConfigured.length > 0 ? `${smtpConfigured.length}/5` : ts.byokNotSet}
+                        </span>
+                        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">{ts.byokTierFree}</span>
+                      </div>
+                    </div>
+                    <p className="text-xs text-gray-400 mb-1">Use your own email server (Gmail, Outlook, or custom SMTP) to send campaigns.</p>
+                    <p className="text-xs text-gray-500 mb-2 flex items-center gap-1">
+                      <svg className="w-3 h-3 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" /></svg>
+                      Gmail: use App Password (myaccount.google.com → Security → App Passwords)
+                    </p>
+
+                    <div className="flex items-center gap-2">
+                      {!isEditingOrgSmtp && smtpConfigured.length === 0 && smtpPersonalExists && (
+                        <button
+                          onClick={async () => {
+                            setOrgKeySaving(true);
+                            let count = 0;
+                            for (const sk of smtpKeys) {
+                              const ok = await copyPersonalToOrg(sk.service);
+                              if (ok) count++;
+                            }
+                            if (count > 0) {
+                              const data = await fetch("/api/api-keys").then((r) => r.json());
+                              setOrgKeys(data.orgKeys || []);
+                              setOrgKeyMsg(`Copied ${count} SMTP keys from personal`);
+                              setTimeout(() => setOrgKeyMsg(""), 3000);
+                            }
+                            setOrgKeySaving(false);
+                          }}
+                          disabled={orgKeySaving}
+                          className="text-xs text-blue-600 hover:text-blue-800 transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1"
+                        >
+                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75" /></svg>
+                          {ts.orgKeysCopyFromPersonal || "Copy from personal"}
+                        </button>
+                      )}
+                      {!isEditingOrgSmtp && (
+                        <button
+                          onClick={() => { setOrgKeyEditing(`org_${activeOrgId}_smtp`); }}
+                          className="text-xs text-red-600 hover:text-red-800 transition-colors cursor-pointer"
+                        >
+                          {smtpConfigured.length > 0 ? ts.edit : ts.byokSave}
+                        </button>
+                      )}
+                    </div>
+
+                    {!isEditingOrgSmtp && smtpConfigured.length > 0 && (
+                      <div className="space-y-1 mt-2">
+                        {smtpKeys.map((sk) => {
+                          const existing = orgKeys.find((ok) => ok.org_id === activeOrgId && ok.service === sk.service);
+                          return existing ? (
+                            <div key={sk.service} className="flex items-center gap-2">
+                              <span className="text-xs text-gray-500 w-24">{sk.name}:</span>
+                              <span className="text-xs text-gray-600 font-mono">{existing.masked_key}</span>
+                            </div>
+                          ) : null;
+                        })}
+                      </div>
+                    )}
+
+                    {isEditingOrgSmtp && (
+                      <div className="space-y-2 mt-2">
+                        {smtpKeys.map((sk) => {
+                          const existing = orgKeys.find((ok) => ok.org_id === activeOrgId && ok.service === sk.service);
+                          return (
+                            <div key={sk.service}>
+                              <label className="text-xs text-gray-500 mb-1 block">{sk.name}</label>
+                              <input
+                                type={sk.service === "smtp_pass" ? "password" : "text"}
+                                defaultValue=""
+                                placeholder={existing ? `••••••••  (leave blank to keep)` : sk.placeholder}
+                                data-org-smtp-key={sk.service}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none font-mono"
+                              />
+                            </div>
+                          );
+                        })}
+                        <div className="flex items-center gap-2">
+                          <button
+                            disabled={orgKeySaving}
+                            onClick={async () => {
+                              setOrgKeySaving(true);
+                              try {
+                                const inputs = document.querySelectorAll<HTMLInputElement>("[data-org-smtp-key]");
+                                let saved = false;
+                                for (const input of inputs) {
+                                  const service = input.getAttribute("data-org-smtp-key");
+                                  const value = input.value.trim();
+                                  if (value && service) {
+                                    await fetch("/api/api-keys", {
+                                      method: "POST",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({ action: "org_upsert", org_id: activeOrgId, service, api_key: value }),
+                                    });
+                                    saved = true;
+                                  }
+                                }
+                                if (saved) {
+                                  setOrgKeyMsg(ts.orgKeysSaved || "Saved!");
+                                  const data = await fetch("/api/api-keys").then((r) => r.json());
+                                  setOrgKeys(data.orgKeys || []);
+                                }
+                                setOrgKeyEditing(null);
+                              } catch { /* ignore */ } finally { setOrgKeySaving(false); setTimeout(() => setOrgKeyMsg(""), 3000); }
+                            }}
+                            className="bg-red-800 hover:bg-red-900 disabled:opacity-50 text-white px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer"
+                          >
+                            {orgKeySaving ? "..." : ts.byokSave}
+                          </button>
+                          <button onClick={() => setOrgKeyEditing(null)} className="text-xs text-gray-400 hover:text-gray-600 cursor-pointer">{tc.cancel}</button>
+                          {smtpConfigured.length > 0 && (
+                            <button
+                              onClick={async () => {
+                                for (const sk of smtpKeys) {
+                                  await fetch("/api/api-keys", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ action: "org_delete", org_id: activeOrgId, service: sk.service }),
+                                  });
+                                }
+                                setOrgKeyEditing(null);
+                                setOrgKeyMsg("SMTP keys deleted");
+                                const data = await fetch("/api/api-keys").then((r) => r.json());
+                                setOrgKeys(data.orgKeys || []);
+                                setTimeout(() => setOrgKeyMsg(""), 3000);
+                              }}
+                              className="text-xs text-red-500 hover:text-red-700 cursor-pointer"
+                            >
+                              {ts.byokDelete}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           );
         })()}

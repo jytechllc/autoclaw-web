@@ -159,8 +159,8 @@ export default function Home() {
 
   const pricingPlans = [
     { name: t.planStarter, price: t.planStarterPrice, period: "", description: t.planStarterDesc, features: [t.feat2Agents, t.featUnlimitedContacts, t.feat100Emails, t.feat1Project, t.featFreeModels, t.featFreeMedia, t.featSocialMedia, t.featBasicTemplates, t.featTeam5, t.featDashboardReports], cta: t.ctaStarterFree, highlight: false, plan: "starter", disabled: false, minCommitment: false },
-    { name: t.planGrowth, price: t.planGrowthPrice, period: t.perMonth, description: t.planGrowthDesc, features: [t.featUnlimitedAgents, t.featUnlimitedContacts, t.featFastModels, t.featByokMarket, t.featBYOK, t.feat2000Emails, t.featCrm, t.featSeoContent, t.featSocialAuto, t.featTeamUnlimited, t.featPriority], cta: isChineseLocale ? t.ctaContactSales : t.ctaStartTrial, highlight: true, plan: "growth", disabled: false, minCommitment: true },
-    { name: t.planScale, price: t.planScalePrice, period: t.perMonth, description: t.planScaleDesc, features: [t.featUnlimitedAgents, t.featUnlimitedContacts, t.featFastModels, t.featByokMarket, t.featBYOK, t.feat10000Emails, t.featCustomAgent, t.featTeamUnlimited, t.featAdvAnalytics, t.featDedicated], cta: isChineseLocale ? t.ctaContactSales : t.ctaGetStarted, highlight: false, plan: "scale", disabled: false, minCommitment: true },
+    { name: t.planGrowth, price: t.planGrowthPrice, period: t.perMonth, description: t.planGrowthDesc, features: [t.featUnlimitedAgents, t.featUnlimitedContacts, t.featFastModels, t.featByokMarket, t.featBYOK, t.feat2000Emails, t.featCrm, t.featSeoContent, t.featSocialAuto, t.featTeamUnlimited, t.featPriority], cta: t.ctaStartTrial, highlight: true, plan: "growth", disabled: false, minCommitment: true },
+    { name: t.planScale, price: t.planScalePrice, period: t.perMonth, description: t.planScaleDesc, features: [t.featUnlimitedAgents, t.featUnlimitedContacts, t.featFastModels, t.featByokMarket, t.featBYOK, t.feat10000Emails, t.featCustomAgent, t.featTeamUnlimited, t.featAdvAnalytics, t.featDedicated], cta: t.ctaGetStarted, highlight: false, plan: "scale", disabled: false, minCommitment: true },
     { name: t.planEnterprise, price: t.planEnterprisePrice, period: "", description: t.planEnterpriseDesc, features: [t.featEverythingScale, t.featDedicatedInfra, t.featCustomTraining, t.featSla, t.featSso, t.featOnPrem, t.featCustomApi, t.featAccountManager, t.featVolumeEmail, t.featWhiteLabel], cta: t.ctaContactSales, highlight: false, plan: "enterprise", disabled: false, minCommitment: true },
   ];
 
@@ -457,7 +457,7 @@ export default function Home() {
                     onClick={async () => {
                       if (plan.disabled) return;
                       const isChina = locale === "zh" || locale === "zh-TW";
-                      if (plan.plan === "enterprise" || (isChina && (plan.plan === "growth" || plan.plan === "scale"))) {
+                      if (plan.plan === "enterprise") {
                         window.location.href = isChina ? "tel:+8617318011997" : "mailto:jay.lin@jytech.us?subject=AutoClaw " + plan.name + " Plan Inquiry";
                       } else if (plan.plan === "starter") {
                         window.location.href = `/auth/login?returnTo=/${locale}/dashboard/reports`;
