@@ -48,6 +48,13 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  const codeVerifier = req.cookies.get("tiktok_pkce_verifier")?.value;
+  if (!codeVerifier) {
+    return NextResponse.redirect(
+      new URL("/en/dashboard?tiktok_error=missing_pkce_verifier", req.url)
+    );
+  }
+
   try {
     const tokenRes = await fetch(
       "https://open.tiktokapis.com/v2/oauth/token/",
@@ -60,6 +67,7 @@ export async function GET(req: NextRequest) {
           code,
           grant_type: "authorization_code",
           redirect_uri: `${req.nextUrl.origin}/api/tiktok/callback`,
+          code_verifier: codeVerifier,
         }),
       }
     );
@@ -130,9 +138,11 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    return NextResponse.redirect(
+    const res = NextResponse.redirect(
       new URL("/en/dashboard?tiktok_success=true", req.url)
     );
+    res.cookies.delete("tiktok_pkce_verifier");
+    return res;
   } catch (err) {
     console.error("TikTok callback error:", err);
     return NextResponse.redirect(

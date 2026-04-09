@@ -88,12 +88,18 @@ export async function POST(req: NextRequest) {
   }
 
   const user = users[0];
-  if (user.role !== "admin") {
-    return NextResponse.json({ error: "Admin only" }, { status: 403 });
-  }
 
   const body = await req.json();
   const { title, videoUrl, privacyLevel = "SELF_ONLY" } = body;
+
+  // Validate privacy level against TikTok's allowed values
+  const ALLOWED_PRIVACY = ["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "SELF_ONLY"];
+  if (!ALLOWED_PRIVACY.includes(privacyLevel)) {
+    return NextResponse.json(
+      { error: `Invalid privacyLevel. Must be one of: ${ALLOWED_PRIVACY.join(", ")}` },
+      { status: 400 }
+    );
+  }
 
   if (!title || !videoUrl) {
     return NextResponse.json(
@@ -126,7 +132,7 @@ export async function POST(req: NextRequest) {
         body: JSON.stringify({
           post_info: {
             title,
-            privacy_level: "SELF_ONLY",
+            privacy_level: privacyLevel,
             disable_duet: false,
             disable_comment: false,
             disable_stitch: false,

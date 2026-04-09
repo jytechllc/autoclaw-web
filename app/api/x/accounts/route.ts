@@ -155,10 +155,66 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, id: rows[0].id, username, x_user_id: xUserId });
     }
 
-    // Update account label
+    // Update account label and/or API credentials
     if (action === "update") {
-      const { id, label } = body;
-      if (!id || !label) return NextResponse.json({ error: "id and label are required" }, { status: 400 });
+      const { id, label, api_key, api_secret, access_token, access_token_secret } = body;
+      if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
+
+      // Verify ownership
+      const owned = await sql`SELECT id FROM x_accounts WHERE id = ${id} AND user_id = ${userId}`;
+      if (owned.length === 0) return NextResponse.json({ error: "Account not found" }, { status: 404 });
+
+      // If updating credentials, all 4 must be provided and verified
+      const updatingCreds = api_key || api_secret || access_token || access_token_secret;
+      if (updatingCreds) {
+        if (!api_key || !api_secret || !access_token || !access_token_secret) {
+          return NextResponse.json({ error: "All 4 API credentials are required when updating keys" }, { status: 400 });
+        }
+
+        // Verify the new credentials
+        let username: string | undefined;
+        let xUserId: string | undefined;
+        try {
+          const client = new TwitterApi({
+            appKey: api_key,
+            appSecret: api_secret,
+            accessToken: access_token,
+            accessSecret: access_token_secret,
+          });
+          try {
+            const me = await client.v2.me();
+            username = me.data.username;
+            xUserId = me.data.id;
+          } catch {
+            try {
+              const v1User = await client.v1.verifyCredentials();
+              username = v1User.screen_name;
+              xUserId = String(v1User.id);
+            } catch { /* still allow update — Free tier may not verify */ }
+          }
+        } catch (e) {
+          return NextResponse.json({ error: `Credential verification failed: ${e instanceof Error ? e.message : e}` }, { status: 400 });
+        }
+
+        await sql`
+          UPDATE x_accounts SET
+            label = COALESCE(${label || null}, label),
+            api_key = ${encrypt(api_key)},
+            api_secret = ${encrypt(api_secret)},
+            access_token = ${encrypt(access_token)},
+            access_token_secret = ${encrypt(access_token_secret)},
+            username = COALESCE(${username || null}, username),
+            x_user_id = COALESCE(${xUserId || null}, x_user_id),
+            status = 'active',
+            last_verified_at = NOW(),
+            updated_at = NOW()
+          WHERE id = ${id} AND user_id = ${userId}
+        `;
+        return NextResponse.json({ success: true, username, x_user_id: xUserId });
+      }
+
+      // Label-only update
+      if (!label) return NextResponse.json({ error: "label or credentials required" }, { status: 400 });
       await sql`UPDATE x_accounts SET label = ${label}, updated_at = NOW() WHERE id = ${id} AND user_id = ${userId}`;
       return NextResponse.json({ success: true });
     }

@@ -227,12 +227,27 @@ export default function TikTokPage() {
     );
   }
 
-  function handleConnect() {
+  async function handleConnect() {
     const clientKey = "sbawg8ocnk6tzdia9g";
     const redirectUri = `${window.location.origin}/api/tiktok/callback`;
     const scope = "user.info.basic,video.publish,video.upload";
-    const authUrl = `https://www.tiktok.com/v2/auth/authorize/?client_key=${clientKey}&scope=${scope}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&state=xpilot`;
-    window.location.href = status?.authUrl || authUrl;
+
+    // PKCE: generate code_verifier and code_challenge (S256)
+    const verifier = base64UrlEncode(crypto.getRandomValues(new Uint8Array(64)));
+    const challengeBuf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+    const challenge = base64UrlEncode(new Uint8Array(challengeBuf));
+
+    // Persist verifier so the callback (server) can use it. Cookie is fine for short-lived OAuth flow.
+    document.cookie = `tiktok_pkce_verifier=${verifier}; Path=/; Max-Age=600; SameSite=Lax`;
+
+    const authUrl = `https://www.tiktok.com/v2/auth/authorize/?client_key=${clientKey}&scope=${scope}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&state=xpilot&code_challenge=${challenge}&code_challenge_method=S256`;
+    window.location.href = authUrl;
+  }
+
+  function base64UrlEncode(bytes: Uint8Array): string {
+    let str = "";
+    for (let i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
+    return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   }
 
   function useGeneratedVideo(video: GeneratedVideo) {
