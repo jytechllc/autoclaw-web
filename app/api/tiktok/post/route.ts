@@ -5,12 +5,6 @@ import { checkRateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
-function getIp(req: NextRequest): string {
-  return (
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown"
-  );
-}
-
 async function refreshTokenIfNeeded(
   userId: number
 ): Promise<{ accessToken: string; openId: string } | null> {
@@ -67,12 +61,6 @@ async function refreshTokenIfNeeded(
 
 // POST: Publish a video to TikTok
 export async function POST(req: NextRequest) {
-  const ip = getIp(req);
-  const allowed = checkRateLimit(ip, { limit: 10, windowMs: 60000 });
-  if (!allowed) {
-    return NextResponse.json({ error: "Rate limited" }, { status: 429 });
-  }
-
   const session = await auth0.getSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -89,8 +77,14 @@ export async function POST(req: NextRequest) {
 
   const user = users[0];
 
+  // Rate limit per user (not per IP) — 30 publishes/minute is plenty for legit use
+  const allowed = checkRateLimit(`tiktok-post:${user.id}`, { limit: 30, windowMs: 60000 });
+  if (!allowed) {
+    return NextResponse.json({ error: "Rate limited" }, { status: 429 });
+  }
+
   const body = await req.json();
-  const { title, videoUrl, privacyLevel = "SELF_ONLY" } = body;
+  const { title, videoUrl, privacyLevel = "SELF_ONLY", mode = "direct", isAigc = false } = body;
 
   // Validate privacy level against TikTok's allowed values
   const ALLOWED_PRIVACY = ["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "SELF_ONLY"];
@@ -101,11 +95,16 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  if (!title || !videoUrl) {
-    return NextResponse.json(
-      { error: "title and videoUrl are required" },
-      { status: 400 }
-    );
+  // mode: "direct" → publish immediately; "draft" → upload to TikTok inbox/drafts (user finalizes inside TikTok app)
+  if (mode !== "direct" && mode !== "draft") {
+    return NextResponse.json({ error: "mode must be 'direct' or 'draft'" }, { status: 400 });
+  }
+
+  if (!videoUrl) {
+    return NextResponse.json({ error: "videoUrl is required" }, { status: 400 });
+  }
+  if (mode === "direct" && !title) {
+    return NextResponse.json({ error: "title is required for direct posting" }, { status: 400 });
   }
 
   const tokenInfo = await refreshTokenIfNeeded(user.id);
@@ -120,16 +119,24 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // Use PULL_FROM_URL to publish video from a public URL
-    const initRes = await fetch(
-      "https://open.tiktokapis.com/v2/post/publish/video/init/",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${tokenInfo.accessToken}`,
-          "Content-Type": "application/json; charset=UTF-8",
-        },
-        body: JSON.stringify({
+    // Direct post: publishes immediately. Requires audited app for non-SELF_ONLY privacy.
+    // Draft (inbox): sends video to user's TikTok app inbox where they finalize/edit/publish.
+    //                Works for unaudited apps because the actual publish is done by the user inside TikTok.
+    const endpoint = mode === "draft"
+      ? "https://open.tiktokapis.com/v2/post/publish/inbox/video/init/"
+      : "https://open.tiktokapis.com/v2/post/publish/video/init/";
+
+    // Inbox upload only accepts source_info; post_info (title, privacy) is set by the user inside TikTok app.
+    // Note: for inbox/draft mode, the AIGC label must also be set by the user inside the TikTok app — TikTok
+    // will surface the AIGC toggle automatically before publishing.
+    const requestBody = mode === "draft"
+      ? {
+          source_info: {
+            source: "PULL_FROM_URL",
+            video_url: videoUrl,
+          },
+        }
+      : {
           post_info: {
             title,
             privacy_level: privacyLevel,
@@ -138,14 +145,24 @@ export async function POST(req: NextRequest) {
             disable_stitch: false,
             brand_content_toggle: false,
             brand_organic_toggle: false,
+            // AI-generated content disclosure (TikTok required for AIGC).
+            // When true, TikTok shows the "AI-generated" label on the published video.
+            is_aigc: isAigc,
           },
           source_info: {
             source: "PULL_FROM_URL",
             video_url: videoUrl,
           },
-        }),
-      }
-    );
+        };
+
+    const initRes = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${tokenInfo.accessToken}`,
+        "Content-Type": "application/json; charset=UTF-8",
+      },
+      body: JSON.stringify(requestBody),
+    });
 
     const initData = await initRes.json();
     if (initData.error?.code && initData.error.code !== "ok") {
@@ -157,8 +174,11 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      mode,
       publishId: initData.data?.publish_id,
-      message: "Video submitted to TikTok for processing",
+      message: mode === "draft"
+        ? "Video uploaded to your TikTok inbox. Open TikTok app to finalize and publish."
+        : "Video submitted to TikTok for processing",
     });
   } catch (err) {
     console.error("TikTok post error:", err);
@@ -197,11 +217,41 @@ export async function GET(req: NextRequest) {
       });
     }
 
+    // Fetch channel info (display_name, avatar) from TikTok using a refreshed token
+    let displayName: string | undefined;
+    let username: string | undefined;
+    let avatarUrl: string | undefined;
+    try {
+      const tokenInfo = await refreshTokenIfNeeded(users[0].id);
+      if (tokenInfo) {
+        // Only request fields available in user.info.basic scope
+        // (username/bio require user.info.profile scope which most users don't grant)
+        const infoRes = await fetch(
+          "https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name",
+          {
+            headers: { Authorization: `Bearer ${tokenInfo.accessToken}` },
+          }
+        );
+        const infoData = await infoRes.json();
+        if (infoData?.data?.user) {
+          displayName = infoData.data.user.display_name;
+          avatarUrl = infoData.data.user.avatar_url;
+        } else if (infoData?.error?.code) {
+          console.warn("TikTok user.info error:", infoData.error);
+        }
+      }
+    } catch (e) {
+      console.warn("TikTok user info fetch failed:", e);
+    }
+
     return NextResponse.json({
       connected: true,
       openId: tokens[0].open_id,
       expiresAt: tokens[0].expires_at,
       scope: tokens[0].scope,
+      displayName,
+      username,
+      avatarUrl,
     });
   } catch {
     // Table might not exist yet
