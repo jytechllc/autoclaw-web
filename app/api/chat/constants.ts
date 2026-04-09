@@ -41,7 +41,7 @@ export const AGENT_PLANS: Record<string, { plan: string; tasks: { name: string; 
       { name: "Score and prioritize leads", status: "pending" },
       { name: "Deliver qualified lead report", status: "pending" },
     ],
-    blockers: ["Need ideal customer profile (industry, company size, title)", "Need LinkedIn Sales Navigator or Apollo.io access"],
+    blockers: ["Need ideal customer profile (industry, company size, title)"],
   },
   social_media: {
     plan: "Set up brand social profiles, create content strategy, schedule posts, and engage with target audience on X/Twitter and LinkedIn.",

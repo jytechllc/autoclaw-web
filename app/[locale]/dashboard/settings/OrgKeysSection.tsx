@@ -366,6 +366,45 @@ export default function OrgKeysSection({ orgs, orgKeys, setOrgKeys, apiKeys, col
                   )}
                 </div>
 
+                {!isEditingOrgSnov && snovOrgConfigured && (
+                  <div className="text-xs text-gray-500 space-y-1 mt-2">
+                    {[
+                      { service: "snov_id", name: "Snov.io API ID", row: snovOrgId! },
+                      { service: "snov_secret", name: "Snov.io API Secret", row: snovOrgSecret! },
+                    ].map(({ service, name, row }) => {
+                      const revealKey = `org_${activeOrgId}_${service}`;
+                      return (
+                        <div key={service} className="flex items-center gap-2">
+                          <span className="w-32 shrink-0">{name}:</span>
+                          <span className="font-mono text-gray-700">{orgKeyRevealed[revealKey] || row.masked_key}</span>
+                          <button
+                            onClick={async () => {
+                              if (orgKeyRevealed[revealKey]) {
+                                setOrgKeyRevealed((prev) => { const n = { ...prev }; delete n[revealKey]; return n; });
+                                return;
+                              }
+                              try {
+                                const res = await fetch("/api/api-keys", {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ action: "org_reveal", org_id: activeOrgId, service }),
+                                });
+                                const data = await res.json();
+                                if (res.ok && data.api_key) {
+                                  setOrgKeyRevealed((prev) => ({ ...prev, [revealKey]: data.api_key }));
+                                }
+                              } catch { /* ignore */ }
+                            }}
+                            className="text-xs text-blue-600 hover:text-blue-800 transition-colors cursor-pointer"
+                          >
+                            {orgKeyRevealed[revealKey] ? ts.byokHide : ts.byokReveal}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
                 {isEditingOrgSnov && (
                   <div className="mt-2 space-y-2">
                     <input

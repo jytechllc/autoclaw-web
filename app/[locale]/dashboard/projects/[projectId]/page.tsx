@@ -340,6 +340,19 @@ export default function AgentDetailPage() {
   const ta = dict.agentsPage;
   const tc = dict.common;
 
+  const agentLabel = (type: string) => {
+    const map: Record<string, string> = {
+      email_marketing: ta.emailMarketing || "Email Marketing",
+      seo_content: ta.seoContent || "SEO & Content",
+      lead_prospecting: ta.leadProspecting || "Lead Prospecting",
+      social_media: ta.socialMedia || "Social Media",
+      product_manager: ta.productManager || "Product Manager",
+      sales_followup: ta.salesFollowup || "Sales Follow-up",
+      orchestrator: ta.orchestrator || "Orchestrator",
+    };
+    return map[type] || type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()).replace(/\bSeo\b/g, "SEO");
+  };
+
   const AGENT_OPTIONS = [
     { type: "email_marketing", label: ta.emailMarketing, comingSoon: false },
     { type: "seo_content", label: ta.seoContent, comingSoon: false },
@@ -467,7 +480,19 @@ export default function AgentDetailPage() {
         .catch(() => ({ models: [] })),
       fetch(`/api/api-keys?_t=${ts}`)
         .then((r) => r.json())
-        .then((d: { keys?: { service: string }[] }) => (d.keys || []).map((k) => k.service))
+        .then((d: { keys?: { service: string }[]; orgKeys?: { service: string }[] }) => {
+          // Merge personal + org-level keys so warnings reflect what the agent can actually use.
+          // org_api_keys uses canonical service names like "apollo", "snov_id"; map a few aliases
+          // (e.g. "snov_id" -> "snov") so existing checks keep working.
+          const personal = (d.keys || []).map((k) => k.service);
+          const org = (d.orgKeys || []).map((k) => k.service);
+          const aliasMap: Record<string, string> = { snov_id: "snov", snov_secret: "snov", snov_api_id: "snov", snov_api_secret: "snov" };
+          const all = new Set<string>([...personal, ...org]);
+          for (const s of [...personal, ...org]) {
+            if (aliasMap[s]) all.add(aliasMap[s]);
+          }
+          return [...all];
+        })
         .catch(() => [] as string[]),
     ]).then(async ([reportData, projectData, modelData, apiKeyServices]) => {
       setUserApiKeys(apiKeyServices as string[]);
@@ -1296,10 +1321,7 @@ export default function AgentDetailPage() {
                             <div className="flex items-center justify-between mb-3">
                               <div>
                                 <h3 className="font-semibold text-sm">
-                                  {agent.agent_type
-                                    .replace(/_/g, " ")
-                                    .replace(/\b\w/g, (c) => c.toUpperCase())
-                                    .replace(/\bSeo\b/g, "SEO")}
+                                  {agentLabel(agent.agent_type)}
                                   <span className="ml-1.5 text-[10px] text-gray-400 font-normal">#{agent.id}</span>
                                 </h3>
                                 <p className="text-xs text-gray-400">
