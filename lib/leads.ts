@@ -498,18 +498,24 @@ async function runApifyActor<T = Record<string, unknown>>(
   );
   if (!startRes.ok) {
     const text = await startRes.text().catch(() => "");
-    throw new Error(`Apify ${actorId} start error ${startRes.status}: ${text.substring(0, 200)}`);
+    if (startRes.status === 403 && text.includes("usage hard limit")) {
+      throw new Error("Apify monthly usage limit exceeded. Please upgrade your Apify plan or wait for the quota to reset.");
+    }
+    if (startRes.status === 401) {
+      throw new Error("Apify API token is invalid or expired. Please update it in Settings > API Keys.");
+    }
+    throw new Error(`Apify service error (${startRes.status}). Please try again later.`);
   }
   const runData = (await startRes.json()) as {
     data?: { id?: string; status?: string; defaultDatasetId?: string; statusMessage?: string };
   };
   const run = runData.data;
-  if (!run?.id) throw new Error(`Apify ${actorId}: no run ID returned`);
+  if (!run?.id) throw new Error("Apify failed to start the crawl task. Please try again.");
 
   let datasetId = run.defaultDatasetId;
 
   if (run.status === "FAILED" || run.status === "ABORTED") {
-    throw new Error(`Apify ${actorId} run ${run.status}: ${String(run.statusMessage || "unknown").substring(0, 200)}`);
+    throw new Error(`Crawl task failed (${run.status.toLowerCase()}). ${run.statusMessage ? String(run.statusMessage).substring(0, 150) : "Please try again."}`);
   }
 
   if (run.status !== "SUCCEEDED") {
@@ -518,14 +524,14 @@ async function runApifyActor<T = Record<string, unknown>>(
     return [];
   }
 
-  if (!datasetId) throw new Error(`Apify ${actorId}: no dataset ID`);
+  if (!datasetId) throw new Error("Crawl completed but no results were returned. Please try again.");
 
   const limit = opts.itemsLimit ?? 200;
   const itemsRes = await fetch(
     `https://api.apify.com/v2/datasets/${datasetId}/items?token=${apiToken}&limit=${limit}`,
   );
   if (!itemsRes.ok) {
-    throw new Error(`Apify ${actorId} dataset error ${itemsRes.status}`);
+    throw new Error(`Failed to retrieve crawl results (${itemsRes.status}). Please try again.`);
   }
   return (await itemsRes.json()) as T[];
 }
