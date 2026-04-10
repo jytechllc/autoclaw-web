@@ -201,10 +201,16 @@ async function crawlWithFirecrawl(apiKey: string, url: string): Promise<string> 
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`Firecrawl error ${res.status}: ${text.substring(0, 200)}`);
+    if (res.status === 401 || res.status === 403) {
+      throw new Error("Firecrawl API key is invalid or expired. Please update it in Settings > API Keys.");
+    }
+    if (res.status === 429) {
+      throw new Error("Firecrawl rate limit reached. Please wait a moment and try again.");
+    }
+    throw new Error(`Firecrawl service error (${res.status}). Please try again later.`);
   }
   const data = (await res.json()) as { success?: boolean; data?: { markdown?: string; metadata?: { title?: string; description?: string } } };
-  if (!data.success || !data.data?.markdown) throw new Error("Firecrawl returned no content");
+  if (!data.success || !data.data?.markdown) throw new Error("The page returned no readable content. It may require JavaScript or login to access.");
   const md = data.data.markdown;
   const title = data.data.metadata?.title || "";
   const desc = data.data.metadata?.description || "";
@@ -224,7 +230,7 @@ async function handleCrawlWebsite(toolParams: Record<string, unknown>, apifyToke
     } catch (err) {
       // Fall through to Apify
       if (!apifyToken) {
-        return `Website crawl failed: ${err instanceof Error ? err.message : "Unknown error"}`;
+        return `Unable to crawl **${url}**: ${err instanceof Error ? err.message : "Something went wrong. Please try again."}`;
       }
     }
   }
@@ -235,7 +241,7 @@ async function handleCrawlWebsite(toolParams: Record<string, unknown>, apifyToke
       const content = await crawlWebsiteApify(apifyToken, url);
       return `**Website content from ${url}** *(via Apify)*\n\n${content.substring(0, 3000)}`;
     } catch (err) {
-      return `Website crawl failed: ${err instanceof Error ? err.message : "Unknown error"}. The site may be blocking crawlers.`;
+      return `Unable to crawl **${url}**: ${err instanceof Error ? err.message : "Something went wrong."} The site may also be blocking automated access.`;
     }
   }
 
@@ -247,8 +253,8 @@ async function handleCrawlWebsite(toolParams: Record<string, unknown>, apifyToke
     const titleMatch = html.match(/<title[^>]*>(.*?)<\/title>/i);
     const body = html.replace(/<script[\s\S]*?<\/script>/gi, "").replace(/<style[\s\S]*?<\/style>/gi, "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
     return `**Website content from ${url}** *(direct fetch)*\n\n${titleMatch?.[1] ? `**${titleMatch[1].trim()}**\n\n` : ""}${body.substring(0, 3000)}`;
-  } catch (err) {
-    return `Website crawl failed: ${err instanceof Error ? err.message : "Unknown error"}. Please add a Firecrawl API key (free 500 pages/mo) or Apify token in Settings > API Keys.`;
+  } catch {
+    return `Unable to crawl **${url}**. The site may be blocking automated access. To improve success rate, add a Firecrawl API key (free 500 pages/mo) or Apify token in Settings > API Keys.`;
   }
 }
 
