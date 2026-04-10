@@ -671,6 +671,7 @@ const en = {
     chatNewConv: "New Chat",
     chatNew: "New",
     chatGeneral: "General",
+    chatNoConv: "No conversations yet",
     chatPageTitle: "AI Chat",
     chatToolHistory: "Tool executions",
     // Billing

@@ -657,6 +657,7 @@ const zh: typeof en = {
     chatNewConv: "新对话",
     chatNew: "新建",
     chatGeneral: "通用对话",
+    chatNoConv: "暂无对话记录",
     chatPageTitle: "AI 对话",
     chatToolHistory: "工具执行记录",
     activeSubscriptions: "当前订阅",
