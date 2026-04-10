@@ -1,11 +1,19 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { Suspense, useState, useEffect, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { useUser } from "@auth0/nextjs-auth0/client";
 import QRCode from "qrcode";
 
 export default function WeChatPayPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-gray-400">Loading...</div>}>
+      <WeChatPayContent />
+    </Suspense>
+  );
+}
+
+function WeChatPayContent() {
   const searchParams = useSearchParams();
   const plan = searchParams.get("plan") || "growth";
   const { user, isLoading: userLoading } = useUser();

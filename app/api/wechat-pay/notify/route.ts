@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getWechatPayConfig, verifyWebhookSignature, decryptWebhook } from "@/lib/wechat-pay";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -51,22 +51,20 @@ export async function POST(req: NextRequest) {
 
     // Only process successful payments
     if (tradeState === "SUCCESS") {
+      const sql = getDb();
+
       // Update user subscription in database
-      await db.query(
-        `UPDATE users
-         SET plan = $1,
+      await sql`UPDATE users
+         SET plan = ${plan},
              updated_at = NOW(),
-             wechat_order_no = $2,
-             wechat_transaction_id = $3,
+             wechat_order_no = ${orderNo},
+             wechat_transaction_id = ${transactionId},
              payment_method = 'wechat_pay',
              subscription_status = 'active'
-         WHERE auth0_id = $4`,
-        [plan, orderNo, transactionId, userId]
-      );
+         WHERE auth0_id = ${userId}`;
 
       // Log payment record
-      await db.query(
-        `INSERT INTO payments (
+      await sql`INSERT INTO payments (
           user_id,
           order_no,
           transaction_id,
@@ -77,15 +75,13 @@ export async function POST(req: NextRequest) {
           paid_at,
           plan
         ) VALUES (
-          (SELECT id FROM users WHERE auth0_id = $1),
-          $2, $3, 'wechat_pay', $4, 'CNY', 'success', $5, $6
+          (SELECT id FROM users WHERE auth0_id = ${userId}),
+          ${orderNo}, ${transactionId}, 'wechat_pay', ${amount.total}, 'CNY', 'success', ${successTime}, ${plan}
         )
         ON CONFLICT (order_no) DO UPDATE SET
           status = 'success',
-          transaction_id = $3,
-          paid_at = $5`,
-        [userId, orderNo, transactionId, amount.total, successTime, plan]
-      );
+          transaction_id = ${transactionId},
+          paid_at = ${successTime}`;
 
       console.log(`WeChat Pay success: ${orderNo}, user: ${userId}, plan: ${plan}`);
     }

@@ -152,7 +152,7 @@ export default function SuccessPage({
 }: {
   params: { locale: string };
 }) {
-  const dict = getDictionary(params.locale);
+  const dict = getDictionary(params.locale as "en" | "zh" | "zh-TW" | "fr");
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
