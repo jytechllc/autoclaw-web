@@ -658,6 +658,7 @@ const fr: typeof en = {
     chatNewConv: "Nouvelle discussion",
     chatNew: "Nouveau",
     chatGeneral: "Général",
+    chatNoConv: "Aucune conversation",
     chatPageTitle: "Chat IA",
     chatToolHistory: "Exécutions d'outils",
     activeSubscriptions: "Abonnements actifs",

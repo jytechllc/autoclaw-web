@@ -658,6 +658,7 @@ const zhTW: typeof en = {
     chatNewConv: "新對話",
     chatNew: "新建",
     chatGeneral: "通用對話",
+    chatNoConv: "暫無對話記錄",
     chatPageTitle: "AI 對話",
     chatToolHistory: "工具執行記錄",
     activeSubscriptions: "目前訂閱",

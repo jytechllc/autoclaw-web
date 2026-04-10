@@ -207,7 +207,7 @@ export default function ChatWidget() {
             <div className="flex items-center gap-2">
               <span className="font-semibold text-sm">{tc.chat}</span>
               {activeConvId !== null && (
-                <span className="text-white/60 text-xs truncate max-w-30">
+                <span className="text-white/60 text-xs truncate max-w-[120px]">
                   — {conversations.find((c) => c.id === activeConvId)?.title || ""}
                 </span>
               )}
