@@ -234,7 +234,7 @@ export default function ChatWidget() {
                 </svg>
               </button>
               {/* Fullscreen toggle */}
-              <button onClick={() => setFullscreen((f) => !f)} className="text-white/70 hover:text-white cursor-pointer p-1" title={fullscreen ? tc.minimize || "Minimize" : tc.fullscreen || "Fullscreen"}>
+              <button onClick={() => setFullscreen((f) => !f)} className="text-white/70 hover:text-white cursor-pointer p-1" title={fullscreen ? "Minimize" : "Fullscreen"}>
                 {fullscreen ? (
                   <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 9L4 4m0 0v4m0-4h4m6 6l5 5m0 0v-4m0 4h-4M9 15l-5 5m0 0v-4m0 4h4m6-6l5-5m0 0v4m0-4h-4" />
