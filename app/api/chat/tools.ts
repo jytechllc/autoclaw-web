@@ -455,15 +455,16 @@ async function handleSearchGoogleMaps(toolParams: Record<string, unknown>, toolS
     sendStep("search_google");
     try {
       const searchResult = await searchGoogleApify(apifyToken, [`${query} businesses companies`, `${query} directory list`], tavilyKey);
-      const urlRegex = /\(([^)]+)\)/g;
-      const titleRegex = /\*\*([^*]+)\*\*/g;
-      let match;
-      while ((match = titleRegex.exec(searchResult)) !== null) {
-        const title = match[1];
-        const urlMatch = urlRegex.exec(searchResult);
-        const url = urlMatch ? urlMatch[1] : "";
-        if (title && !title.includes("Search:")) {
-          results.push({ name: title, website: url, phone: "", address: "", category: "" });
+      // Parse each line: "- **Title** (url): description"
+      const lineRegex = /^- \*\*([^*]+)\*\*\s*\(([^)]*)\)/;
+      for (const line of searchResult.split("\n")) {
+        const match = lineRegex.exec(line);
+        if (match) {
+          const title = match[1];
+          const url = match[2];
+          if (title && !title.includes("Search:")) {
+            results.push({ name: title, website: url, phone: "", address: "", category: "" });
+          }
         }
       }
     } catch (err) {
@@ -490,8 +491,9 @@ async function handleSearchGoogleMaps(toolParams: Record<string, unknown>, toolS
       return `**Google Maps search: "${query}"**\n\nNo businesses found. Try broadening your search terms or checking the location.`;
     }
 
+    const esc = (s: string) => s.replace(/\|/g, "\\|");
     const rows = results.map((r) =>
-      `| ${r.name || "—"} | ${r.website || "—"} | ${r.phone || "—"} | ${r.address || "—"} | ${r.category || "—"} |`
+      `| ${esc(r.name) || "—"} | ${esc(r.website) || "—"} | ${esc(r.phone) || "—"} | ${esc(r.address) || "—"} | ${esc(r.category) || "—"} |`
     ).join("\n");
 
     let result = `**${toolSummary || "Google Maps Search"}**\n\nFound **${results.length}** businesses:\n\n| Company | Website | Phone | Address | Category |\n|---------|---------|-------|---------|----------|\n${rows}`;
