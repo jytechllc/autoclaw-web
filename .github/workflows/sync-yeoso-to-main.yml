@@ -1,0 +1,260 @@
+name: Sync Yeoso Features to Main
+
+on:
+  push:
+    branches:
+      - yeoso
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync-features:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Get new commits diff
+        id: diff
+        run: |
+          # Find the merge base between yeoso and main
+          MERGE_BASE=$(git merge-base origin/main origin/yeoso)
+          echo "merge_base=$MERGE_BASE" >> "$GITHUB_OUTPUT"
+
+          # Get the diff (limited to 100KB to stay within API limits)
+          DIFF=$(git diff "$MERGE_BASE"..origin/yeoso -- . \
+            ':!package-lock.json' ':!node_modules' ':!.env*' \
+            | head -c 100000)
+
+          if [ -z "$DIFF" ]; then
+            echo "no_diff=true" >> "$GITHUB_OUTPUT"
+            echo "No diff found between yeoso and main"
+            exit 0
+          fi
+
+          # Save diff to file for the AI step
+          echo "$DIFF" > /tmp/yeoso-diff.txt
+          echo "no_diff=false" >> "$GITHUB_OUTPUT"
+
+          # Get commit messages for context
+          git log "$MERGE_BASE"..origin/yeoso --oneline > /tmp/yeoso-commits.txt
+
+      - name: Skip if no diff
+        if: steps.diff.outputs.no_diff == 'true'
+        run: echo "No changes to sync. Exiting." && exit 0
+
+      - name: Analyze diff with Gemini
+        if: steps.diff.outputs.no_diff != 'true'
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          DIFF_CONTENT=$(cat /tmp/yeoso-diff.txt)
+          COMMIT_MESSAGES=$(cat /tmp/yeoso-commits.txt)
+
+          # Build the full prompt text
+          PROMPT_TEXT=$(cat <<'EOF'
+          You are a code migration assistant. You are given a git diff from the "yeoso" branch of a Next.js project. Your job is to identify FEATURE changes (new functionality, bug fixes, improvements, refactors) and EXCLUDE brand-specific changes.
+
+          ## Brand-specific changes to EXCLUDE:
+          - Yeoso domain references (yeoso.com, tsoai.com)
+          - Yeoso-specific contact info (Jason, +86 15221611137)
+          - Yeoso-specific GA tracking IDs (G-BN41CCK16P)
+          - WeChat Pay integration (wechat-pay.ts, WECHAT_PAY_* env vars)
+          - `isYeoso` conditional blocks that change behavior specifically for Yeoso
+          - Yeoso-specific branding, logos, colors, copy
+          - Chinese market specific payment flows
+          - Changes to .env files
+
+          ## Feature changes to INCLUDE:
+          - New API routes, components, pages (unless Yeoso-only)
+          - Bug fixes in shared code
+          - UI improvements that benefit all brands
+          - New shared utilities or libraries
+          - Performance improvements
+          - i18n improvements (new translation keys used by all brands)
+          - Refactors to shared infrastructure
+
+          ## Instructions:
+          1. Analyze the diff below
+          2. For each changed file, decide: INCLUDE (feature), EXCLUDE (brand-specific), or PARTIAL (has both — extract only the feature parts)
+          3. Output a JSON response with this structure:
+
+          ```json
+          {
+            "summary": "Brief description of features being ported",
+            "changes": [
+              {
+                "file": "path/to/file.tsx",
+                "action": "include|exclude|partial",
+                "reason": "why this decision",
+                "adapted_diff": "the git diff for this file, adapted for main branch (only for include/partial)"
+              }
+            ],
+            "has_features_to_port": true
+          }
+          ```
+
+          For PARTIAL files, rewrite the diff to only include the feature parts, removing brand-specific hunks. Keep the diff in standard unified diff format.
+
+          ## Recent commit messages from yeoso:
+          COMMITS_PLACEHOLDER
+
+          ## Diff:
+          DIFF_PLACEHOLDER
+          EOF
+          )
+
+          # Replace placeholders with actual content
+          PROMPT_TEXT="${PROMPT_TEXT/COMMITS_PLACEHOLDER/$COMMIT_MESSAGES}"
+          PROMPT_TEXT="${PROMPT_TEXT/DIFF_PLACEHOLDER/$DIFF_CONTENT}"
+
+          # Use jq to safely build the JSON payload for Gemini API
+          jq -n --arg prompt "$PROMPT_TEXT" '{
+            contents: [{ parts: [{ text: $prompt }] }],
+            generationConfig: { temperature: 0.1, maxOutputTokens: 16000 }
+          }' > /tmp/api-request.json
+
+          # Call Gemini API (free tier)
+          HTTP_STATUS=$(curl -s -w "%{http_code}" -o /tmp/gemini-response.json \
+            -X POST "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d @/tmp/api-request.json)
+
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "Gemini API returned HTTP $HTTP_STATUS"
+            cat /tmp/gemini-response.json
+            exit 1
+          fi
+
+          # Extract the text response from Gemini's format
+          jq -r '.candidates[0].content.parts[0].text' /tmp/gemini-response.json > /tmp/ai-analysis.txt
+          echo "=== AI Analysis ==="
+          cat /tmp/ai-analysis.txt
+
+      - name: Create sync branch and apply changes
+        if: steps.diff.outputs.no_diff != 'true'
+        id: apply
+        run: |
+          ANALYSIS=$(cat /tmp/ai-analysis.txt)
+
+          # Check if there are features to port
+          HAS_FEATURES=$(echo "$ANALYSIS" | grep -o '"has_features_to_port":\s*true' || true)
+          if [ -z "$HAS_FEATURES" ]; then
+            echo "No features to port. All changes are brand-specific."
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Extract summary for PR description
+          SUMMARY=$(echo "$ANALYSIS" | sed -n 's/.*"summary":\s*"\([^"]*\)".*/\1/p' | head -1)
+          echo "summary=$SUMMARY" >> "$GITHUB_OUTPUT"
+
+          # Create a new branch from main
+          BRANCH_NAME="sync/yeoso-to-main-$(date +%Y%m%d-%H%M%S)"
+          git checkout origin/main -b "$BRANCH_NAME"
+          echo "branch=$BRANCH_NAME" >> "$GITHUB_OUTPUT"
+
+          # Try to cherry-pick non-brand commits using git's merge
+          # Apply yeoso changes then let the AI-identified exclusions guide the review
+          MERGE_BASE=${{ steps.diff.outputs.merge_base }}
+
+          # Get list of files to include from AI analysis (include + partial)
+          INCLUDE_FILES=$(echo "$ANALYSIS" | grep -o '"file":\s*"[^"]*"' | sed 's/"file":\s*"//;s/"//' || true)
+
+          if [ -z "$INCLUDE_FILES" ]; then
+            echo "No files identified for inclusion."
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Checkout each included file from yeoso
+          CHANGED=false
+          while IFS= read -r file; do
+            if [ -n "$file" ]; then
+              # Check if the AI marked it as include (not exclude)
+              ACTION=$(echo "$ANALYSIS" | grep -A1 "\"file\":\s*\"$file\"" | grep -o '"action":\s*"[^"]*"' | sed 's/"action":\s*"//;s/"//' || echo "unknown")
+
+              if [ "$ACTION" = "include" ] || [ "$ACTION" = "partial" ]; then
+                echo "Applying: $file ($ACTION)"
+                # Try to checkout the file from yeoso
+                if git checkout origin/yeoso -- "$file" 2>/dev/null; then
+                  git add "$file"
+                  CHANGED=true
+                else
+                  echo "Warning: Could not checkout $file from yeoso (may be deleted)"
+                fi
+              else
+                echo "Skipping: $file ($ACTION)"
+              fi
+            fi
+          done <<< "$INCLUDE_FILES"
+
+          if [ "$CHANGED" = true ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git commit -m "sync: port features from yeoso branch
+
+          AI-analyzed feature sync. Brand-specific changes excluded.
+
+          Source: yeoso branch at $(git rev-parse origin/yeoso | head -c 8)"
+            git push origin "$BRANCH_NAME"
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No changes applied after filtering."
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create Pull Request
+        if: steps.diff.outputs.no_diff != 'true' && steps.apply.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SUMMARY="${{ steps.apply.outputs.summary }}"
+          BRANCH="${{ steps.apply.outputs.branch }}"
+          ANALYSIS=$(cat /tmp/ai-analysis.txt)
+
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "sync: port features from yeoso" \
+            --body "$(cat <<EOF
+          ## Auto-synced from yeoso branch
+
+          **AI Summary:** ${SUMMARY}
+
+          ### What this does
+          This PR was automatically generated by analyzing changes on the \`yeoso\` branch and porting feature-level changes to \`main\`, excluding brand-specific Yeoso customizations.
+
+          ### Excluded (brand-specific)
+          - Yeoso domain/contact references
+          - WeChat Pay integration
+          - Yeoso-specific GA tracking
+          - Brand-specific UI/copy changes
+
+          ### AI Analysis
+          <details>
+          <summary>Full analysis</summary>
+
+          \`\`\`
+          ${ANALYSIS}
+          \`\`\`
+          </details>
+
+          > **Review carefully** — AI-generated sync. Verify no brand-specific code leaked through.
+
+          ---
+          *Generated by [sync-yeoso-to-main](../.github/workflows/sync-yeoso-to-main.yml) workflow*
+          EOF
+          )"
