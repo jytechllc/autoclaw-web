@@ -58,6 +58,9 @@ interface ServerAgent {
 const AGENT_STATUS_LABELS: Record<string, Record<string, string>> = {
   en: { active: "Active", pending: "Pending", paused: "Paused", completed: "Completed", unknown: "Unknown" },
   zh: { active: "已启用", pending: "待运行", paused: "已暂停", completed: "已完成", unknown: "未知" },
+  "zh-TW": { active: "已啟用", pending: "待執行", paused: "已暫停", completed: "已完成", unknown: "未知" },
+  fr: { active: "Actif", pending: "En attente", paused: "En pause", completed: "Termine", unknown: "Inconnu" },
+  ko: { active: "활성", pending: "대기중", paused: "일시정지", completed: "완료", unknown: "알 수 없음" },
 };
 
 function statusBadge(status: string | null, locale = "en") {
@@ -601,6 +604,20 @@ export default function AgentDetailPage() {
       });
       const data = await res.json();
       if (!res.ok) alert(data.error);
+      await loadData();
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function togglePauseAgent(agentId: number, currentStatus: string) {
+    setActionLoading(true);
+    try {
+      await fetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: currentStatus === "paused" ? "resume_agent" : "pause_agent", agent_id: agentId }),
+      });
       await loadData();
     } finally {
       setActionLoading(false);
@@ -1419,6 +1436,13 @@ export default function AgentDetailPage() {
                                   );
                                 })()}
                                 {statusBadge(agent.status, locale)}
+                                <button
+                                  onClick={() => togglePauseAgent(agent.id, agent.status)}
+                                  disabled={actionLoading}
+                                  className={`text-xs cursor-pointer ${agent.status === "paused" ? "text-green-600 hover:text-green-800" : "text-yellow-600 hover:text-yellow-800"}`}
+                                >
+                                  {agent.status === "paused" ? (locale === "zh" || locale === "zh-TW" ? "恢复" : locale === "ko" ? "재개" : "Resume") : (locale === "zh" || locale === "zh-TW" ? "暂停" : locale === "ko" ? "일시정지" : "Pause")}
+                                </button>
                                 <button
                                   onClick={() => deactivateAgent(agent.id)}
                                   className="text-xs text-red-400 hover:text-red-600 cursor-pointer"

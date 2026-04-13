@@ -379,6 +379,32 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true });
   }
 
+  if (action === "pause_agent") {
+    const { agent_id } = body;
+    const agent = isAdmin
+      ? await sql`SELECT aa.id FROM agent_assignments aa WHERE aa.id = ${agent_id}`
+      : await sql`SELECT aa.id FROM agent_assignments aa JOIN projects p ON aa.project_id = p.id WHERE aa.id = ${agent_id} AND (p.user_id = ${userId} OR p.id IN (SELECT project_id FROM project_members WHERE user_id = ${userId}) OR (p.domain IS NOT NULL AND p.domain != '' AND p.domain = ${emailDomain}) OR p.org_id IN (SELECT org_id FROM organization_members WHERE user_id = ${userId}))`;
+    if (agent.length === 0) {
+      return NextResponse.json({ error: "Agent not found" }, { status: 404 });
+    }
+    await sql`UPDATE agent_assignments SET status = 'paused' WHERE id = ${agent_id}`;
+    logAudit({ userId, userEmail: email, action: "agent.deactivate", resourceType: "agent", resourceId: agent_id, details: { new_status: "paused" }, ipAddress: getIp(req) });
+    return NextResponse.json({ success: true });
+  }
+
+  if (action === "resume_agent") {
+    const { agent_id } = body;
+    const agent = isAdmin
+      ? await sql`SELECT aa.id FROM agent_assignments aa WHERE aa.id = ${agent_id}`
+      : await sql`SELECT aa.id FROM agent_assignments aa JOIN projects p ON aa.project_id = p.id WHERE aa.id = ${agent_id} AND (p.user_id = ${userId} OR p.id IN (SELECT project_id FROM project_members WHERE user_id = ${userId}) OR (p.domain IS NOT NULL AND p.domain != '' AND p.domain = ${emailDomain}) OR p.org_id IN (SELECT org_id FROM organization_members WHERE user_id = ${userId}))`;
+    if (agent.length === 0) {
+      return NextResponse.json({ error: "Agent not found" }, { status: 404 });
+    }
+    await sql`UPDATE agent_assignments SET status = 'active' WHERE id = ${agent_id}`;
+    logAudit({ userId, userEmail: email, action: "agent.activate", resourceType: "agent", resourceId: agent_id, details: { new_status: "active" }, ipAddress: getIp(req) });
+    return NextResponse.json({ success: true });
+  }
+
   if (action === "deactivate_agent") {
     const { agent_id } = body;
     // Verify ownership (admin can access all)

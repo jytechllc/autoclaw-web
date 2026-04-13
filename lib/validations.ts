@@ -35,6 +35,16 @@ export const deactivateAgentSchema = z.object({
   agent_id: id,
 });
 
+export const pauseAgentSchema = z.object({
+  action: z.literal("pause_agent"),
+  agent_id: id,
+});
+
+export const resumeAgentSchema = z.object({
+  action: z.literal("resume_agent"),
+  agent_id: id,
+});
+
 export const resolveBlockerSchema = z.object({
   action: z.literal("resolve_blocker"),
   agent_id: id,
@@ -70,6 +80,8 @@ export const projectActionSchema = z.discriminatedUnion("action", [
   createProjectSchema,
   activateAgentSchema,
   deactivateAgentSchema,
+  pauseAgentSchema,
+  resumeAgentSchema,
   resolveBlockerSchema,
   updateAgentConfigSchema,
   updateProjectSchema,
