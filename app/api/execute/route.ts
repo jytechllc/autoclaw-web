@@ -79,10 +79,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, message: "Tasks reset" });
   }
 
+  // Use agent's configured target language, not UI locale
+  // This ensures email templates are generated in the correct language
+  const agentConfig = await sql`SELECT config FROM agent_assignments WHERE id = ${agent_id}`;
+  const configLocale = (agentConfig[0]?.config as Record<string, unknown>)?.locale as string | undefined;
+  const targetLocale = configLocale || locale || "en";
+
   const endpoint = action === "run-all" ? "/run-all" : "/execute";
   const body = action === "run-all"
-    ? { agent_id, mode: mode || "continue", locale: locale || "en" }
-    : { agent_id, task_index, project_id: agents[0].project_id, user_id: userId, caller_id: userId, locale: locale || "en" };
+    ? { agent_id, mode: mode || "continue", locale: targetLocale }
+    : { agent_id, task_index, project_id: agents[0].project_id, user_id: userId, caller_id: userId, locale: targetLocale };
 
   try {
     const workerRes = await fetch(`${workerUrl}${endpoint}`, {

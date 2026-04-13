@@ -122,7 +122,7 @@ export default function EmailTemplatesPage() {
   const [formName, setFormName] = useState("");
   const [formSubject, setFormSubject] = useState("");
   const [formBody, setFormBody] = useState("");
-  const [formLanguage, setFormLanguage] = useState<string>(locale);
+  const [formLanguage, setFormLanguage] = useState<string>("en");
   const [formCategory, setFormCategory] = useState("custom");
   const [formProjectId, setFormProjectId] = useState("");
   const [saving, setSaving] = useState(false);
@@ -130,9 +130,26 @@ export default function EmailTemplatesPage() {
   // AI Generate state
   const [showAiGenerate, setShowAiGenerate] = useState(false);
   const [aiProjectId, setAiProjectId] = useState("");
-  const [aiLanguage, setAiLanguage] = useState<string>(locale);
+  const [aiLanguage, setAiLanguage] = useState<string>("en");
   const [aiContext, setAiContext] = useState("");
   const [aiGenerating, setAiGenerating] = useState(false);
+
+  // When AI project changes, fetch its agent's target language
+  useEffect(() => {
+    if (!aiProjectId) return;
+    fetch(`/api/projects?id=${aiProjectId}`)
+      .then((r) => r.json())
+      .then((data) => {
+        const agents = data.agents || [];
+        const emailAgent = agents.find((a: { agent_type?: string }) =>
+          (a.agent_type || "").includes("email")
+        );
+        if (emailAgent?.config?.locale) {
+          setAiLanguage(emailAgent.config.locale as string);
+        }
+      })
+      .catch(() => {});
+  }, [aiProjectId]);
 
   // Editor mode: "visual" for WYSIWYG, "source" for HTML code
   const [editorMode, setEditorMode] = useState<"visual" | "source">("visual");
