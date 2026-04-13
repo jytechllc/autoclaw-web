@@ -450,7 +450,7 @@ export default function Home() {
       {/* Footer */}
       <footer className="bg-slate-900 text-gray-400 border-t border-gray-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-          <div className="grid md:grid-cols-3 gap-8">
+          <div className="grid md:grid-cols-4 gap-8">
             <div>
               <p className="text-xl font-bold text-white mb-2"><span className="text-red-400">Auto</span>Claw</p>
               <p className="text-sm leading-relaxed">{t.footerDesc}</p>
@@ -461,6 +461,14 @@ export default function Home() {
                 <li><a href="#agents" className="hover:text-white transition-colors">{t.footerAiAgents}</a></li>
                 <li><a href="#cases" className="hover:text-white transition-colors">{t.footerCaseStudies}</a></li>
                 <li><a href="#pricing" className="hover:text-white transition-colors">{t.pricing}</a></li>
+              </ul>
+            </div>
+            <div>
+              <p className="font-semibold text-white mb-3 text-sm">{t.footerResources || "Resources"}</p>
+              <ul className="space-y-2 text-sm">
+                <li><a href={`/${locale}/careers`} className="hover:text-white transition-colors">{t.footerCareers || "Career Opportunities"}</a></li>
+                <li><a href={`/${locale}/docs`} className="hover:text-white transition-colors">{t.footerDocs || "Documentation"}</a></li>
+                <li><a href={`/${locale}/status`} className="hover:text-white transition-colors">{t.footerStatus || "Status"}</a></li>
               </ul>
             </div>
             <div>

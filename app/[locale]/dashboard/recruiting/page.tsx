@@ -671,10 +671,11 @@ function RecruitingContent() {
                       <div className="flex flex-wrap gap-3 text-xs text-gray-500 mb-3">
                         {p.department && <span className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded">📂 {p.department}</span>}
                         {p.location && <span className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded">📍 {p.location}</span>}
-                        {(p.salary_min || p.salary_max) && (
+                        {(p.salary_min != null || p.salary_max != null) && (
                           <span className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded">
-                            💰 {p.salary_min ? `$${p.salary_min.toLocaleString()}` : "?"} – {p.salary_max ? `$${p.salary_max.toLocaleString()}` : "?"}
-                            {" "}/{(t as Record<string, string>)[`salary${(p.salary_type || "yearly").charAt(0).toUpperCase() + (p.salary_type || "yearly").slice(1)}`] || p.salary_type || "yr"}
+                            {p.salary_min === 0 && p.salary_max === 0
+                              ? `💰 ${t.unpaid || "Unpaid"}`
+                              : <>💰 {p.salary_min ? `$${p.salary_min.toLocaleString()}` : "?"} – {p.salary_max ? `$${p.salary_max.toLocaleString()}` : "?"} /{(t as Record<string, string>)[`salary${(p.salary_type || "yearly").charAt(0).toUpperCase() + (p.salary_type || "yearly").slice(1)}`] || p.salary_type || "yr"}</>}
                           </span>
                         )}
                         {p.visa_sponsorship && (

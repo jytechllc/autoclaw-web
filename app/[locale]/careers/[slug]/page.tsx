@@ -403,10 +403,11 @@ export default function CareersPage() {
                           <div className="flex flex-wrap gap-3 text-xs text-gray-500 mb-3">
                             {p.department && <span className="flex items-center gap-1">📂 {p.department}</span>}
                             {p.location && <span className="flex items-center gap-1">📍 {p.location}</span>}
-                            {(p.salary_min || p.salary_max) && (
+                            {(p.salary_min != null || p.salary_max != null) && (
                               <span className="flex items-center gap-1">
-                                💰 {p.salary_min ? `$${p.salary_min.toLocaleString()}` : "?"} – {p.salary_max ? `$${p.salary_max.toLocaleString()}` : "?"}
-                                {" "}/{p.salary_type === "hourly" ? "hr" : p.salary_type === "monthly" ? "mo" : "yr"}
+                                {p.salary_min === 0 && p.salary_max === 0
+                                  ? "💰 Unpaid"
+                                  : <>💰 {p.salary_min ? `$${p.salary_min.toLocaleString()}` : "?"} – {p.salary_max ? `$${p.salary_max.toLocaleString()}` : "?"} /{p.salary_type === "hourly" ? "hr" : p.salary_type === "monthly" ? "mo" : "yr"}</>}
                               </span>
                             )}
                             {p.visa_sponsorship && (
