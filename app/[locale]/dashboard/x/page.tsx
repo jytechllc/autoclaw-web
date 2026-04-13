@@ -63,6 +63,13 @@ export default function XPage() {
   const [newApiSecret, setNewApiSecret] = useState("");
   const [newAccessToken, setNewAccessToken] = useState("");
   const [newAccessTokenSecret, setNewAccessTokenSecret] = useState("");
+  const [editingAccountId, setEditingAccountId] = useState<number | null>(null);
+  const [editLabel, setEditLabel] = useState("");
+  const [editApiKey, setEditApiKey] = useState("");
+  const [editApiSecret, setEditApiSecret] = useState("");
+  const [editAccessToken, setEditAccessToken] = useState("");
+  const [editAccessTokenSecret, setEditAccessTokenSecret] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
 
   // Composer state
   const [content, setContent] = useState("");
@@ -253,6 +260,56 @@ export default function XPage() {
     setTimeout(() => setMessage(""), 3000);
     fetchAccounts();
     if (selectedAccountId === id) setSelectedAccountId(undefined);
+  }
+
+  function startEditAccount(a: XAccount) {
+    setEditingAccountId(a.id);
+    setEditLabel(a.label);
+    setEditApiKey("");
+    setEditApiSecret("");
+    setEditAccessToken("");
+    setEditAccessTokenSecret("");
+  }
+
+  function cancelEditAccount() {
+    setEditingAccountId(null);
+    setEditLabel("");
+    setEditApiKey("");
+    setEditApiSecret("");
+    setEditAccessToken("");
+    setEditAccessTokenSecret("");
+  }
+
+  async function saveEditAccount() {
+    if (editingAccountId == null) return;
+    setSavingEdit(true);
+    try {
+      const payload: Record<string, unknown> = { action: "update", id: editingAccountId };
+      if (editLabel.trim()) payload.label = editLabel.trim();
+      // Only send credentials if user typed all four
+      if (editApiKey.trim() && editApiSecret.trim() && editAccessToken.trim() && editAccessTokenSecret.trim()) {
+        payload.api_key = editApiKey.trim();
+        payload.api_secret = editApiSecret.trim();
+        payload.access_token = editAccessToken.trim();
+        payload.access_token_secret = editAccessTokenSecret.trim();
+      }
+      const res = await fetch("/api/x/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMessage(t.accountAdded);
+        cancelEditAccount();
+        fetchAccounts();
+        fetchStatus();
+      } else {
+        setMessage(t.accountError + (data.error ? `: ${data.error}` : ""));
+      }
+    } catch { setMessage(t.accountError); }
+    setSavingEdit(false);
+    setTimeout(() => setMessage(""), 5000);
   }
 
   async function setDefaultAccount(id: number) {
@@ -622,19 +679,42 @@ export default function XPage() {
                   ) : (
                     <div className="space-y-2">
                       {accounts.map((a) => (
-                        <div key={a.id} className={`flex items-center justify-between p-3 rounded-lg border ${selectedAccountId === a.id ? "border-blue-300 bg-blue-50/50" : "border-gray-100 bg-gray-50/50"}`}>
-                          <div className="flex items-center gap-2">
-                            <span className={`w-2 h-2 rounded-full ${a.status === "active" ? "bg-green-500" : "bg-red-400"}`} />
-                            <span className="text-sm font-medium text-gray-800">{a.label}</span>
-                            {a.username && <span className="text-xs text-gray-500">@{a.username}</span>}
-                            {a.is_default && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">{t.defaultAccount}</span>}
+                        <div key={a.id} className={`p-3 rounded-lg border ${selectedAccountId === a.id ? "border-blue-300 bg-blue-50/50" : "border-gray-100 bg-gray-50/50"}`}>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className={`w-2 h-2 rounded-full ${a.status === "active" ? "bg-green-500" : "bg-red-400"}`} />
+                              <span className="text-sm font-medium text-gray-800">{a.label}</span>
+                              {a.username && <span className="text-xs text-gray-500">@{a.username}</span>}
+                              {a.is_default && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">{t.defaultAccount}</span>}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {!a.is_default && (
+                                <button onClick={() => setDefaultAccount(a.id)} className="text-[11px] text-blue-600 hover:text-blue-800 cursor-pointer">{t.setDefault}</button>
+                              )}
+                              <button onClick={() => startEditAccount(a)} className="text-[11px] text-gray-600 hover:text-gray-900 cursor-pointer">Edit</button>
+                              <button onClick={() => removeAccount(a.id)} className="text-[11px] text-red-400 hover:text-red-600 cursor-pointer">{t.removeAccount}</button>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            {!a.is_default && (
-                              <button onClick={() => setDefaultAccount(a.id)} className="text-[11px] text-blue-600 hover:text-blue-800 cursor-pointer">{t.setDefault}</button>
-                            )}
-                            <button onClick={() => removeAccount(a.id)} className="text-[11px] text-red-400 hover:text-red-600 cursor-pointer">{t.removeAccount}</button>
-                          </div>
+                          {editingAccountId === a.id && (
+                            <div className="mt-3 pt-3 border-t border-gray-200 space-y-2">
+                              <input type="text" value={editLabel} onChange={(e) => setEditLabel(e.target.value)} placeholder={t.accountLabelPlaceholder} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                              <p className="text-[11px] text-gray-500">Leave the 4 fields below empty to only update the label. Fill all 4 to replace API credentials.</p>
+                              <div className="grid grid-cols-2 gap-2">
+                                <input type="text" value={editApiKey} onChange={(e) => setEditApiKey(e.target.value)} placeholder={t.apiKey} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                                <input type="text" value={editApiSecret} onChange={(e) => setEditApiSecret(e.target.value)} placeholder={t.apiSecret} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                              </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                <input type="text" value={editAccessToken} onChange={(e) => setEditAccessToken(e.target.value)} placeholder={t.accessToken} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                                <input type="text" value={editAccessTokenSecret} onChange={(e) => setEditAccessTokenSecret(e.target.value)} placeholder={t.accessTokenSecret} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                              </div>
+                              <div className="flex justify-end gap-2 mt-2">
+                                <button onClick={cancelEditAccount} className="text-sm text-gray-500 hover:text-gray-700 cursor-pointer">{dict.common.cancel}</button>
+                                <button onClick={saveEditAccount} disabled={savingEdit} className="text-sm bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white px-4 py-1.5 rounded-lg cursor-pointer font-medium">
+                                  {savingEdit ? "Saving..." : "Save"}
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>

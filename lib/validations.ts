@@ -155,7 +155,7 @@ export const inviteTeamMemberSchema = z.object({
 });
 
 // ── API Keys (BYOK) ──
-const allowedService = z.enum(["brevo", "sendgrid", "smtp_host", "smtp_port", "smtp_user", "smtp_pass", "smtp_from", "apollo", "apify", "hunter", "snov_id", "snov_secret", "snov_api_id", "snov_api_secret", "tavily", "firecrawl", "xai", "z_ai", "pdl", "abstract", "openai", "anthropic", "google", "alibaba", "cerebras", "vercel", "clawhub", "xpilot", "twitter_api_key", "twitter_api_secret", "twitter_access_token", "twitter_access_token_secret", "tiktok_client_key", "tiktok_client_secret", "blob_token", "worker_url", "worker_secret"]);
+const allowedService = z.enum(["brevo", "sendgrid", "smtp_host", "smtp_port", "smtp_user", "smtp_pass", "smtp_from", "apollo", "apify", "hunter", "snov_id", "snov_secret", "snov_api_id", "snov_api_secret", "tavily", "firecrawl", "xai", "z_ai", "pdl", "abstract", "openai", "anthropic", "google", "alibaba", "cerebras", "vercel", "clawhub", "xpilot", "buffer", "twitter_api_key", "twitter_api_secret", "twitter_access_token", "twitter_access_token_secret", "tiktok_client_key", "tiktok_client_secret", "blob_token", "worker_url", "worker_secret"]);
 
 export const upsertApiKeySchema = z.object({
   action: z.literal("upsert"),

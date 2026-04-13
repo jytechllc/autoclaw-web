@@ -54,7 +54,11 @@ const AGENT_PLANS: Record<string, Record<string, object>> = {
         { name: "Score and prioritize leads", status: "pending" },
         { name: "Deliver qualified lead report", status: "pending" },
       ],
+<<<<<<< HEAD
       blockers: ["Need ideal customer profile (industry, company size, title)", "Need Apollo.io access"],
+=======
+      blockers: ["Need ideal customer profile (industry, company size, title)"],
+>>>>>>> 47449eed6848d650125992002535779b4cdab134
     },
     social_media: {
       plan: "Set up brand social profiles, create content strategy, schedule posts, and engage with target audience on X/Twitter and LinkedIn.",
@@ -138,7 +142,11 @@ const AGENT_PLANS: Record<string, Record<string, object>> = {
         { name: "评分和优先排序潜在客户", status: "pending" },
         { name: "交付合格潜在客户报告", status: "pending" },
       ],
+<<<<<<< HEAD
       blockers: ["需要理想客户画像（行业、公司规模、职位）", "需要 Apollo.io 访问权限"],
+=======
+      blockers: ["\u9700\u8981\u7406\u60f3\u5ba2\u6237\u753b\u50cf\uff08\u884c\u4e1a\u3001\u516c\u53f8\u89c4\u6a21\u3001\u804c\u4f4d\uff09"],
+>>>>>>> 47449eed6848d650125992002535779b4cdab134
     },
     social_media: {
       plan: "\u8bbe\u7f6e\u54c1\u724c\u793e\u4ea4\u8d26\u53f7\uff0c\u521b\u5efa\u5185\u5bb9\u7b56\u7565\uff0c\u5b89\u6392\u53d1\u5e03\uff0c\u5e76\u5728 X/Twitter \u548c LinkedIn \u4e0a\u4e0e\u76ee\u6807\u53d7\u4f17\u4e92\u52a8\u3002",

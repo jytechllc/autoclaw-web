@@ -284,19 +284,23 @@ async function processAndIndex(
     const title = (docRows[0]?.title as string) || "Untitled";
     const docType = (docRows[0]?.doc_type as string) || "text";
 
-    // Try LlamaIndex Cloud first
+    // Try LlamaIndex Cloud first, fallback to pgvector on failure
     const liConfig = await loadLlamaIndexConfig(sql, userId, plan || "starter");
     if (liConfig) {
-      const fileId = await uploadToLlamaIndex(
-        liConfig, docId, title, text,
-        { user_id: userId, org_id: orgId, scope: scope || "personal", doc_type: docType },
-        sql, projectId,
-      );
-      await sql`UPDATE kb_documents SET status = 'ready', llamaindex_file_id = ${fileId}, chunk_count = ${Math.ceil(text.length / 2400)}, updated_at = NOW() WHERE id = ${docId}`;
-      return;
+      try {
+        const fileId = await uploadToLlamaIndex(
+          liConfig, docId, title, text,
+          { user_id: userId, org_id: orgId, scope: scope || "personal", doc_type: docType },
+          sql, projectId,
+        );
+        await sql`UPDATE kb_documents SET status = 'ready', llamaindex_file_id = ${fileId}, chunk_count = ${Math.ceil(text.length / 2400)}, updated_at = NOW() WHERE id = ${docId}`;
+        return;
+      } catch {
+        // LlamaIndex failed — fall through to pgvector
+      }
     }
 
-    // Fallback: pgvector (if LlamaIndex not configured)
+    // Fallback: pgvector
     const overBudget = await isOverBudget(sql);
     if (overBudget) {
       await sql`UPDATE kb_documents SET status = 'queued', error_message = 'Embedding budget exceeded — queued for next period' WHERE id = ${docId}`;
@@ -581,7 +585,7 @@ async function handleDelete(
     if (doc.org_id) {
       const membership = await sql`
         SELECT role FROM organization_members
-        WHERE org_id = ${doc.org_id} AND user_id = ${userId} AND role = 'admin'
+        WHERE org_id = ${doc.org_id} AND user_id = ${userId} AND role IN ('admin', 'operator', 'member')
       `;
       if (membership.length === 0) {
         return NextResponse.json({ error: "Not authorized to delete this document" }, { status: 403 });

@@ -12,6 +12,9 @@ interface TikTokStatus {
   expiresAt?: string;
   scope?: string;
   authUrl?: string;
+  displayName?: string;
+  username?: string;
+  avatarUrl?: string;
 }
 
 interface GeneratedVideo {
@@ -36,7 +39,8 @@ export default function TikTokPage() {
   const [message, setMessage] = useState("");
   const [videoTitle, setVideoTitle] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
-  const [privacy, setPrivacy] = useState("SELF_ONLY");
+  const [privacy, setPrivacy] = useState("PUBLIC_TO_EVERYONE");
+  const [isAigc, setIsAigc] = useState(false);
 
   // Video generation state
   const [genPrompt, setGenPrompt] = useState("");
@@ -124,8 +128,9 @@ export default function TikTokPage() {
     }
   }
 
-  async function handlePost() {
-    if (!videoTitle || !videoUrl) return;
+  async function handlePost(mode: "direct" | "draft" = "direct") {
+    if (!videoUrl) return;
+    if (mode === "direct" && !videoTitle) return;
     setPosting(true);
     setMessage("");
     try {
@@ -136,15 +141,17 @@ export default function TikTokPage() {
           title: videoTitle,
           videoUrl,
           privacyLevel: privacy,
+          mode,
+          isAigc,
         }),
       });
       const data = await res.json();
       if (data.success) {
-        setMessage(t.posted);
+        setMessage(data.message || t.posted);
         setVideoTitle("");
         setVideoUrl("");
       } else {
-        setMessage(`${t.postFailed}: ${data.error}`);
+        setMessage(`${t.postFailed}: ${data.error}${data.details?.code ? ` (${data.details.code})` : ""}`);
       }
     } catch {
       setMessage(t.postFailed);
@@ -227,12 +234,27 @@ export default function TikTokPage() {
     );
   }
 
-  function handleConnect() {
+  async function handleConnect() {
     const clientKey = "sbawg8ocnk6tzdia9g";
     const redirectUri = `${window.location.origin}/api/tiktok/callback`;
     const scope = "user.info.basic,video.publish,video.upload";
-    const authUrl = `https://www.tiktok.com/v2/auth/authorize/?client_key=${clientKey}&scope=${scope}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&state=xpilot`;
-    window.location.href = status?.authUrl || authUrl;
+
+    // PKCE: generate code_verifier and code_challenge (S256)
+    const verifier = base64UrlEncode(crypto.getRandomValues(new Uint8Array(64)));
+    const challengeBuf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+    const challenge = base64UrlEncode(new Uint8Array(challengeBuf));
+
+    // Persist verifier so the callback (server) can use it. Cookie is fine for short-lived OAuth flow.
+    document.cookie = `tiktok_pkce_verifier=${verifier}; Path=/; Max-Age=600; SameSite=Lax`;
+
+    const authUrl = `https://www.tiktok.com/v2/auth/authorize/?client_key=${clientKey}&scope=${scope}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&state=xpilot&code_challenge=${challenge}&code_challenge_method=S256`;
+    window.location.href = authUrl;
+  }
+
+  function base64UrlEncode(bytes: Uint8Array): string {
+    let str = "";
+    for (let i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
+    return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   }
 
   function useGeneratedVideo(video: GeneratedVideo) {
@@ -267,9 +289,22 @@ export default function TikTokPage() {
             <div className="text-gray-500">Loading...</div>
           ) : status?.connected ? (
             <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <span className="inline-block w-3 h-3 rounded-full bg-green-500" />
-                <span className="text-green-700 font-medium">{t.connected}</span>
+              <div className="flex items-center gap-3">
+                {status.avatarUrl && (
+                  <img src={status.avatarUrl} alt={status.displayName || "TikTok"} className="w-12 h-12 rounded-full border border-gray-200" referrerPolicy="no-referrer" />
+                )}
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-block w-3 h-3 rounded-full bg-green-500" />
+                    <span className="text-green-700 font-medium">{t.connected}</span>
+                  </div>
+                  {status.displayName && (
+                    <div className="text-base font-semibold text-gray-900 mt-1">{status.displayName}</div>
+                  )}
+                  {status.username && (
+                    <div className="text-sm text-gray-500">@{status.username}</div>
+                  )}
+                </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                 <div>
@@ -584,6 +619,22 @@ export default function TikTokPage() {
                   <option value="MUTUAL_FOLLOW_FRIENDS">{t.privacyFriends}</option>
                 </select>
               </div>
+              <div>
+                <label className="flex items-start gap-2 text-sm text-gray-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isAigc}
+                    onChange={(e) => setIsAigc(e.target.checked)}
+                    className="mt-0.5 rounded border-gray-300 text-[#fe2c55] focus:ring-[#fe2c55]"
+                  />
+                  <span>
+                    <span className="font-medium">AI-generated content</span>
+                    <span className="block text-xs text-gray-500 mt-0.5">
+                      Required by TikTok if the video was created or significantly edited with AI tools. TikTok will display an &ldquo;AI-generated&rdquo; label on the post.
+                    </span>
+                  </span>
+                </label>
+              </div>
               {message && (
                 <div
                   className={`text-sm p-3 rounded-lg ${
@@ -595,13 +646,23 @@ export default function TikTokPage() {
                   {message}
                 </div>
               )}
-              <button
-                onClick={handlePost}
-                disabled={posting || !videoTitle || !videoUrl}
-                className="px-4 py-2 bg-[#fe2c55] hover:bg-[#e0274d] text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {posting ? t.posting : t.postVideo}
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => handlePost("direct")}
+                  disabled={posting || !videoTitle || !videoUrl}
+                  className="px-4 py-2 bg-[#fe2c55] hover:bg-[#e0274d] text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {posting ? t.posting : t.postVideo}
+                </button>
+                <button
+                  onClick={() => handlePost("draft")}
+                  disabled={posting || !videoUrl}
+                  title="Upload to your TikTok app drafts/inbox. Open the TikTok app to finalize and publish (works for unaudited apps)."
+                  className="px-4 py-2 bg-white hover:bg-gray-50 text-gray-800 border border-gray-300 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {posting ? "Uploading..." : "Save to TikTok Drafts"}
+                </button>
+              </div>
             </div>
           </div>
         )}

@@ -49,6 +49,11 @@ async function getConsumerKeys(userId: number): Promise<{ apiKey: string; apiSec
     }
   } catch { /* continue */ }
 
+  // 4. Platform-level fallback (env vars) — enables true one-click login
+  if (process.env.X_API_KEY && process.env.X_API_SECRET) {
+    return { apiKey: process.env.X_API_KEY, apiSecret: process.env.X_API_SECRET };
+  }
+
   return null;
 }
 
@@ -93,6 +98,9 @@ export async function GET(req: NextRequest) {
         hint: "Go to X Developer Portal → App Settings → User Authentication Settings. Enable OAuth 1.0a, set Type to 'Web App', add callback URL: " + callbackUrl,
       }, { status: 400 });
     }
+
+    // Clean up any stale pending_oauth rows for this user (prev attempts that didn't complete)
+    await sql`DELETE FROM x_accounts WHERE user_id = ${userId} AND status = 'pending_oauth'`;
 
     // Store oauth_token_secret temporarily (needed for callback)
     // Use a simple DB table or in-memory store — we'll use a temp row in x_accounts with status='pending_oauth'

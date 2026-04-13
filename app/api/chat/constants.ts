@@ -42,7 +42,11 @@ export const AGENT_PLANS: Record<string, { plan: string; tasks: { name: string; 
       { name: "Score and prioritize leads", status: "pending" },
       { name: "Deliver qualified lead report", status: "pending" },
     ],
+<<<<<<< HEAD
     blockers: ["Need ideal customer profile (industry, company size, title)", "Need Apollo.io access"],
+=======
+    blockers: ["Need ideal customer profile (industry, company size, title)"],
+>>>>>>> 47449eed6848d650125992002535779b4cdab134
   },
   social_media: {
     plan: "Set up brand social profiles, create content strategy, schedule posts, and engage with target audience on X/Twitter and LinkedIn.",

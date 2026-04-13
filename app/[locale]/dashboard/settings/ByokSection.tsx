@@ -603,10 +603,41 @@ export default function ByokSection({
               </p>
 
               {!isEditingSnov && snovConfigured.length > 0 && (
-                <div className="text-xs text-gray-500 space-y-0.5">
-                  {snovConfigured.map((sk) => (
-                    <div key={sk.service}>{sk.name}: ••••••••</div>
-                  ))}
+                <div className="text-xs text-gray-500 space-y-1">
+                  {snovConfigured.map((sk) => {
+                    const existing = apiKeys.find((a) => a.service === sk.service);
+                    if (!existing) return null;
+                    return (
+                      <div key={sk.service} className="flex items-center gap-2">
+                        <span className="w-32 shrink-0">{sk.name}:</span>
+                        <span className="font-mono text-gray-700">{byokRevealed[sk.service] || existing.masked_key}</span>
+                        <button
+                          onClick={async () => {
+                            if (byokRevealed[sk.service]) {
+                              setByokRevealed((prev) => { const n = { ...prev }; delete n[sk.service]; return n; });
+                              return;
+                            }
+                            setByokRevealing(sk.service);
+                            try {
+                              const res = await fetch("/api/api-keys", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ action: "reveal", service: sk.service }),
+                              });
+                              const data = await res.json();
+                              if (res.ok && data.api_key) {
+                                setByokRevealed((prev) => ({ ...prev, [sk.service]: data.api_key }));
+                              }
+                            } catch { /* ignore */ } finally { setByokRevealing(null); }
+                          }}
+                          disabled={byokRevealing === sk.service}
+                          className="text-xs text-blue-600 hover:text-blue-800 transition-colors cursor-pointer"
+                        >
+                          {byokRevealing === sk.service ? "..." : byokRevealed[sk.service] ? ts.byokHide : ts.byokReveal}
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 

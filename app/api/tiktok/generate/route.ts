@@ -34,12 +34,12 @@ function getIp(req: NextRequest): string {
 }
 
 const TEXT_TO_VIDEO_MODELS = [
-  { id: "wavespeed-ai/wan-2.2/t2v-480p-ultra-fast", label: "Wan 2.2 — 480p Ultra Fast", tier: "fast", durations: [5, 8] },
-  { id: "wavespeed-ai/wan-2.2/t2v-720p", label: "Wan 2.2 — 720p", tier: "standard", durations: [5, 8] },
-  { id: "alibaba/wan-2.6/text-to-video", label: "Wan 2.6 Audio", tier: "standard", durations: [5, 10, 15] },
-  { id: "bytedance/seedance-v1.5-pro/text-to-video", label: "Seedance 1.5 Pro Audio", tier: "premium", durations: [5, 8, 10, 12] },
-  { id: "kwaivgi/kling-video-o3-std/text-to-video", label: "Kling Video O3", tier: "premium", durations: [5, 8, 10, 12] },
-  { id: "seedance-2.0/text-to-video", label: "Seedance 2.0 Audio", tier: "premium", durations: [5, 8, 10, 12] },
+  { id: "wavespeed-ai/wan-2.2/t2v-480p-ultra-fast", label: "Wan 2.2 — 480p Ultra Fast", tier: "fast", durations: [5, 8], costPer5s: 25 },
+  { id: "wavespeed-ai/wan-2.2/t2v-720p", label: "Wan 2.2 — 720p", tier: "standard", durations: [5, 8], costPer5s: 150 },
+  { id: "alibaba/wan-2.6/text-to-video", label: "Wan 2.6 Audio", tier: "standard", durations: [5, 10, 15], costPer5s: 200 },
+  { id: "bytedance/seedance-v1.5-pro/text-to-video", label: "Seedance 1.5 Pro Audio", tier: "premium", durations: [5, 8, 10, 12], costPer5s: 250 },
+  { id: "kwaivgi/kling-video-o3-std/text-to-video", label: "Kling Video O3", tier: "premium", durations: [5, 8, 10, 12], costPer5s: 300 },
+  { id: "seedance-2.0/text-to-video", label: "Seedance 2.0 Audio", tier: "premium", durations: [5, 8, 10, 12], costPer5s: 300 },
 ];
 
 // POST: Generate video via xPilot API
