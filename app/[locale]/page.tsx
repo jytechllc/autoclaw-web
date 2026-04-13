@@ -154,13 +154,8 @@ export default function Home() {
 
   const pricingPlans = [
     { name: t.planStarter, price: t.planStarterPrice, period: "", description: t.planStarterDesc, features: [t.feat2Agents, t.featUnlimitedContacts, t.feat100Emails, t.feat1Project, t.featFreeModels, t.featFreeMedia, t.featSocialMedia, t.featBasicTemplates, t.featTeam5, t.featDashboardReports], cta: t.ctaStarterFree, highlight: false, plan: "starter", disabled: false, minCommitment: false },
-<<<<<<< HEAD
-    { name: t.planGrowth, price: t.planGrowthPrice, period: t.perMonth, description: t.planGrowthDesc, features: [t.featUnlimitedAgents, t.featUnlimitedContacts, t.featFastModels, t.featByokMarket, t.featBYOK, t.feat2000Emails, t.featCrm, t.featSeoContent, t.featSocialAuto, t.featTeamUnlimited, t.featPriority], cta: isChineseLocale ? "立即购买" : t.ctaStartTrial, highlight: true, plan: "growth", disabled: false, minCommitment: true },
-    { name: t.planScale, price: t.planScalePrice, period: t.perMonth, description: t.planScaleDesc, features: [t.featUnlimitedAgents, t.featUnlimitedContacts, t.featFastModels, t.featByokMarket, t.featBYOK, t.feat10000Emails, t.featCustomAgent, t.featTeamUnlimited, t.featAdvAnalytics, t.featDedicated], cta: isChineseLocale ? "立即购买" : t.ctaGetStarted, highlight: false, plan: "scale", disabled: false, minCommitment: true },
-=======
     { name: t.planGrowth, price: t.planGrowthPrice, period: t.perMonth, description: t.planGrowthDesc, features: [t.featUnlimitedAgents, t.featUnlimitedContacts, t.featFastModels, t.featByokMarket, t.featBYOK, t.feat2000Emails, t.featCrm, t.featSeoContent, t.featSocialAuto, t.featTeamUnlimited, t.featPriority], cta: t.ctaStartTrial, highlight: true, plan: "growth", disabled: false, minCommitment: true },
     { name: t.planScale, price: t.planScalePrice, period: t.perMonth, description: t.planScaleDesc, features: [t.featUnlimitedAgents, t.featUnlimitedContacts, t.featFastModels, t.featByokMarket, t.featBYOK, t.feat10000Emails, t.featCustomAgent, t.featTeamUnlimited, t.featAdvAnalytics, t.featDedicated], cta: t.ctaGetStarted, highlight: false, plan: "scale", disabled: false, minCommitment: true },
->>>>>>> 47449eed6848d650125992002535779b4cdab134
     { name: t.planEnterprise, price: t.planEnterprisePrice, period: "", description: t.planEnterpriseDesc, features: [t.featEverythingScale, t.featDedicatedInfra, t.featCustomTraining, t.featSla, t.featSso, t.featOnPrem, t.featCustomApi, t.featAccountManager, t.featVolumeEmail, t.featWhiteLabel], cta: t.ctaContactSales, highlight: false, plan: "enterprise", disabled: false, minCommitment: true },
   ];
 
@@ -406,16 +401,13 @@ export default function Home() {
                     onClick={async () => {
                       if (plan.disabled) return;
                       const isChina = locale === "zh" || locale === "zh-TW";
+                      const isYeoso = typeof window !== "undefined" && window.location.hostname.includes("yeoso");
                       if (plan.plan === "enterprise") {
-<<<<<<< HEAD
-                        window.location.href = isChina ? `tel:+86${cnContact.phone}` : "mailto:jay.lin@jytech.us?subject=AutoClaw " + plan.name + " Plan Inquiry";
-=======
                         window.location.href = isChina ? "tel:+8617318011997" : "mailto:jay.lin@jytech.us?subject=AutoClaw " + plan.name + " Plan Inquiry";
->>>>>>> 47449eed6848d650125992002535779b4cdab134
                       } else if (plan.plan === "starter") {
                         window.location.href = `/auth/login?returnTo=/${locale}/dashboard/reports`;
-                      } else if (isChina) {
-                        // For Chinese users, redirect to WeChat Pay
+                      } else if (isChina && isYeoso) {
+                        // WeChat Pay only available on yeoso.com
                         window.location.href = `/${locale}/wechat-pay?plan=${plan.plan}`;
                       } else {
                         // For non-Chinese users, use Stripe

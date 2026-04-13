@@ -186,9 +186,67 @@ export default function CareersPage() {
         setOrg(data.org);
         setPositions(data.positions || []);
         setLoading(false);
+
+        // Set page title for SEO
+        if (data.org) {
+          document.title = `${data.org.name} — Careers | AutoClaw`;
+        }
+
+        // Inject Google Jobs JSON-LD structured data
+        if (data.positions?.length > 0 && data.org) {
+          const jobPostings = (data.positions as Position[]).map((p) => {
+            const salaryType = p.salary_type || "yearly";
+            const unitText = salaryType === "hourly" ? "HOUR" : salaryType === "monthly" ? "MONTH" : "YEAR";
+            const posting: Record<string, unknown> = {
+              "@context": "https://schema.org/",
+              "@type": "JobPosting",
+              title: p.title,
+              description: p.description || p.title,
+              datePosted: p.created_at?.slice(0, 10),
+              hiringOrganization: {
+                "@type": "Organization",
+                name: data.org.name,
+                sameAs: typeof window !== "undefined" ? `${window.location.origin}/${locale}/careers/${slug}` : undefined,
+              },
+              applicantLocationRequirements: p.location ? { "@type": "Country", name: p.location } : undefined,
+              jobLocationType: p.location ? undefined : "TELECOMMUTE",
+            };
+            if (p.location) {
+              posting.jobLocation = {
+                "@type": "Place",
+                address: { "@type": "PostalAddress", addressLocality: p.location },
+              };
+            }
+            if (p.salary_min || p.salary_max) {
+              posting.baseSalary = {
+                "@type": "MonetaryAmount",
+                currency: "USD",
+                value: {
+                  "@type": "QuantitativeValue",
+                  ...(p.salary_min && p.salary_max
+                    ? { minValue: p.salary_min, maxValue: p.salary_max }
+                    : { value: p.salary_min || p.salary_max }),
+                  unitText,
+                },
+              };
+            }
+            if (p.department) posting.industry = p.department;
+            if (p.visa_sponsorship) posting.applicantLocationRequirements = undefined;
+            return posting;
+          });
+
+          // Remove existing JSON-LD if re-rendered
+          document.querySelectorAll('script[data-job-ld]').forEach((el) => el.remove());
+
+          const script = document.createElement("script");
+          script.type = "application/ld+json";
+          script.setAttribute("data-job-ld", "true");
+          script.textContent = JSON.stringify(jobPostings.length === 1 ? jobPostings[0] : jobPostings);
+          document.head.appendChild(script);
+        }
       })
       .catch(() => { setNotFound(true); setLoading(false); });
-  }, [slug]);
+  }, [slug, locale]);
 
   async function handleUploadResume(file: File) {
     setResumeUploading(true);

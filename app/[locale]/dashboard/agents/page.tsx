@@ -130,7 +130,6 @@ export default function AgentsOverviewPage() {
           );
           const totalAgents = allAgents.length;
 
-<<<<<<< HEAD
           return (
             <>
               <div className="flex items-center justify-between mb-6">
@@ -219,33 +218,6 @@ export default function AgentsOverviewPage() {
                             </div>
                           )}
                         </div>
-=======
-        {loading ? (
-          <div className="text-center py-16 text-gray-400">{tc.loading}</div>
-        ) : projects.length === 0 ? (
-          <div className="text-center py-16">
-            <p className="text-gray-400 mb-4">{isZh ? "还没有项目，从创建第一个项目开始" : "No projects yet. Create your first one to get started."}</p>
-            <Link href={`/${locale}/dashboard/projects`} className="bg-red-800 hover:bg-red-900 text-white px-5 py-2 rounded-lg text-sm font-medium">
-              {isZh ? "创建项目" : "Create Project"}
-            </Link>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {projects.map((p) => {
-              const color = getStatusColor(p);
-              return (
-                <Link
-                  key={p.id}
-                  href={`/${locale}/dashboard/projects/${p.id}`}
-                  className="block bg-white border border-gray-200 rounded-xl hover:shadow-md hover:border-gray-300 transition-all"
-                >
-                  {/* Header */}
-                  <div className="p-4 pb-3">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-semibold text-gray-900 truncate">{p.name}</h3>
-                        {p.website && <p className="text-xs text-gray-400 truncate mt-0.5">{p.website}</p>}
->>>>>>> 47449eed6848d650125992002535779b4cdab134
                       </div>
                     );
                   })}

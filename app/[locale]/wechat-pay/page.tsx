@@ -18,6 +18,13 @@ function WeChatPayContent() {
   const plan = searchParams.get("plan") || "growth";
   const { user, isLoading: userLoading } = useUser();
 
+  // WeChat Pay only available on *.yeoso.com
+  useEffect(() => {
+    if (typeof window !== "undefined" && !window.location.hostname.includes("yeoso")) {
+      window.location.href = "/";
+    }
+  }, []);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [orderData, setOrderData] = useState<{

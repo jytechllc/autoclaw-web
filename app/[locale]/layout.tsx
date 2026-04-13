@@ -1,9 +1,9 @@
+import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
 import { Auth0Provider } from "@auth0/nextjs-auth0";
 import { notFound } from "next/navigation";
 import { isValidLocale } from "@/lib/i18n";
 import WeChatGuard from "@/components/WeChatGuard";
-<<<<<<< HEAD
-=======
 import "../globals.css";
 
 const geistSans = Geist({
@@ -32,7 +32,6 @@ export const metadata: Metadata = {
     canonical: "https://autoclaw.jytech.us",
   },
 };
->>>>>>> 47449eed6848d650125992002535779b4cdab134
 
 export function generateStaticParams() {
   return [{ locale: "en" }, { locale: "zh" }];

@@ -6,6 +6,12 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   try {
+    // WeChat Pay only available on *.yeoso.com
+    const host = req.headers.get("host") || "";
+    if (!host.includes("yeoso")) {
+      return NextResponse.json({ error: "WeChat Pay is not available on this domain" }, { status: 403 });
+    }
+
     const session = await auth0.getSession(req);
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

@@ -257,11 +257,7 @@ const zh: typeof en = {
     byokService: "服务",
     byokKey: "API 密钥",
     byokLabel: "标签（可选）",
-<<<<<<< HEAD
-    byokSave: "设置密钥",
-=======
     byokSave: "设置密码",
->>>>>>> 47449eed6848d650125992002535779b4cdab134
     byokDelete: "删除",
     byokReveal: "显示",
     byokHide: "隐藏",

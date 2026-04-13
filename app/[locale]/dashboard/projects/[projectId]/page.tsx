@@ -481,11 +481,6 @@ export default function AgentDetailPage() {
       fetch(`/api/api-keys?_t=${ts}`)
         .then((r) => r.json())
         .then((d: { keys?: { service: string }[]; orgKeys?: { service: string }[] }) => {
-<<<<<<< HEAD
-          const userServices = (d.keys || []).map((k) => k.service);
-          const orgServices = (d.orgKeys || []).map((k) => k.service);
-          return [...new Set([...userServices, ...orgServices])];
-=======
           // Merge personal + org-level keys so warnings reflect what the agent can actually use.
           // org_api_keys uses canonical service names like "apollo", "snov_id"; map a few aliases
           // (e.g. "snov_id" -> "snov") so existing checks keep working.
@@ -497,7 +492,6 @@ export default function AgentDetailPage() {
             if (aliasMap[s]) all.add(aliasMap[s]);
           }
           return [...all];
->>>>>>> 47449eed6848d650125992002535779b4cdab134
         })
         .catch(() => [] as string[]),
     ]).then(async ([reportData, projectData, modelData, apiKeyServices]) => {
