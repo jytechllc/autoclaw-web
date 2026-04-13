@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, usePathname } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { getDictionary, type Locale } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import UserPlanBadge from "@/components/UserPlanBadge";
@@ -32,12 +32,22 @@ export default function DashboardShell(props: Props) {
   );
 }
 
-function DashboardShellInner({ children, user, plan, fullHeight }: Props) {
+function DashboardShellInner({ children, user, plan: planProp, fullHeight }: Props) {
   const params = useParams();
   const pathname = usePathname();
   const locale = (params.locale as Locale) || "en";
   const dict = getDictionary(locale);
   const tc = dict.common;
+
+  const [fetchedPlan, setFetchedPlan] = useState<string | undefined>(planProp);
+  useEffect(() => {
+    if (planProp) { setFetchedPlan(planProp); return; }
+    fetch("/api/usage-quota").then((r) => r.ok ? r.json() : null).then((d) => {
+      if (d?.quota?.plan) setFetchedPlan(d.quota.plan);
+    }).catch(() => {});
+  }, [planProp]);
+  const plan = fetchedPlan;
+  const isPaid = plan && plan !== "starter";
 
   const navItems: NavItem[] = [
     { href: `/${locale}/dashboard/reports`, label: tc.dashboard },
@@ -62,14 +72,14 @@ function DashboardShellInner({ children, user, plan, fullHeight }: Props) {
         { href: `/${locale}/dashboard/email-review`, label: tc.emailReview || "Email Review" },
       ],
     },
-    {
+    ...(isPaid ? [{
       label: tc.recruiting || "Recruiting",
       children: [
         { href: `/${locale}/dashboard/recruiting?tab=candidates`, label: tc.recruitingCandidates || "Candidates" },
         { href: `/${locale}/dashboard/recruiting?tab=positions`, label: tc.recruitingPositions || "Positions" },
         { href: `/${locale}/dashboard/recruiting?tab=pipeline`, label: tc.recruitingPipeline || "Pipeline" },
       ],
-    },
+    }] : []),
     {
       label: tc.workspace,
       children: [

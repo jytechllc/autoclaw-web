@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth0 } from "@/lib/auth0";
-import { getDb } from "@/lib/db";
+import { getDb, resolveUserPlan } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { recruitingActionSchema, parseOrError } from "@/lib/validations";
@@ -123,6 +123,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ candidates: [], positions: [], pipeline: {} });
   }
 
+  // Plan gate: paid plans only
+  const users = await sql`SELECT plan FROM users WHERE id = ${userId}`;
+  const userPlan = await resolveUserPlan(sql, userId, (users[0]?.plan as string) || "starter", email);
+  if (userPlan === "starter") {
+    return NextResponse.json({ error: "Recruiting requires a paid plan" }, { status: 403 });
+  }
+
   const visibleUserIds = await getVisibleUserIds(sql, userId);
   const tab = req.nextUrl.searchParams.get("tab") || "candidates";
 
@@ -227,6 +234,13 @@ export async function POST(req: NextRequest) {
   const userId = await getUserId(sql, userEmail);
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Plan gate: paid plans only
+  const postUsers = await sql`SELECT plan FROM users WHERE id = ${userId}`;
+  const postPlan = await resolveUserPlan(sql, userId, (postUsers[0]?.plan as string) || "starter", userEmail);
+  if (postPlan === "starter") {
+    return NextResponse.json({ error: "Recruiting requires a paid plan" }, { status: 403 });
   }
 
   const rawBody = await req.json();
