@@ -816,9 +816,9 @@ Description: ${currentProject?.description || "Marketing automation platform"}
 
 Write a concise, professional cold email with:
 - A compelling subject line
-- Personalized opening
+- Personalized opening using {{firstName}} and {{company}} merge tags
 - Clear value proposition
-- Soft call to action
+- A call to action that includes {{calendarLink}} for booking a meeting (e.g. "Book a quick call: {{calendarLink}}")
 
 Return as JSON: {"subject": "...", "body": "..."}`;
 

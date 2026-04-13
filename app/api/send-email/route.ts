@@ -63,6 +63,19 @@ export async function POST(req: NextRequest) {
       if (tplRows.length === 0) return NextResponse.json({ error: "Template not found" }, { status: 404 });
       const tpl = tplRows[0];
 
+      // Get calendar/booking link from email_marketing agent config
+      let calendarLink = "";
+      if (tpl.project_id) {
+        const agentRows = await sql`SELECT config FROM agent_assignments WHERE project_id = ${tpl.project_id} AND agent_type = 'email_marketing' LIMIT 1`;
+        if (agentRows.length > 0) {
+          const agentConf = agentRows[0].config as Record<string, unknown>;
+          calendarLink = (agentConf?.calendar_link as string) || (agentConf?.calendly_url as string) || "";
+        }
+      }
+      const calendarHtml = calendarLink
+        ? `<a href="${calendarLink}" style="color:#2563eb;text-decoration:underline" target="_blank">${calendarLink}</a>`
+        : "";
+
       // Use project org's brevo key if available
       if (tpl.org_id) {
         // Project org key takes priority — override any previously loaded key
@@ -73,7 +86,17 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Use project owner as default sender
+      // Use agent's sender config first, then project owner as fallback
+      if (tpl.project_id) {
+        const senderAgent = await sql`SELECT config FROM agent_assignments WHERE project_id = ${tpl.project_id} AND agent_type = 'email_marketing' LIMIT 1`;
+        if (senderAgent.length > 0) {
+          const senderConf = senderAgent[0].config as Record<string, unknown>;
+          if (senderConf?.sender_email && !rawBody.from) {
+            rawBody.from = senderConf.sender_email as string;
+            rawBody.fromName = (senderConf.sender_name as string) || "";
+          }
+        }
+      }
       if (tpl.owner_email && !rawBody.from) {
         rawBody.from = tpl.owner_email as string;
         rawBody.fromName = (tpl.owner_name as string) || "";
@@ -83,23 +106,66 @@ export async function POST(req: NextRequest) {
         const toEmail = rawBody.to_email;
         if (!toEmail) return NextResponse.json({ error: "to_email required" }, { status: 400 });
         rawBody.to = toEmail;
-        rawBody.subject = `[TEST] ${tpl.subject}`;
-        rawBody.html = tpl.body_html as string;
+        rawBody.subject = `[TEST] ${(tpl.subject as string)
+          .replace(/\{\{firstName\}\}/gi, "Test User")
+          .replace(/\{\{company\}\}/gi, "Test Company")}`;
+        rawBody.html = (tpl.body_html as string)
+          .replace(/\{\{firstName\}\}/gi, "Test User")
+          .replace(/\{\{lastName\}\}/gi, "")
+          .replace(/\{\{company\}\}/gi, "Test Company")
+          .replace(/\{\{senderName\}\}/gi, session.user.name || "Marketing Team")
+          .replace(/\{\{calendarLink\}\}/gi, calendarHtml || "#")
+          .replace(/\{\{calendlyUrl\}\}/gi, calendarHtml || "#");
       }
 
       if (rawBody.action === "send_to_group") {
         const groupId = rawBody.group_id;
         if (!groupId) return NextResponse.json({ error: "group_id required" }, { status: 400 });
 
+        // Check if approval is required
+        let requireApproval = false;
+        if (tpl.project_id) {
+          const agentCheck = await sql`SELECT config FROM agent_assignments WHERE project_id = ${tpl.project_id} AND agent_type = 'email_marketing' LIMIT 1`;
+          if (agentCheck.length > 0) {
+            requireApproval = !!(agentCheck[0].config as Record<string, unknown>)?.require_approval;
+          }
+        }
+
         const members = await sql`
-          SELECT c.email, c.first_name, c.last_name, c.company
+          SELECT c.id as contact_id, c.email, c.first_name, c.last_name, c.company
           FROM contacts c
           JOIN contact_group_members gm ON gm.contact_id = c.id
           WHERE gm.group_id = ${groupId} AND c.email IS NOT NULL AND c.email != ''
         `;
         if (members.length === 0) return NextResponse.json({ error: "No contacts in this group" }, { status: 400 });
 
-        // Send to each member (reuse the send logic below via recursion-like approach)
+        const senderEmail = rawBody.from || email;
+        const senderName = rawBody.fromName || session.user.name || "Marketing";
+
+        // If approval required, save as pending_review instead of sending
+        if (requireApproval) {
+          let queued = 0;
+          for (const m of members) {
+            const subject = (tpl.subject as string)
+              .replace(/\{\{firstName\}\}/gi, (m.first_name as string) || "")
+              .replace(/\{\{company\}\}/gi, (m.company as string) || "");
+            const html = (tpl.body_html as string)
+              .replace(/\{\{firstName\}\}/gi, (m.first_name as string) || "there")
+              .replace(/\{\{lastName\}\}/gi, (m.last_name as string) || "")
+              .replace(/\{\{company\}\}/gi, (m.company as string) || "your company")
+              .replace(/\{\{calendarLink\}\}/gi, calendarHtml)
+              .replace(/\{\{calendlyUrl\}\}/gi, calendarHtml)
+              .replace(/\{\{senderName\}\}/gi, senderName);
+            await sql`
+              INSERT INTO email_logs (user_id, project_id, contact_id, recipient_email, recipient_name, sender_email, sender_name, subject, body_html, provider, status)
+              VALUES (${userId}, ${tpl.project_id || null}, ${m.contact_id || null}, ${m.email}, ${((m.first_name as string) || "") + " " + ((m.last_name as string) || "")}, ${senderEmail}, ${senderName}, ${subject}, ${html}, 'brevo', 'pending_review')
+            `;
+            queued++;
+          }
+          return NextResponse.json({ success: true, queued, message: `${queued} emails queued for review. Go to Email Review to approve.` });
+        }
+
+        // Send immediately (no approval required)
         let sent = 0;
         let failed = 0;
         for (const m of members) {
@@ -110,7 +176,9 @@ export async function POST(req: NextRequest) {
             const html = (tpl.body_html as string)
               .replace(/\{\{firstName\}\}/gi, (m.first_name as string) || "there")
               .replace(/\{\{lastName\}\}/gi, (m.last_name as string) || "")
-              .replace(/\{\{company\}\}/gi, (m.company as string) || "your company");
+              .replace(/\{\{company\}\}/gi, (m.company as string) || "your company")
+              .replace(/\{\{calendarLink\}\}/gi, calendarHtml)
+              .replace(/\{\{calendlyUrl\}\}/gi, calendarHtml);
 
             // Quick inline send via Brevo (most common)
             const brevoKey = keys.brevo || process.env.BREVO_API_KEY || "";

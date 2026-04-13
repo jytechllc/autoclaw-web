@@ -599,7 +599,8 @@ export default function EmailTemplatesPage() {
                 <div className="flex items-center gap-2 pt-3 border-t border-gray-100">
                   <button onClick={() => setPreview(tpl)} className="text-xs text-gray-500 hover:text-gray-700 cursor-pointer">{t.preview}</button>
                   <button onClick={() => openForm(tpl)} className="text-xs text-red-600 hover:text-red-800 cursor-pointer">{t.editTemplate}</button>
-                  <button onClick={() => { setSendTemplate(tpl); setSendResult(""); setTestEmailAddr(""); setSendGroupId(""); }} className="text-xs text-green-600 hover:text-green-800 cursor-pointer font-medium">{locale === "zh" || locale === "zh-TW" ? "发送" : "Send"}</button>
+                  <button onClick={() => { setSendTemplate(tpl); setSendResult(""); setTestEmailAddr(""); setSendGroupId(""); }} className="text-xs text-green-600 hover:text-green-800 cursor-pointer font-medium">{locale === "zh" || locale === "zh-TW" ? "发送" : locale === "ko" ? "보내기" : "Send"}</button>
+                  <button onClick={() => { setSendTemplate(tpl); setSendResult(""); setTestEmailAddr((user?.email as string) || ""); setSendGroupId(""); }} className="text-xs text-blue-600 hover:text-blue-800 cursor-pointer">{locale === "zh" || locale === "zh-TW" ? "测试发送" : locale === "ko" ? "테스트 발송" : "Test Send"}</button>
                   <button onClick={() => openTranslate(tpl)} className="text-xs text-purple-600 hover:text-purple-800 cursor-pointer">{t.translate}</button>
                   <button onClick={() => deleteTemplate(tpl.id)} className="text-xs text-gray-400 hover:text-red-600 cursor-pointer ml-auto">{tc.delete}</button>
                 </div>

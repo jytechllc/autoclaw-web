@@ -1564,24 +1564,24 @@ export default function AgentDetailPage() {
                                 </div>
                                 <p className="text-[10px] text-gray-400 mt-1">{ta.senderConfigHint || "Must be a verified sender in your email provider (Brevo/SendGrid). Leave empty to use project owner email."}</p>
                                 <div className="mt-2">
-                                  <label className="text-[10px] text-gray-500 font-medium">Calendly URL</label>
+                                  <label className="text-[10px] text-gray-500 font-medium">{locale === "zh" ? "预约链接" : locale === "zh-TW" ? "預約連結" : locale === "ko" ? "예약 링크" : "Booking URL"}</label>
                                   <input
                                     type="url"
-                                    placeholder="https://calendly.com/your-name/30min"
-                                    defaultValue={(config.calendly_url as string) || ""}
+                                    placeholder="https://calendly.com/... or https://cal.com/... or Google Calendar link"
+                                    defaultValue={(config.calendar_link as string) || (config.calendly_url as string) || ""}
                                     onBlur={(e) => {
                                       const val = e.target.value.trim();
-                                      if (val !== ((config.calendly_url as string) || "")) {
+                                      if (val !== ((config.calendar_link as string) || (config.calendly_url as string) || "")) {
                                         fetch("/api/projects", {
                                           method: "POST",
                                           headers: { "Content-Type": "application/json" },
-                                          body: JSON.stringify({ action: "update_agent_config", agent_id: agent.id, config: { calendly_url: val || null } }),
+                                          body: JSON.stringify({ action: "update_agent_config", agent_id: agent.id, config: { calendar_link: val || null } }),
                                         }).then(() => loadData());
                                       }
                                     }}
                                     className="w-full border border-gray-300 rounded-md px-3 py-1.5 text-xs mt-1"
                                   />
-                                  <p className="text-[10px] text-gray-400 mt-1">{locale === "zh" || locale === "zh-TW" ? "设置后邮件中可使用 {{calendlyUrl}} 标签自动插入预约链接" : "Once set, use {{calendlyUrl}} merge tag in emails to insert your booking link"}</p>
+                                  <p className="text-[10px] text-gray-400 mt-1">{locale === "zh" || locale === "zh-TW" ? "支持 Calendly、Cal.com、Google Calendar 等预约链接，邮件中使用 {{calendarLink}} 标签" : locale === "ko" ? "Calendly, Cal.com, Google Calendar 등 예약 링크 지원. 이메일에서 {{calendarLink}} 태그 사용" : "Supports Calendly, Cal.com, Google Calendar, or any booking URL. Use {{calendarLink}} merge tag in emails."}</p>
                                 </div>
                                 <div className="mt-2">
                                   <label className="text-[10px] text-gray-500 font-medium">{ta.targetLanguage || "Target Language"}</label>
@@ -1626,6 +1626,11 @@ export default function AgentDetailPage() {
                                   <span className="text-[10px] text-gray-500 font-medium">{ta.requireApproval || "Review emails before sending"}</span>
                                 </div>
                                 <p className="text-[10px] text-gray-400 mt-0.5">{ta.requireApprovalHint || "When enabled, emails will be queued for your review before sending."}</p>
+                                {/* Test Send */}
+                                <div className="mt-3 pt-3 border-t border-gray-200">
+                                  <p className="text-xs font-medium text-gray-500 mb-2">{locale === "zh" || locale === "zh-TW" ? "📧 测试发送邮件" : locale === "ko" ? "📧 테스트 이메일 발송" : "📧 Test Send Email"}</p>
+                                  <TestSendInline agentId={agent.id} projectId={agent.project_id || 0} locale={locale} userEmail={(user?.email as string) || ""} />
+                                </div>
                               </div>
                             )}
 
@@ -2301,5 +2306,66 @@ function ActivityLog({ locale, ta }: { locale: string; ta: Record<string, string
         </>
       )}
     </section>
+  );
+}
+
+// ── Test Send Inline Component (for email_marketing agent card) ──
+function TestSendInline({ agentId, projectId, locale, userEmail }: { agentId: number; projectId: number; locale: string; userEmail: string }) {
+  const [templates, setTemplates] = useState<{ id: number; name: string; subject: string }[]>([]);
+  const [selectedTpl, setSelectedTpl] = useState("");
+  const [testEmail, setTestEmail] = useState(userEmail);
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState("");
+
+  useEffect(() => {
+    fetch(`/api/email-templates?project_id=${projectId}`)
+      .then((r) => r.json())
+      .then((d) => setTemplates(d.templates || []))
+      .catch(() => {});
+  }, [projectId]);
+
+  async function handleTestSend() {
+    if (!selectedTpl || !testEmail) return;
+    setSending(true);
+    setResult("");
+    try {
+      const res = await fetch("/api/send-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "test", template_id: Number(selectedTpl), to_email: testEmail.trim() }),
+      });
+      const data = await res.json();
+      setResult(data.success
+        ? (locale === "zh" || locale === "zh-TW" ? "✓ 测试邮件已发送！" : locale === "ko" ? "✓ 테스트 이메일 발송 완료!" : "✓ Test email sent!")
+        : (data.error || "Failed"));
+    } catch { setResult("Error"); }
+    setSending(false);
+  }
+
+  return (
+    <div className="space-y-2">
+      <select value={selectedTpl} onChange={(e) => setSelectedTpl(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-1.5 text-xs cursor-pointer">
+        <option value="">{locale === "zh" || locale === "zh-TW" ? "选择模板..." : locale === "ko" ? "템플릿 선택..." : "Select template..."}</option>
+        {templates.map((t) => <option key={t.id} value={t.id}>{t.name} — {t.subject}</option>)}
+      </select>
+      <div className="flex gap-2">
+        <input
+          type="email"
+          value={testEmail}
+          onChange={(e) => setTestEmail(e.target.value)}
+          placeholder={locale === "zh" || locale === "zh-TW" ? "测试邮箱" : "Test email address"}
+          className="flex-1 border border-gray-300 rounded-md px-3 py-1.5 text-xs"
+        />
+        <button
+          onClick={handleTestSend}
+          disabled={!selectedTpl || !testEmail.trim() || sending}
+          className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer whitespace-nowrap"
+        >
+          {sending ? "..." : locale === "zh" || locale === "zh-TW" ? "发送测试" : locale === "ko" ? "테스트" : "Send Test"}
+        </button>
+      </div>
+      {result && <p className={`text-[10px] ${result.startsWith("✓") ? "text-green-600" : "text-red-500"}`}>{result}</p>}
+      <p className="text-[10px] text-gray-400">{locale === "zh" || locale === "zh-TW" ? "选择模板，发送一封带 [TEST] 前缀的测试邮件到指定邮箱" : locale === "ko" ? "템플릿을 선택하고 [TEST] 접두어가 붙은 테스트 이메일을 보냅니다" : "Select a template and send a [TEST] prefixed email to verify before bulk sending"}</p>
+    </div>
   );
 }

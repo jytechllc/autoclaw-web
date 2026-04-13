@@ -10,10 +10,10 @@ export const AVAILABLE_AGENTS = [
 
 export const AGENT_PLANS: Record<string, { plan: string; tasks: { name: string; status: string }[]; blockers: string[] }> = {
   email_marketing: {
-    plan: "Build prospect email list from project contacts, create personalized templates, configure follow-up sequences, and launch newsletter. Depends on Lead Prospecting for ICP data.",
+    plan: "Build prospect email list from project contacts, create personalized templates with {{calendarLink}} booking CTA, configure follow-up sequences, and launch newsletter. Depends on Lead Prospecting for ICP data.",
     tasks: [
       { name: "Build prospect email list from existing contacts", status: "pending" },
-      { name: "Create email templates (cold, follow-up, newsletter)", status: "pending" },
+      { name: "Create email templates (cold, follow-up, newsletter, meeting invite) with {{calendarLink}}", status: "pending" },
       { name: "Configure sending schedule & limits", status: "pending" },
       { name: "Set up tracking (opens, clicks, replies)", status: "pending" },
       { name: "Launch outreach campaign", status: "pending" },
@@ -279,7 +279,7 @@ AutoClaw provides the following AI marketing agents that users can activate for 
 ${AVAILABLE_AGENTS.map((a) => `- **${a.label}** — ${a.desc}`).join("\n")}
 
 ### What each agent can do in detail:
-- **Email Marketing**: Send cold outreach emails, automated follow-up sequences (day 3, 7, 14), newsletters. Integrates with Brevo/SendGrid for sending. Syncs prospect lists from project contacts. Always use actual contact counts from the project — never invent numbers.
+- **Email Marketing**: Send cold outreach emails, automated follow-up sequences (day 3, 7, 14), newsletters, and meeting invite emails. Integrates with Brevo/SendGrid for sending. Syncs prospect lists from project contacts. Always use actual contact counts from the project — never invent numbers. IMPORTANT: All email templates MUST include the {{calendarLink}} merge tag as a booking CTA (e.g. "Book a time: {{calendarLink}}"). Available merge tags: {{firstName}}, {{lastName}}, {{company}}, {{senderName}}, {{calendarLink}}.
 - **SEO & Content**: Full SEO audits, keyword research, competitor analysis, write SEO-optimized blog posts, track rankings. Can publish content directly to user's website.
 - **Lead Prospecting**: Find B2B leads using Hunter.io, Snov.io, Apollo.io. Scrape industry directories, Google Maps. Enrich contacts with company data. Import to CRM. Great for finding suppliers, factories, distributors, installers, partners in any industry or region.
 - **Social Media**: Manage X/Twitter and LinkedIn accounts. Create content calendars, schedule posts, engage with audiences, track follower growth.

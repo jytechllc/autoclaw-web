@@ -142,20 +142,27 @@ export async function POST(req: NextRequest) {
 ${projectContext}
 ${business_description ? `\nAdditional context: ${business_description}` : ""}
 
-Create these 3 templates:
+Create these 4 templates:
 1. Cold outreach email (first touch to a prospect)
 2. Follow-up email (sent 3-5 days after no reply)
 3. Newsletter welcome email (for new subscribers)
+4. Meeting/calendar invite email (invite prospect to book a call or demo, centered around {{calendarLink}})
 
 For EACH template, output in this exact format:
 ---TEMPLATE---
 NAME: [template name]
-CATEGORY: [cold_outreach|follow_up|newsletter]
+CATEGORY: [cold_outreach|follow_up|newsletter|custom]
 SUBJECT: [subject line]
 BODY:
-[email body with {{firstName}} and {{company}} merge tags]
+[email body using merge tags]
 ---END---
 
+Available merge tags: {{firstName}}, {{lastName}}, {{company}}, {{calendarLink}} (booking/meeting link).
+Rules:
+- Template 1 (cold outreach): End with a soft CTA mentioning {{calendarLink}} to book a quick intro call.
+- Template 2 (follow-up): Reference the previous email and offer {{calendarLink}} as an easy way to connect.
+- Template 3 (newsletter): Welcome new subscribers, no calendar link needed.
+- Template 4 (meeting invite): The primary CTA is {{calendarLink}}. Make it a clear, compelling invitation to schedule a meeting/demo. Use category "custom".
 Keep each email under 150 words. Be professional but personable.
 ${langInstruction[targetLang] || ""}`;
 
@@ -214,7 +221,7 @@ ${langInstruction[targetLang] || ""}`;
       const prompt = `You are a professional email translator and localizer. Translate the following email template into ${targetName}.
 
 Important rules:
-- Preserve ALL merge tags exactly as-is: {{firstName}}, {{lastName}}, {{company}}, {{email}}
+- Preserve ALL merge tags exactly as-is: {{firstName}}, {{lastName}}, {{company}}, {{email}}, {{calendarLink}}
 - Adapt cultural tone and greetings to be natural in the target language (not word-for-word translation)
 - Keep the same persuasive structure and call-to-action intent
 - Maintain similar length (under 150 words)
