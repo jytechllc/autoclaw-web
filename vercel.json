@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/run-agents",
-      "schedule": "0,30 * * * *"
+      "schedule": "0 8 * * *"
     },
     {
       "path": "/api/cron/sync-email-stats",
