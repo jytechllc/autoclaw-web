@@ -1,7 +1,7 @@
 "use client";
 
 import { useUser } from "@auth0/nextjs-auth0/client";
-import { useState, useEffect, useCallback } from "react";
+import { Suspense, useState, useEffect, useCallback } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { getDictionary, type Locale } from "@/lib/i18n";
 import DashboardShell from "@/components/DashboardShell";
@@ -84,6 +84,14 @@ function StatusBadge({ status, t }: { status: string; t: Record<string, string> 
 }
 
 export default function RecruitingPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-gray-400">Loading...</div>}>
+      <RecruitingContent />
+    </Suspense>
+  );
+}
+
+function RecruitingContent() {
   const params = useParams();
   const searchParams = useSearchParams();
   const locale = (params.locale as Locale) || "en";
