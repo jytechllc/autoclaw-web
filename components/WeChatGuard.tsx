@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 
 function isWeChat(): boolean {
   if (typeof navigator === "undefined") return false;
@@ -9,10 +10,14 @@ function isWeChat(): boolean {
 
 export default function WeChatGuard() {
   const [show, setShow] = useState(false);
+  const pathname = usePathname();
 
   useEffect(() => {
-    setShow(isWeChat());
-  }, []);
+    // Only block WeChat on pages that require Auth0 login (dashboard)
+    // Public pages like /careers, /changelog, homepage etc. work fine in WeChat
+    const needsAuth = pathname?.includes("/dashboard") || pathname?.includes("/auth");
+    setShow(isWeChat() && !!needsAuth);
+  }, [pathname]);
 
   if (!show) return null;
 
