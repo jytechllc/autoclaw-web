@@ -103,6 +103,7 @@ const zhTW: typeof en = {
     location: "地點",
     salaryMin: "最低薪資",
     salaryMax: "最高薪資",
+    seats: "招募人數",
     unpaid: "無薪實習",
     salaryHourly: "時薪",
     salaryMonthly: "月薪",

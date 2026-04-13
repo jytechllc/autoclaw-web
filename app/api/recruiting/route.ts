@@ -37,6 +37,7 @@ async function ensureRecruitingTables() {
   // Ensure columns exist on older tables
   await sql`ALTER TABLE recruiting_positions ADD COLUMN IF NOT EXISTS visa_sponsorship BOOLEAN DEFAULT false`;
   await sql`ALTER TABLE recruiting_positions ADD COLUMN IF NOT EXISTS salary_type VARCHAR(20) DEFAULT 'yearly'`;
+  await sql`ALTER TABLE recruiting_positions ADD COLUMN IF NOT EXISTS seats INTEGER DEFAULT 1`;
   await sql`
     CREATE TABLE IF NOT EXISTS recruiting_candidates (
       id SERIAL PRIMARY KEY,
@@ -495,8 +496,8 @@ Return ONLY the JSON object, no other text.`;
   if (action === "create_position") {
     const orgId = await getUserOrgId(sql, userId);
     const result = await sql`
-      INSERT INTO recruiting_positions (user_id, org_id, title, description, department, location, salary_min, salary_max, salary_type, required_skills, status, visa_sponsorship)
-      VALUES (${userId}, ${orgId}, ${body.title}, ${body.description || null}, ${body.department || null}, ${body.location || null}, ${body.salary_min || null}, ${body.salary_max || null}, ${body.salary_type || "yearly"}, ${body.required_skills || null}, ${body.status || "draft"}, ${body.visa_sponsorship ?? false})
+      INSERT INTO recruiting_positions (user_id, org_id, title, description, department, location, salary_min, salary_max, salary_type, required_skills, status, visa_sponsorship, seats)
+      VALUES (${userId}, ${orgId}, ${body.title}, ${body.description || null}, ${body.department || null}, ${body.location || null}, ${body.salary_min || null}, ${body.salary_max || null}, ${body.salary_type || "yearly"}, ${body.required_skills || null}, ${body.status || "draft"}, ${body.visa_sponsorship ?? false}, ${body.seats || 1})
       RETURNING *
     `;
     logAudit({ userId, userEmail, action: "recruiting.create_position", resourceType: "position", resourceId: result[0].id as number, details: { title: body.title }, ipAddress: ip });
@@ -516,6 +517,7 @@ Return ONLY the JSON object, no other text.`;
         salary_type = COALESCE(${body.salary_type || null}, salary_type),
         status = COALESCE(${body.status || null}, status),
         visa_sponsorship = COALESCE(${body.visa_sponsorship ?? null}, visa_sponsorship),
+        seats = COALESCE(${body.seats ?? null}, seats),
         updated_at = NOW()
       WHERE id = ${body.id}
       RETURNING *

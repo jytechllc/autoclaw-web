@@ -103,6 +103,7 @@ const zh: typeof en = {
     location: "地点",
     salaryMin: "最低薪资",
     salaryMax: "最高薪资",
+    seats: "招聘人数",
     unpaid: "无薪实习",
     salaryHourly: "时薪",
     salaryMonthly: "月薪",

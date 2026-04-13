@@ -103,6 +103,7 @@ const fr: typeof en = {
     location: "Lieu",
     salaryMin: "Salaire min",
     salaryMax: "Salaire max",
+    seats: "Postes ouverts",
     unpaid: "Non rémunéré",
     salaryHourly: "Horaire",
     salaryMonthly: "Mensuel",

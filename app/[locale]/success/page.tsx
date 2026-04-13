@@ -3,7 +3,7 @@
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { getDictionary } from "@/lib/i18n";
+import { getDictionary, type Locale } from "@/lib/i18n";
 
 function SuccessContent({
   t,
@@ -164,7 +164,7 @@ export default function SuccessPage({
 }: {
   params: { locale: string };
 }) {
-  const dict = getDictionary(params.locale as "en" | "zh" | "zh-TW" | "fr");
+  const dict = getDictionary(params.locale as Locale);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">

@@ -41,6 +41,7 @@ interface Position {
   required_skills: string | null;
   status: string;
   visa_sponsorship?: boolean;
+  seats?: number;
   candidate_count?: number;
   created_at: string;
 }
@@ -681,6 +682,9 @@ function RecruitingContent() {
                         {p.visa_sponsorship && (
                           <span className="flex items-center gap-1 bg-emerald-50 text-emerald-700 px-2 py-1 rounded font-medium">{t.visaSponsorship || "H1B Sponsorship"} ✓</span>
                         )}
+                        {(p.seats || 1) > 1 && (
+                          <span className="flex items-center gap-1 bg-orange-50 text-orange-700 px-2 py-1 rounded font-medium">{t.seats || "Seats"}: {p.seats}</span>
+                        )}
                         <span className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded">👤 {t.candidateCount}: {p.candidate_count || 0}</span>
                       </div>
                       {p.required_skills && (
@@ -1004,6 +1008,7 @@ function PositionForm({ t, initial, saving, onSave, onCancel }: {
   const [requiredSkills, setRequiredSkills] = useState(initial?.required_skills || "");
   const [status, setStatus] = useState(initial?.status || "draft");
   const [salaryType, setSalaryType] = useState(initial?.salary_type || "yearly");
+  const [seats, setSeats] = useState(initial?.seats ? String(initial.seats) : "1");
   const [visaSponsorship, setVisaSponsorship] = useState(initial?.visa_sponsorship || false);
   const [aiRewriting, setAiRewriting] = useState(false);
 
@@ -1051,6 +1056,7 @@ function PositionForm({ t, initial, saving, onSave, onCancel }: {
           <option value="monthly">{t.salaryMonthly || "Monthly"}</option>
           <option value="yearly">{t.salaryYearly || "Yearly"}</option>
         </select>
+        <input value={seats} onChange={(e) => setSeats(e.target.value)} placeholder={t.seats || "Seats"} type="number" min="1" className="px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-red-500" />
       </div>
       <input value={requiredSkills} onChange={(e) => setRequiredSkills(e.target.value)} placeholder={t.requiredSkills} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-red-500" />
       <label className="flex items-center gap-2 cursor-pointer">
@@ -1079,6 +1085,7 @@ function PositionForm({ t, initial, saving, onSave, onCancel }: {
             location: location || undefined, salary_min: salaryMin ? Number(salaryMin) : undefined,
             salary_max: salaryMax ? Number(salaryMax) : undefined, salary_type: salaryType,
             required_skills: requiredSkills || undefined, status, visa_sponsorship: visaSponsorship,
+            seats: seats ? Number(seats) : 1,
           })}
           disabled={saving || !title}
           className="bg-red-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-900 disabled:opacity-50 cursor-pointer"

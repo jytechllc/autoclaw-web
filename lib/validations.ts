@@ -7,7 +7,7 @@ const shortText = z.string().min(1).max(255);
 const longText = z.string().max(5000).optional();
 const url = z.string().url().max(500).optional().or(z.literal(""));
 const domain = z.string().max(255).optional().nullable();
-const locale = z.enum(["en", "zh", "zh-TW", "fr"]).optional();
+const locale = z.enum(["en", "zh", "zh-TW", "fr", "ko"]).optional();
 
 // ── Projects ──
 export const createProjectSchema = z.object({
@@ -332,6 +332,7 @@ export const createPositionSchema = z.object({
   required_skills: z.string().max(2000).optional().nullable(),
   status: positionStatus.optional(),
   visa_sponsorship: z.boolean().optional(),
+  seats: z.number().int().min(1).max(999).optional(),
 });
 
 export const updatePositionSchema = z.object({
@@ -347,6 +348,7 @@ export const updatePositionSchema = z.object({
   required_skills: z.string().max(2000).optional().nullable(),
   status: positionStatus.optional(),
   visa_sponsorship: z.boolean().optional(),
+  seats: z.number().int().min(1).max(999).optional(),
 });
 
 export const deletePositionSchema = z.object({

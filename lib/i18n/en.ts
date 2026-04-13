@@ -101,6 +101,7 @@ const en = {
     location: "Location",
     salaryMin: "Min Salary",
     salaryMax: "Max Salary",
+    seats: "Openings",
     unpaid: "Unpaid",
     salaryHourly: "Hourly",
     salaryMonthly: "Monthly",

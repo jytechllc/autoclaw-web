@@ -9,6 +9,7 @@ const LANGUAGES: { code: Locale; label: string; flag: string }[] = [
   { code: "zh", label: "简体中文", flag: "中" },
   { code: "zh-TW", label: "繁體中文", flag: "繁" },
   { code: "fr", label: "Français", flag: "FR" },
+  { code: "ko", label: "한국어", flag: "KO" },
 ];
 
 export default function LanguageSwitcher({ locale }: { locale: Locale }) {

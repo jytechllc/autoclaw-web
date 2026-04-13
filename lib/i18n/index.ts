@@ -2,8 +2,9 @@ import en from "./en";
 import zh from "./zh";
 import zhTW from "./zh-TW";
 import fr from "./fr";
+import ko from "./ko";
 
-export const locales = ["en", "zh", "zh-TW", "fr"] as const;
+export const locales = ["en", "zh", "zh-TW", "fr", "ko"] as const;
 export type Locale = (typeof locales)[number];
 export const defaultLocale: Locale = "en";
 
@@ -16,6 +17,7 @@ const dictionaries = {
   zh,
   "zh-TW": zhTW,
   fr,
+  ko,
 };
 
 type DeepStringify<T> = {
