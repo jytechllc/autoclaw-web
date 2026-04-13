@@ -136,62 +136,89 @@ export default function AgentsOverviewPage() {
                 <div>
                   <h1 className="text-2xl font-bold text-gray-900">{ta.title}</h1>
                   <p className="text-sm text-gray-500 mt-1">
-                    {isZh ? `${totalAgents} 个 AI 员工 · ${projects.length} 个项目` : `${totalAgents} AI employees · ${projects.length} projects`}
+                    {isZh ? `${totalAgents} 个 AI Agent · ${projects.length} 个项目` : `${totalAgents} AI agents · ${projects.length} projects`}
                   </p>
                 </div>
               </div>
 
               {loading ? (
                 <div className="text-center py-16 text-gray-400">{tc.loading}</div>
-              ) : totalAgents === 0 ? (
+              ) : projects.length === 0 ? (
                 <div className="text-center py-16">
-                  <p className="text-gray-400 mb-4">{isZh ? "还没有 AI 员工，先创建一个项目并添加员工" : "No AI employees yet. Create a project and add agents to get started."}</p>
+                  <p className="text-gray-400 mb-4">{isZh ? "还没有项目，先创建一个项目并添加 AI Agent" : "No projects yet. Create a project and add AI agents to get started."}</p>
                   <Link href={`/${locale}/dashboard/projects`} className="bg-red-800 hover:bg-red-900 text-white px-5 py-2 rounded-lg text-sm font-medium">
                     {isZh ? "创建项目" : "Create Project"}
                   </Link>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {allAgents.map((a) => {
-                    const hasError = a.errors > 0;
-                    const isRunning = a.inProgress > 0;
-                    const color = hasError ? "red" : isRunning ? "yellow" : "green";
-                    const statusLabel = hasError
-                      ? (isZh ? `${a.errors} 个错误` : `${a.errors} error(s)`)
-                      : isRunning
-                      ? (isZh ? "执行中" : "Running")
-                      : (isZh ? "就绪" : "Ready");
-                    const agentLabel = (AGENT_LABELS[a.type] || {})[isZh ? "zh" : "en"] || a.type;
-
+                <div className="space-y-6">
+                  {projects.map((p) => {
+                    const color = getStatusColor(p);
                     return (
-                      <Link
-                        key={a.id}
-                        href={`/${locale}/dashboard/projects/${a.projectId}`}
-                        className="block bg-white border border-gray-200 rounded-xl hover:shadow-md hover:border-gray-300 transition-all"
-                      >
-                        <div className="p-4">
-                          <div className="flex items-start justify-between mb-3">
-                            <div className="flex items-center gap-2">
-                              <span className="text-2xl">{AGENT_ICONS[a.type] || "🤖"}</span>
-                              <div>
-                                <h3 className="font-semibold text-gray-900">{agentLabel}</h3>
-                                <p className="text-xs text-gray-400">{a.projectName} <span className="font-mono">ID: {a.projectId}</span></p>
-                              </div>
-                            </div>
+                      <div key={p.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <Link href={`/${locale}/dashboard/projects/${p.id}`} className="font-semibold text-gray-900 hover:text-red-800 transition-colors">
+                              {p.name}
+                            </Link>
                             <span className={`flex items-center gap-1.5 text-[10px] font-medium px-2 py-0.5 rounded-full border ${statusColors[color]}`}>
                               <span className={`w-1.5 h-1.5 rounded-full ${dotColors[color]}`} />
-                              {statusLabel}
+                              {getStatusLabel(p)}
                             </span>
+                            {p.contactCount > 0 && (
+                              <span className="text-xs text-gray-400">{isZh ? `${p.contactCount} 个联系人` : `${p.contactCount} contacts`}</span>
+                            )}
                           </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm text-gray-600">{a.taskProgress}</span>
-                            <span className="text-xs text-red-700 font-medium">{isZh ? "管理 →" : "Manage →"}</span>
-                          </div>
-                          {a.lastError && (
-                            <p className="mt-2 text-[10px] text-red-500 truncate">⚠ {a.lastError}</p>
+                          <Link href={`/${locale}/dashboard/projects/${p.id}`} className="text-xs text-red-700 font-medium hover:text-red-900 transition-colors">
+                            {isZh ? "管理 →" : "Manage →"}
+                          </Link>
+                        </div>
+
+                        <div className="p-5">
+                          {p.agents.length === 0 ? (
+                            <div className="text-center py-6">
+                              <p className="text-sm text-gray-400 mb-3">{isZh ? "该项目还没有 AI Agent" : "No AI agents in this project yet"}</p>
+                              <Link href={`/${locale}/dashboard/projects/${p.id}`} className="inline-flex items-center gap-1.5 bg-red-800 hover:bg-red-900 text-white px-4 py-1.5 rounded-lg text-sm font-medium transition-colors">
+                                {isZh ? "+ 添加 Agent" : "+ Add Agent"}
+                              </Link>
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                              {p.agents.map((a) => {
+                                const hasError = a.errors > 0;
+                                const isRunning = a.inProgress > 0;
+                                const agentColor = hasError ? "red" : isRunning ? "yellow" : "green";
+                                const statusLabel = hasError
+                                  ? (isZh ? `${a.errors} 个错误` : `${a.errors} error(s)`)
+                                  : isRunning
+                                  ? (isZh ? "执行中" : "Running")
+                                  : (isZh ? "就绪" : "Ready");
+                                const agentLabel = (AGENT_LABELS[a.type] || {})[isZh ? "zh" : "en"] || a.type;
+
+                                return (
+                                  <Link
+                                    key={a.id}
+                                    href={`/${locale}/dashboard/projects/${p.id}`}
+                                    className="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:border-gray-300 hover:shadow-sm transition-all"
+                                  >
+                                    <span className="text-xl">{AGENT_ICONS[a.type] || "🤖"}</span>
+                                    <div className="flex-1 min-w-0">
+                                      <h4 className="text-sm font-medium text-gray-900">{agentLabel}</h4>
+                                      <div className="flex items-center gap-2 mt-0.5">
+                                        <span className="text-xs text-gray-500">{a.taskProgress}</span>
+                                        <span className={`flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full border ${statusColors[agentColor]}`}>
+                                          <span className={`w-1.5 h-1.5 rounded-full ${dotColors[agentColor]}`} />
+                                          {statusLabel}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </Link>
+                                );
+                              })}
+                            </div>
                           )}
                         </div>
-                      </Link>
+                      </div>
                     );
                   })}
                 </div>

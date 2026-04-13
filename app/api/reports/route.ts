@@ -831,7 +831,7 @@ async function fetchTokenUsage(
   userId: number,
   projectIds: number[],
   isAdmin: boolean,
-  isEnterprise: boolean,
+  orgUserIds: number[],
 ): Promise<TokenResult> {
   const emptyResult: TokenResult = {
     tokenUsage: [],
@@ -839,12 +839,11 @@ async function fetchTokenUsage(
     personalTokenSummary: { totalTokens: 0, promptTokens: 0, completionTokens: 0 },
   };
   try {
-    if (projectIds.length === 0 && !isAdmin && !isEnterprise) {
+    if (projectIds.length === 0 && !isAdmin && orgUserIds.length === 0) {
       return emptyResult;
     }
 
-    const rows =
-      isAdmin || isEnterprise
+    const rows = isAdmin
         ? await sql`
           SELECT DATE(tu.created_at) as date, COALESCE(p.name, 'General') as project,
             SUM(tu.prompt_tokens)::int as prompt_tokens,
@@ -862,7 +861,7 @@ async function fetchTokenUsage(
             SUM(tu.total_tokens)::int as total_tokens
           FROM token_usage tu
           LEFT JOIN projects p ON tu.project_id = p.id
-          WHERE (tu.project_id = ANY(${projectIds}) OR tu.user_id = ${userId})
+          WHERE (tu.project_id = ANY(${projectIds}) OR tu.user_id = ANY(${orgUserIds}))
             AND tu.created_at >= NOW() - INTERVAL '30 days'
           GROUP BY DATE(tu.created_at), COALESCE(p.name, 'General')
           ORDER BY date`;
@@ -964,8 +963,6 @@ export async function GET(request: Request) {
     (users[0].plan as string) || "starter",
     email,
   );
-  const isEnterprise = userPlan === "enterprise";
-
   const emailDomain = email.split("@")[1] || "";
   const userProjects = isAdmin
     ? await sql`SELECT id, name, ga_property_id FROM projects`
@@ -1035,7 +1032,7 @@ export async function GET(request: Request) {
       ? Promise.resolve({ brevoStats: { emailsSent: 0, delivered: 0, opened: 0, clicked: 0 }, brevoCampaigns: [], brevoLists: [] } as BrevoResult)
       : fetchBrevoData(brevoByokKey),
     fetchGaData(propertyProjectMap),
-    fetchTokenUsage(sql, userId as number, projectIds, isAdmin, isEnterprise),
+    fetchTokenUsage(sql, userId as number, projectIds, isAdmin, orgUserIds),
     fetchDbAgentReports(sql),
     fetchTaskStatusCounts(sql, projectIds, isAdmin),
     fetchTaskStatusByProject(sql, projectIds, isAdmin),

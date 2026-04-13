@@ -8,6 +8,7 @@ import { getDictionary, type Locale } from "@/lib/i18n";
 import DashboardShell from "@/components/DashboardShell";
 
 interface StepStatus {
+  hasOrg: boolean;
   hasProjects: boolean;
   hasApiKeys: boolean;
   hasKnowledge: boolean;
@@ -49,6 +50,7 @@ export default function OnboardingPage() {
   const { user, isLoading: userLoading } = useUser();
   const [plan, setPlan] = useState<string>("");
   const [status, setStatus] = useState<StepStatus>({
+    hasOrg: false,
     hasProjects: false,
     hasApiKeys: false,
     hasKnowledge: false,
@@ -58,17 +60,25 @@ export default function OnboardingPage() {
   });
   const [loading, setLoading] = useState(true);
 
+  // Org creation form state
+  const [orgName, setOrgName] = useState("");
+  const [orgDomain, setOrgDomain] = useState("");
+  const [orgCreating, setOrgCreating] = useState(false);
+  const [orgError, setOrgError] = useState("");
+  const [orgCreated, setOrgCreated] = useState(false);
+
   useEffect(() => {
     if (!user) return;
 
     async function fetchStatus() {
       try {
-        const [projectsRes, keysRes, kbRes, agentsRes, reportsRes] = await Promise.all([
+        const [projectsRes, keysRes, kbRes, agentsRes, reportsRes, orgsRes] = await Promise.all([
           fetch("/api/projects").then((r) => r.json()).catch(() => ({ projects: [] })),
           fetch("/api/api-keys").then((r) => r.json()).catch(() => ({ keys: [] })),
           fetch("/api/knowledge-base").then((r) => r.json()).catch(() => ({ documents: [] })),
           fetch("/api/projects").then((r) => r.json()).catch(() => ({ agents: [] })),
           fetch("/api/agent-reports").then((r) => r.json()).catch(() => ({ reports: [] })),
+          fetch("/api/organizations").then((r) => r.json()).catch(() => ({ orgs: [] })),
         ]);
 
         if (projectsRes.plan) setPlan(projectsRes.plan);
@@ -78,6 +88,7 @@ export default function OnboardingPage() {
         const documents = kbRes.documents || kbRes.items || [];
         const agents = agentsRes.agents || [];
         const reports = reportsRes.reports || reportsRes.data || [];
+        const orgs = orgsRes.orgs || [];
 
         const hasLeadAgent = agents.some?.((a: { agent?: string; agent_type?: string }) =>
           (a.agent || a.agent_type || "").toLowerCase().includes("lead") ||
@@ -89,7 +100,11 @@ export default function OnboardingPage() {
           (a.agent || a.agent_type || "").toLowerCase().includes("mail")
         ) || false;
 
+        const hasOrg = orgs.length > 0;
+        if (hasOrg) setOrgCreated(true);
+
         setStatus({
+          hasOrg,
           hasProjects: projects.length > 0,
           hasApiKeys: keys.length > 0,
           hasKnowledge: documents.length > 0,
@@ -107,13 +122,38 @@ export default function OnboardingPage() {
     fetchStatus();
   }, [user]);
 
+  async function handleCreateOrg() {
+    if (!orgName.trim()) return;
+    setOrgCreating(true);
+    setOrgError("");
+    try {
+      const res = await fetch("/api/organizations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "create", name: orgName.trim(), domain: orgDomain.trim() || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setOrgError(data.error || "Failed to create organization");
+      } else {
+        setOrgCreated(true);
+        setStatus((prev) => ({ ...prev, hasOrg: true }));
+      }
+    } catch {
+      setOrgError("Network error");
+    } finally {
+      setOrgCreating(false);
+    }
+  }
+
   const steps = [
-    { key: "step1", done: status.hasProjects, href: `/${locale}/dashboard/projects`, icon: "folder" },
-    { key: "step2", done: status.hasApiKeys, href: `/${locale}/dashboard/settings`, icon: "key" },
-    { key: "step3", done: status.hasKnowledge, href: `/${locale}/dashboard/knowledge`, icon: "book" },
-    { key: "step4", done: status.hasLeadAgent, href: `/${locale}/dashboard/agents`, icon: "search" },
-    { key: "step5", done: status.hasEmailAgent, href: `/${locale}/dashboard/agents`, icon: "mail" },
-    { key: "step6", done: status.hasReports, href: `/${locale}/dashboard/reports`, icon: "chart" },
+    { key: "step0", done: status.hasOrg, href: "", icon: "building", inline: true },
+    { key: "step1", done: status.hasProjects, href: `/${locale}/dashboard/projects`, icon: "folder", inline: false },
+    { key: "step2", done: status.hasApiKeys, href: `/${locale}/dashboard/settings`, icon: "key", inline: false },
+    { key: "step3", done: status.hasKnowledge, href: `/${locale}/dashboard/knowledge`, icon: "book", inline: false },
+    { key: "step4", done: status.hasLeadAgent, href: `/${locale}/dashboard/agents`, icon: "search", inline: false },
+    { key: "step5", done: status.hasEmailAgent, href: `/${locale}/dashboard/agents`, icon: "mail", inline: false },
+    { key: "step6", done: status.hasReports, href: `/${locale}/dashboard/reports`, icon: "chart", inline: false },
   ] as const;
 
   const completedCount = steps.filter((s) => s.done).length;
@@ -121,6 +161,12 @@ export default function OnboardingPage() {
 
   function getIcon(icon: string) {
     switch (icon) {
+      case "building":
+        return (
+          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
+          </svg>
+        );
       case "folder":
         return (
           <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -237,6 +283,7 @@ export default function OnboardingPage() {
         <div className="space-y-4">
           {steps.map((step, idx) => {
             const stepKey = step.key as
+              | "step0"
               | "step1"
               | "step2"
               | "step3"
@@ -285,33 +332,73 @@ export default function OnboardingPage() {
                       <p className="text-sm text-gray-500 mb-3 leading-relaxed">
                         {t[descKey]}
                       </p>
-                      <Link
-                        href={step.href}
-                        className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                          step.done
-                            ? "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                            : "bg-red-800 text-white hover:bg-red-900"
-                        }`}
-                      >
-                        {t[actionKey]}
-                        <svg
-                          className="w-4 h-4"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                          strokeWidth={2}
+
+                      {/* Inline org creation form for step0 */}
+                      {step.inline && stepKey === "step0" && !step.done ? (
+                        <div className="mt-2 space-y-3 max-w-md">
+                          {orgCreated ? (
+                            <p className="text-sm text-green-700 font-medium">{t.step0Created}</p>
+                          ) : (
+                            <>
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">{t.step0OrgName}</label>
+                                <input
+                                  type="text"
+                                  value={orgName}
+                                  onChange={(e) => setOrgName(e.target.value)}
+                                  placeholder={t.step0OrgNamePlaceholder}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">{t.step0OrgDomain}</label>
+                                <input
+                                  type="text"
+                                  value={orgDomain}
+                                  onChange={(e) => setOrgDomain(e.target.value)}
+                                  placeholder={t.step0OrgDomainPlaceholder}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
+                                />
+                                <p className="text-xs text-gray-400 mt-1">{t.step0OrgDomainHint}</p>
+                              </div>
+                              {orgError && <p className="text-sm text-red-600">{orgError}</p>}
+                              <button
+                                onClick={handleCreateOrg}
+                                disabled={orgCreating || !orgName.trim()}
+                                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-red-800 text-white hover:bg-red-900 disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {orgCreating ? t.step0Creating : t.step0Action}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        <Link
+                          href={step.href || `/${locale}/dashboard/settings`}
+                          className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                            step.done
+                              ? "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                              : "bg-red-800 text-white hover:bg-red-900"
+                          }`}
                         >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"
-                          />
-                        </svg>
-                      </Link>
+                          {t[actionKey]}
+                          <svg
+                            className="w-4 h-4"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"
+                            />
+                          </svg>
+                        </Link>
+                      )}
                     </div>
                   </div>
-
-                  {/* Connector line (not on last) */}
                 </div>
               </div>
             );

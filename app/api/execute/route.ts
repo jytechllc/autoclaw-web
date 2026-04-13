@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
       const resetConfig = (agentRows[0].config as Record<string, unknown>) || {};
       const resetTasks = (resetConfig.tasks as { name: string; status: string; result?: string; model_used?: string; use_mode?: string }[]) || [];
       for (let j = 0; j < resetTasks.length; j++) {
-        resetTasks[j].status = j === 0 ? "in_progress" : "pending";
+        resetTasks[j].status = "pending";
         delete resetTasks[j].result;
         delete resetTasks[j].model_used;
         delete resetTasks[j].use_mode;

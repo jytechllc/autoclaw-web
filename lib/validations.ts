@@ -25,6 +25,7 @@ export const activateAgentSchema = z.object({
   agent_type: z.enum([
     "email_marketing", "seo_content", "lead_prospecting",
     "social_media", "product_manager", "sales_followup", "orchestrator",
+    "recruiting",
   ]),
   locale,
 });
@@ -264,6 +265,119 @@ export const partnerActionSchema = z.discriminatedUnion("action", [
   createPartnerSchema,
   updatePartnerSchema,
   deletePartnerSchema,
+]);
+
+// ── Recruiting ──
+const candidateStatus = z.enum(["new", "screening", "interview", "offer", "hired", "rejected"]);
+const candidateSource = z.enum(["manual", "linkedin", "referral", "job_board"]);
+const positionStatus = z.enum(["draft", "open", "closed"]);
+
+export const createCandidateSchema = z.object({
+  action: z.literal("create_candidate"),
+  first_name: shortText,
+  last_name: z.string().max(100).optional(),
+  email,
+  phone: z.string().max(50).optional().nullable(),
+  resume_url: url,
+  linkedin_url: url,
+  skills: z.string().max(2000).optional().nullable(),
+  experience: z.string().max(2000).optional().nullable(),
+  current_company: z.string().max(255).optional().nullable(),
+  position_id: id.optional().nullable(),
+  source: candidateSource.optional(),
+  tags: z.string().max(500).optional().nullable(),
+  notes: longText,
+});
+
+export const updateCandidateSchema = z.object({
+  action: z.literal("update_candidate"),
+  id,
+  first_name: shortText.optional(),
+  last_name: z.string().max(100).optional(),
+  email: email.optional(),
+  phone: z.string().max(50).optional().nullable(),
+  resume_url: url,
+  linkedin_url: url,
+  skills: z.string().max(2000).optional().nullable(),
+  experience: z.string().max(2000).optional().nullable(),
+  current_company: z.string().max(255).optional().nullable(),
+  position_id: id.optional().nullable(),
+  source: candidateSource.optional(),
+  tags: z.string().max(500).optional().nullable(),
+  notes: longText,
+});
+
+export const moveCandidateSchema = z.object({
+  action: z.literal("move_candidate"),
+  id,
+  status: candidateStatus,
+});
+
+export const deleteCandidateSchema = z.object({
+  action: z.literal("delete_candidate"),
+  id,
+});
+
+const salaryType = z.enum(["hourly", "monthly", "yearly"]);
+
+export const createPositionSchema = z.object({
+  action: z.literal("create_position"),
+  title: shortText,
+  description: longText,
+  department: z.string().max(100).optional().nullable(),
+  location: z.string().max(255).optional().nullable(),
+  salary_min: z.number().min(0).optional().nullable(),
+  salary_max: z.number().min(0).optional().nullable(),
+  salary_type: salaryType.optional(),
+  required_skills: z.string().max(2000).optional().nullable(),
+  status: positionStatus.optional(),
+  visa_sponsorship: z.boolean().optional(),
+});
+
+export const updatePositionSchema = z.object({
+  action: z.literal("update_position"),
+  id,
+  title: shortText.optional(),
+  description: longText,
+  department: z.string().max(100).optional().nullable(),
+  location: z.string().max(255).optional().nullable(),
+  salary_min: z.number().min(0).optional().nullable(),
+  salary_max: z.number().min(0).optional().nullable(),
+  salary_type: salaryType.optional(),
+  required_skills: z.string().max(2000).optional().nullable(),
+  status: positionStatus.optional(),
+  visa_sponsorship: z.boolean().optional(),
+});
+
+export const deletePositionSchema = z.object({
+  action: z.literal("delete_position"),
+  id,
+});
+
+export const createInterviewSchema = z.object({
+  action: z.literal("create_interview"),
+  candidate_id: id,
+  interviewer: shortText,
+  scheduled_at: z.string().min(1),
+  duration_minutes: z.number().int().min(15).max(480).optional(),
+});
+
+export const updateInterviewSchema = z.object({
+  action: z.literal("update_interview"),
+  id,
+  feedback: longText,
+  rating: z.number().int().min(1).max(5).optional().nullable(),
+});
+
+export const deleteInterviewSchema = z.object({
+  action: z.literal("delete_interview"),
+  id,
+});
+
+export const recruitingActionSchema = z.discriminatedUnion("action", [
+  createCandidateSchema, updateCandidateSchema, moveCandidateSchema, deleteCandidateSchema,
+  createPositionSchema, updatePositionSchema, deletePositionSchema,
+  createInterviewSchema, updateInterviewSchema, deleteInterviewSchema,
 ]);
 
 // ── Helper ──

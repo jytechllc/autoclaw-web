@@ -5,13 +5,14 @@ export const AVAILABLE_AGENTS = [
   { type: "social_media", label: "Social Media", desc: "X/Twitter, LinkedIn automation" },
   { type: "product_manager", label: "Product Manager", desc: "Website health, conversion tracking" },
   { type: "sales_followup", label: "Sales Follow-up", desc: "CRM updates, lead nurturing" },
+  { type: "recruiting", label: "Recruiting", desc: "Track candidates, job postings, interviews, and hiring pipeline" },
 ];
 
 export const AGENT_PLANS: Record<string, { plan: string; tasks: { name: string; status: string }[]; blockers: string[] }> = {
   email_marketing: {
     plan: "Build prospect email list from project contacts, create personalized templates, configure follow-up sequences, and launch newsletter. Depends on Lead Prospecting for ICP data.",
     tasks: [
-      { name: "Build prospect email list from existing contacts", status: "in_progress" },
+      { name: "Build prospect email list from existing contacts", status: "pending" },
       { name: "Create email templates (cold, follow-up, newsletter)", status: "pending" },
       { name: "Configure sending schedule & limits", status: "pending" },
       { name: "Set up tracking (opens, clicks, replies)", status: "pending" },
@@ -22,7 +23,7 @@ export const AGENT_PLANS: Record<string, { plan: string; tasks: { name: string; 
   seo_content: {
     plan: "Audit existing website SEO, research high-value keywords, create content calendar, and produce optimized blog posts.",
     tasks: [
-      { name: "Crawl website & audit current SEO health", status: "in_progress" },
+      { name: "Crawl website & audit current SEO health", status: "pending" },
       { name: "Keyword research", status: "pending" },
       { name: "Competitor content analysis", status: "pending" },
       { name: "Create monthly content calendar", status: "pending" },
@@ -34,19 +35,19 @@ export const AGENT_PLANS: Record<string, { plan: string; tasks: { name: string; 
   lead_prospecting: {
     plan: "Define ideal customer profile, build lead database from multiple sources, score and qualify leads, deliver enriched lead lists.",
     tasks: [
-      { name: "Define ICP and qualification criteria", status: "in_progress" },
+      { name: "Define ICP and qualification criteria", status: "pending" },
       { name: "Verify available data sources", status: "pending" },
       { name: "Build initial lead list", status: "pending" },
       { name: "Enrich leads with company & contact data", status: "pending" },
       { name: "Score and prioritize leads", status: "pending" },
       { name: "Deliver qualified lead report", status: "pending" },
     ],
-    blockers: ["Need ideal customer profile (industry, company size, title)", "Need LinkedIn Sales Navigator or Apollo.io access"],
+    blockers: ["Need ideal customer profile (industry, company size, title)", "Need Apollo.io access"],
   },
   social_media: {
     plan: "Set up brand social profiles, create content strategy, schedule posts, and engage with target audience on X/Twitter and LinkedIn.",
     tasks: [
-      { name: "Audit existing social presence", status: "in_progress" },
+      { name: "Audit existing social presence", status: "pending" },
       { name: "Create brand voice & content guidelines", status: "pending" },
       { name: "Build 2-week content queue (posts, threads)", status: "pending" },
       { name: "Set up scheduling tool integration", status: "pending" },
@@ -58,7 +59,7 @@ export const AGENT_PLANS: Record<string, { plan: string; tasks: { name: string; 
   product_manager: {
     plan: "Monitor website health, analyze user behavior, track conversion funnels, and identify optimization opportunities.",
     tasks: [
-      { name: "Set up website monitoring (uptime, speed)", status: "in_progress" },
+      { name: "Set up website monitoring (uptime, speed)", status: "pending" },
       { name: "Install analytics tracking", status: "pending" },
       { name: "Map conversion funnels", status: "pending" },
       { name: "Run initial UX audit", status: "pending" },
@@ -82,11 +83,21 @@ export const AGENT_PLANS: Record<string, { plan: string; tasks: { name: string; 
   orchestrator: {
     plan: "Coordinate all agents across projects. Analyze reports, identify cross-agent synergies, generate market intelligence, auto-optimize workflows, and produce weekly operations digests.",
     tasks: [
-      { name: "Analyze agent ecosystem & collect reports", status: "in_progress" },
+      { name: "Analyze agent ecosystem & collect reports", status: "pending" },
       { name: "Generate cross-agent optimization recommendations", status: "pending" },
       { name: "Market intelligence & content strategy", status: "pending" },
       { name: "Auto-coordinate agents (reset periodic tasks, flag blockers)", status: "pending" },
       { name: "Generate weekly operations digest", status: "pending" },
+    ],
+    blockers: [],
+  },
+  recruiting: {
+    plan: "Manage recruiting pipeline, track candidates through interview stages, coordinate with hiring managers.",
+    tasks: [
+      { name: "Set up job postings and requirements", status: "pending" },
+      { name: "Source and screen candidates", status: "pending" },
+      { name: "Schedule and track interviews", status: "pending" },
+      { name: "Manage offer pipeline", status: "pending" },
     ],
     blockers: [],
   },
@@ -270,7 +281,7 @@ ${AVAILABLE_AGENTS.map((a) => `- **${a.label}** — ${a.desc}`).join("\n")}
 ### What each agent can do in detail:
 - **Email Marketing**: Send cold outreach emails, automated follow-up sequences (day 3, 7, 14), newsletters. Integrates with Brevo/SendGrid for sending. Syncs prospect lists from project contacts. Always use actual contact counts from the project — never invent numbers.
 - **SEO & Content**: Full SEO audits, keyword research, competitor analysis, write SEO-optimized blog posts, track rankings. Can publish content directly to user's website.
-- **Lead Prospecting**: Find B2B leads using Hunter.io, Snov.io, Apollo.io. Scrape industry directories, Google Maps, LinkedIn. Enrich contacts with company data. Import to CRM. Great for finding suppliers, factories, distributors, installers, partners in any industry or region.
+- **Lead Prospecting**: Find B2B leads using Hunter.io, Snov.io, Apollo.io. Scrape industry directories, Google Maps. Enrich contacts with company data. Import to CRM. Great for finding suppliers, factories, distributors, installers, partners in any industry or region.
 - **Social Media**: Manage X/Twitter and LinkedIn accounts. Create content calendars, schedule posts, engage with audiences, track follower growth.
 - **Product Manager**: Monitor website uptime and speed, analyze user behavior, map conversion funnels, identify UX issues, create optimization roadmaps.
 - **Sales Follow-up**: CRM integration (HubSpot, Salesforce, Twenty), automated follow-up reminders, deal pipeline tracking, lead nurture sequences.
@@ -278,7 +289,7 @@ ${AVAILABLE_AGENTS.map((a) => `- **${a.label}** — ${a.desc}`).join("\n")}
 ## Important: When users ask business research questions
 When users ask questions that involve finding companies, suppliers, factories, distributors, installers, partners, or any type of business contacts (e.g., "欧洲储能工厂和安装商列表", "find solar panel manufacturers in Germany", "list of EV charging station installers in France"), you should:
 1. **Acknowledge** their question and briefly explain what they're looking for.
-2. **Recommend using AutoClaw's Lead Prospecting agent** — explain that this agent can automatically search multiple data sources (Hunter.io, Google Maps, industry directories, LinkedIn) to find and compile the exact list they need, with contact details, company info, and enrichment data.
+2. **Recommend using AutoClaw's Lead Prospecting agent** — explain that this agent can automatically search multiple data sources (Hunter.io, Apollo.io, Google Maps, industry directories) to find and compile the exact list they need, with contact details, company info, and enrichment data.
 3. **Guide them step by step**:
    - If they don't have a project yet: suggest creating one (e.g., "create project European Energy Storage")
    - If they have a project but no Lead Prospecting agent: suggest activating it (e.g., "activate lead prospecting")

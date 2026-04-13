@@ -467,7 +467,11 @@ export default function AgentDetailPage() {
         .catch(() => ({ models: [] })),
       fetch(`/api/api-keys?_t=${ts}`)
         .then((r) => r.json())
-        .then((d: { keys?: { service: string }[] }) => (d.keys || []).map((k) => k.service))
+        .then((d: { keys?: { service: string }[]; orgKeys?: { service: string }[] }) => {
+          const userServices = (d.keys || []).map((k) => k.service);
+          const orgServices = (d.orgKeys || []).map((k) => k.service);
+          return [...new Set([...userServices, ...orgServices])];
+        })
         .catch(() => [] as string[]),
     ]).then(async ([reportData, projectData, modelData, apiKeyServices]) => {
       setUserApiKeys(apiKeyServices as string[]);
@@ -605,9 +609,10 @@ export default function AgentDetailPage() {
     // Auto-resolve: check BYOK keys for service credential blockers
     const isEmailBlocker = /smtp|email.*service|sendgrid|mailgun|brevo|邮件服务/i.test(blockerText);
     const isTwitterBlocker = /twitter|x\/twitter/i.test(blockerText);
+    const isApolloBlocker = /apollo/i.test(blockerText);
     const isWebsiteBlocker = /website url|网站\s*url/i.test(blockerText);
     const isICPBlocker = /target audience|ideal customer profile|ICP|理想客户|目标受众/i.test(blockerText);
-    const isByokBlocker = isEmailBlocker || isTwitterBlocker;
+    const isByokBlocker = isEmailBlocker || isTwitterBlocker || isApolloBlocker;
 
     // ICP/audience blocker — check if Lead Prospecting has completed ICP
     if (isICPBlocker) {
@@ -674,8 +679,8 @@ export default function AgentDetailPage() {
       setActionLoading(true);
       try {
         const keysRes = await fetch("/api/api-keys");
-        const keysData = await keysRes.json() as { keys?: { service: string }[] };
-        const keys = keysData.keys || [];
+        const keysData = await keysRes.json() as { keys?: { service: string }[]; orgKeys?: { service: string }[] };
+        const keys = [...(keysData.keys || []), ...(keysData.orgKeys || [])];
 
         if (isEmailBlocker) {
           const hasEmail = keys.some((k) => k.service === "sendgrid" || k.service === "brevo");
@@ -707,6 +712,24 @@ export default function AgentDetailPage() {
                 agent_id: agentId,
                 blocker_index: blockerIndex,
                 value: "Twitter API credentials configured via BYOK",
+              }),
+            });
+            await loadData();
+            return;
+          }
+        }
+
+        if (isApolloBlocker) {
+          const hasApollo = keys.some((k) => k.service === "apollo");
+          if (hasApollo) {
+            await fetch("/api/projects", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                action: "resolve_blocker",
+                agent_id: agentId,
+                blocker_index: blockerIndex,
+                value: "Apollo API key configured via BYOK",
               }),
             });
             await loadData();
@@ -1274,9 +1297,7 @@ export default function AgentDetailPage() {
                       {projectAgents.map((agent) => {
                         const config = agent.config || {};
                         const tasks = config.tasks || [];
-                        const blockers = (config.blockers || []).filter(
-                          (b) => !b.toLowerCase().includes("linkedin"),
-                        );
+                        const blockers = config.blockers || [];
                         const completedTasks = tasks.filter(
                           (t) => t.status === "completed" || t.status === "recurring",
                         ).length;
@@ -1316,11 +1337,12 @@ export default function AgentDetailPage() {
                                   const hasPartialProgress = completedTasks > 0 && hasPending;
                                   const isThisAgentRunning = actionLoading && runningTask?.agentId === agent.id;
                                   const hasRunningTask = tasks.some((t: { status: string }) => t.status === "in_progress");
-                                  const disableExecution = actionLoading || hasRunningTask;
+                                  const isStuck = hasRunningTask && !isThisAgentRunning;
+                                  const disableExecution = actionLoading || (hasRunningTask && !isStuck);
                                   return (
                                     <>
-                                      {/* Stop button — only when this agent is running */}
-                                      {(isThisAgentRunning || hasRunningTask) && (
+                                      {/* Stop button — only when this agent is actually running */}
+                                      {isThisAgentRunning && (
                                         <button
                                           onClick={stopRunning}
                                           className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer flex items-center gap-1"
@@ -1524,6 +1546,26 @@ export default function AgentDetailPage() {
                                 </div>
                                 <p className="text-[10px] text-gray-400 mt-1">{ta.senderConfigHint || "Must be a verified sender in your email provider (Brevo/SendGrid). Leave empty to use project owner email."}</p>
                                 <div className="mt-2">
+                                  <label className="text-[10px] text-gray-500 font-medium">Calendly URL</label>
+                                  <input
+                                    type="url"
+                                    placeholder="https://calendly.com/your-name/30min"
+                                    defaultValue={(config.calendly_url as string) || ""}
+                                    onBlur={(e) => {
+                                      const val = e.target.value.trim();
+                                      if (val !== ((config.calendly_url as string) || "")) {
+                                        fetch("/api/projects", {
+                                          method: "POST",
+                                          headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({ action: "update_agent_config", agent_id: agent.id, config: { calendly_url: val || null } }),
+                                        }).then(() => loadData());
+                                      }
+                                    }}
+                                    className="w-full border border-gray-300 rounded-md px-3 py-1.5 text-xs mt-1"
+                                  />
+                                  <p className="text-[10px] text-gray-400 mt-1">{locale === "zh" || locale === "zh-TW" ? "设置后邮件中可使用 {{calendlyUrl}} 标签自动插入预约链接" : "Once set, use {{calendlyUrl}} merge tag in emails to insert your booking link"}</p>
+                                </div>
+                                <div className="mt-2">
                                   <label className="text-[10px] text-gray-500 font-medium">{ta.targetLanguage || "Target Language"}</label>
                                   <select
                                     defaultValue={(config.locale as string) || locale}
@@ -1593,7 +1635,7 @@ export default function AgentDetailPage() {
 
                             {/* Failure / Status Diagnostics */}
                             {tasks.length > 0 && (() => {
-                              const issues: { type: "error" | "warn" | "info"; msg: string }[] = [];
+                              const issues: { type: "error" | "warn" | "info"; msg: string; action?: { label: string; onClick: () => void } }[] = [];
 
                               // Detect unsupported agent type
                               const unsupported = tasks.find((t: { result?: string }) => t.result && String(t.result).includes("not yet supported"));
@@ -1636,11 +1678,25 @@ export default function AgentDetailPage() {
                               }
 
                               // Detect stuck in_progress (task in_progress but no active run)
-                              const stuckTask = tasks.find((t: { status: string }, idx: number) =>
-                                t.status === "in_progress" && !(runningTask?.agentId === agent.id && (runningTask.taskIndex === idx || runningTask.taskIndex === -1))
-                              );
-                              if (stuckTask && !unsupported) {
-                                issues.push({ type: "warn", msg: ta.diagStuck || "A task appears stuck in progress. Try running it manually or restart." });
+                              const stuckTasks = tasks
+                                .map((t: { status: string; name: string; result?: string }, idx: number) => ({ ...t, idx }))
+                                .filter((t) => t.status === "in_progress" && !(runningTask?.agentId === agent.id && (runningTask.taskIndex === t.idx || runningTask.taskIndex === -1)));
+                              if (stuckTasks.length > 0 && !unsupported) {
+                                const isZhLocale = locale === "zh" || locale === "zh-TW";
+                                const taskDetails = stuckTasks.map((t) => {
+                                  const name = translateTask(t.name);
+                                  const stepNum = t.idx + 1;
+                                  const lastResult = t.result ? (t.result.length > 80 ? t.result.slice(0, 80) + "..." : t.result) : null;
+                                  const detail = isZhLocale
+                                    ? `步骤 ${stepNum}「${name}」${lastResult ? `— 最后输出: ${lastResult}` : "— 无输出记录"}`
+                                    : `Step ${stepNum} "${name}"${lastResult ? ` — last output: ${lastResult}` : " — no output recorded"}`;
+                                  return detail;
+                                });
+                                const summary = isZhLocale
+                                  ? `${stuckTasks.length} 个任务卡在执行中（可能因超时或进程中断）：`
+                                  : `${stuckTasks.length} task(s) stuck in progress (likely timed out or process interrupted):`;
+                                const msg = `${summary}\n${taskDetails.join("\n")}`;
+                                issues.push({ type: "warn", msg, action: { label: isZhLocale ? "重置并重跑" : "Reset & Rerun", onClick: () => runAllTasks(agent.id, "restart") } });
                               }
 
                               // Blockers
@@ -1670,8 +1726,17 @@ export default function AgentDetailPage() {
                                 <div className="mb-3 space-y-1.5">
                                   {issues.map((issue, idx) => (
                                     <div key={idx} className={`flex items-start gap-2 text-xs px-3 py-2 rounded-lg border ${colors[issue.type]}`}>
-                                      <span className="flex-shrink-0">{icons[issue.type]}</span>
-                                      <span>{issue.msg}</span>
+                                      <span className="flex-shrink-0 mt-0.5">{icons[issue.type]}</span>
+                                      <span className="flex-1 whitespace-pre-line">{issue.msg}</span>
+                                      {issue.action && (
+                                        <button
+                                          onClick={issue.action.onClick}
+                                          disabled={actionLoading}
+                                          className="flex-shrink-0 mt-0.5 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-300 text-white px-2.5 py-0.5 rounded text-xs font-medium transition-colors cursor-pointer"
+                                        >
+                                          {issue.action.label}
+                                        </button>
+                                      )}
                                     </div>
                                   ))}
                                 </div>
@@ -1770,7 +1835,7 @@ export default function AgentDetailPage() {
                                               onClick={() =>
                                                 executeTask(agent.id, i)
                                               }
-                                              disabled={actionLoading || tasks.some((t: { status: string }) => t.status === "in_progress")}
+                                              disabled={actionLoading}
                                               className="text-xs text-green-500 hover:text-green-700 disabled:text-gray-300 disabled:cursor-not-allowed font-medium whitespace-nowrap cursor-pointer"
                                             >
                                               {tc.run}
@@ -1778,7 +1843,7 @@ export default function AgentDetailPage() {
                                           )}
                                         </div>
                                         {/* Real-time step log (thinking process) */}
-                                        {(isThisTaskRunning || task.status === "in_progress") && (
+                                        {isThisTaskRunning && (
                                           <StepLog agentId={agent.id} taskIndex={i} isRunning={isThisTaskRunning} locale={locale} />
                                         )}
                                         {isExpanded && (

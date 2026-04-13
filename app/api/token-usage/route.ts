@@ -66,9 +66,7 @@ export async function GET() {
   ]);
 
   // Org / admin usage (broader scope)
-  const scopeFilter = isAdmin
-    ? sql`1=1`
-    : sql`user_id = ANY(${visibleUserIds})`;
+  const scopeFilter = sql`user_id = ANY(${visibleUserIds})`;
 
   const [orgSummary, byModel, byDate] = await Promise.all([
     sql`SELECT

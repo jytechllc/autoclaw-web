@@ -28,7 +28,17 @@ export type AuditAction =
   | "org_apikey.upsert"
   | "org_apikey.reveal"
   | "org_apikey.delete"
-  | "project.set_role";
+  | "project.set_role"
+  | "recruiting.create_candidate"
+  | "recruiting.update_candidate"
+  | "recruiting.move_candidate"
+  | "recruiting.delete_candidate"
+  | "recruiting.create_position"
+  | "recruiting.update_position"
+  | "recruiting.delete_position"
+  | "recruiting.create_interview"
+  | "recruiting.update_interview"
+  | "recruiting.delete_interview";
 
 interface AuditLogParams {
   userId: number | null;

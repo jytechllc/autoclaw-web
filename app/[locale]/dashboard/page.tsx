@@ -9,7 +9,8 @@ interface Props {
 export default async function DashboardPage({ params }: Props) {
   const { locale } = await params;
 
-  // Only redirect to onboarding for paid plan users (growth/enterprise) who have no org
+  // Redirect paid plan users who have no org to onboarding
+  // Enterprise users are always redirected; other paid plans only within 10 minutes of creation
   try {
     const session = await auth0.getSession();
     if (session?.user) {
@@ -22,6 +23,9 @@ export default async function DashboardPage({ params }: Props) {
           const userId = users[0].id;
           const orgs = await sql`SELECT id FROM organization_members WHERE user_id = ${userId} LIMIT 1`;
           if (orgs.length === 0) {
+            if (plan === "enterprise") {
+              redirect(`/${locale}/dashboard/onboarding`);
+            }
             const createdAt = new Date(users[0].created_at as string);
             const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
             if (createdAt > tenMinutesAgo) {

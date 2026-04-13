@@ -54,6 +54,14 @@ export default function DashboardShell({ children, user, plan, fullHeight }: Pro
       ],
     },
     {
+      label: tc.recruiting || "Recruiting",
+      children: [
+        { href: `/${locale}/dashboard/recruiting?tab=candidates`, label: tc.recruitingCandidates || "Candidates" },
+        { href: `/${locale}/dashboard/recruiting?tab=positions`, label: tc.recruitingPositions || "Positions" },
+        { href: `/${locale}/dashboard/recruiting?tab=pipeline`, label: tc.recruitingPipeline || "Pipeline" },
+      ],
+    },
+    {
       label: tc.workspace,
       children: [
         { href: `/${locale}/dashboard/agents`, label: tc.agents },

@@ -24,7 +24,7 @@ const AGENT_PLANS: Record<string, Record<string, object>> = {
     email_marketing: {
       plan: "Build prospect email list from project contacts, create personalized templates, configure follow-up sequences, and launch newsletter. Depends on Lead Prospecting for ICP data.",
       tasks: [
-        { name: "Build prospect email list", status: "in_progress" },
+        { name: "Build prospect email list", status: "pending" },
         { name: "Create email templates (cold, follow-up, newsletter)", status: "pending" },
         { name: "Configure sending schedule & limits", status: "pending" },
         { name: "Set up tracking (opens, clicks, replies)", status: "pending" },
@@ -35,7 +35,7 @@ const AGENT_PLANS: Record<string, Record<string, object>> = {
     seo_content: {
       plan: "Audit existing website SEO, research high-value keywords, create content calendar, and produce optimized blog posts.",
       tasks: [
-        { name: "Crawl website & audit current SEO health", status: "in_progress" },
+        { name: "Crawl website & audit current SEO health", status: "pending" },
         { name: "Keyword research (50+ target keywords)", status: "pending" },
         { name: "Competitor content analysis", status: "pending" },
         { name: "Create monthly content calendar", status: "pending" },
@@ -47,19 +47,19 @@ const AGENT_PLANS: Record<string, Record<string, object>> = {
     lead_prospecting: {
       plan: "Define ideal customer profile, build lead database from multiple sources, score and qualify leads, deliver enriched lead lists.",
       tasks: [
-        { name: "Define ICP and qualification criteria", status: "in_progress" },
+        { name: "Define ICP and qualification criteria", status: "pending" },
         { name: "Verify available data sources", status: "pending" },
         { name: "Build initial lead list", status: "pending" },
         { name: "Enrich leads with company & contact data", status: "pending" },
         { name: "Score and prioritize leads", status: "pending" },
         { name: "Deliver qualified lead report", status: "pending" },
       ],
-      blockers: ["Need ideal customer profile (industry, company size, title)", "Need LinkedIn Sales Navigator or Apollo.io access"],
+      blockers: ["Need ideal customer profile (industry, company size, title)", "Need Apollo.io access"],
     },
     social_media: {
       plan: "Set up brand social profiles, create content strategy, schedule posts, and engage with target audience on X/Twitter and LinkedIn.",
       tasks: [
-        { name: "Audit existing social presence", status: "in_progress" },
+        { name: "Audit existing social presence", status: "pending" },
         { name: "Create brand voice & content guidelines", status: "pending" },
         { name: "Build 2-week content queue (posts, threads)", status: "pending" },
         { name: "Set up scheduling tool integration", status: "pending" },
@@ -71,7 +71,7 @@ const AGENT_PLANS: Record<string, Record<string, object>> = {
     product_manager: {
       plan: "Monitor website health, analyze user behavior, track conversion funnels, and identify optimization opportunities.",
       tasks: [
-        { name: "Set up website monitoring (uptime, speed)", status: "in_progress" },
+        { name: "Set up website monitoring (uptime, speed)", status: "pending" },
         { name: "Install analytics tracking", status: "pending" },
         { name: "Map conversion funnels", status: "pending" },
         { name: "Run initial UX audit", status: "pending" },
@@ -95,7 +95,7 @@ const AGENT_PLANS: Record<string, Record<string, object>> = {
     orchestrator: {
       plan: "Coordinate all agents across projects. Analyze reports, identify cross-agent synergies, generate market intelligence, auto-optimize workflows, and produce weekly operations digests.",
       tasks: [
-        { name: "Analyze agent ecosystem & collect reports", status: "in_progress" },
+        { name: "Analyze agent ecosystem & collect reports", status: "pending" },
         { name: "Generate cross-agent optimization recommendations", status: "pending" },
         { name: "Market intelligence & content strategy", status: "pending" },
         { name: "Auto-coordinate agents (reset periodic tasks, flag blockers)", status: "pending" },
@@ -108,7 +108,7 @@ const AGENT_PLANS: Record<string, Record<string, object>> = {
     email_marketing: {
       plan: "构建潜客邮件列表，创建个性化模板，配置跟进序列，并发布通讯。依赖潜在客户挖掘的 ICP 数据。",
       tasks: [
-        { name: "构建潜在客户邮件列表", status: "in_progress" },
+        { name: "构建潜在客户邮件列表", status: "pending" },
         { name: "创建邮件模板（冷邮件、跟进、通讯）", status: "pending" },
         { name: "配置发送计划和限制", status: "pending" },
         { name: "设置跟踪（打开率、点击率、回复率）", status: "pending" },
@@ -119,7 +119,7 @@ const AGENT_PLANS: Record<string, Record<string, object>> = {
     seo_content: {
       plan: "\u5ba1\u8ba1\u73b0\u6709\u7f51\u7ad9 SEO\uff0c\u7814\u7a76\u9ad8\u4ef7\u503c\u5173\u952e\u8bcd\uff0c\u521b\u5efa\u5185\u5bb9\u65e5\u5386\uff0c\u5e76\u64b0\u5199\u4f18\u5316\u535a\u5ba2\u6587\u7ae0\u3002",
       tasks: [
-        { name: "\u722c\u53d6\u7f51\u7ad9\u5e76\u5ba1\u8ba1\u5f53\u524d SEO \u72b6\u6001", status: "in_progress" },
+        { name: "\u722c\u53d6\u7f51\u7ad9\u5e76\u5ba1\u8ba1\u5f53\u524d SEO \u72b6\u6001", status: "pending" },
         { name: "\u5173\u952e\u8bcd\u7814\u7a76\uff0850+ \u76ee\u6807\u5173\u952e\u8bcd\uff09", status: "pending" },
         { name: "\u7ade\u4e89\u5bf9\u624b\u5185\u5bb9\u5206\u6790", status: "pending" },
         { name: "\u521b\u5efa\u6708\u5ea6\u5185\u5bb9\u65e5\u5386", status: "pending" },
@@ -131,19 +131,19 @@ const AGENT_PLANS: Record<string, Record<string, object>> = {
     lead_prospecting: {
       plan: "\u5b9a\u4e49\u7406\u60f3\u5ba2\u6237\u753b\u50cf\uff0c\u4ece\u591a\u4e2a\u6765\u6e90\u6784\u5efa\u6f5c\u5ba2\u6570\u636e\u5e93\uff0c\u8bc4\u5206\u548c\u7b5b\u9009\u6f5c\u5ba2\uff0c\u4ea4\u4ed8\u4e30\u5bcc\u7684\u6f5c\u5ba2\u5217\u8868\u3002",
       tasks: [
-        { name: "\u5b9a\u4e49\u7406\u60f3\u5ba2\u6237\u753b\u50cf\u548c\u7b5b\u9009\u6807\u51c6", status: "in_progress" },
-        { name: "\u8bbe\u7f6e\u6570\u636e\u6e90\uff08LinkedIn\u3001Apollo \u7b49\uff09", status: "pending" },
+        { name: "\u5b9a\u4e49\u7406\u60f3\u5ba2\u6237\u753b\u50cf\u548c\u7b5b\u9009\u6807\u51c6", status: "pending" },
+        { name: "设置数据源（Apollo 等）", status: "pending" },
         { name: "构建初始潜在客户列表", status: "pending" },
         { name: "丰富潜在客户公司和联系人数据", status: "pending" },
         { name: "评分和优先排序潜在客户", status: "pending" },
         { name: "交付合格潜在客户报告", status: "pending" },
       ],
-      blockers: ["\u9700\u8981\u7406\u60f3\u5ba2\u6237\u753b\u50cf\uff08\u884c\u4e1a\u3001\u516c\u53f8\u89c4\u6a21\u3001\u804c\u4f4d\uff09", "\u9700\u8981 LinkedIn Sales Navigator \u6216 Apollo.io \u8bbf\u95ee\u6743\u9650"],
+      blockers: ["需要理想客户画像（行业、公司规模、职位）", "需要 Apollo.io 访问权限"],
     },
     social_media: {
       plan: "\u8bbe\u7f6e\u54c1\u724c\u793e\u4ea4\u8d26\u53f7\uff0c\u521b\u5efa\u5185\u5bb9\u7b56\u7565\uff0c\u5b89\u6392\u53d1\u5e03\uff0c\u5e76\u5728 X/Twitter \u548c LinkedIn \u4e0a\u4e0e\u76ee\u6807\u53d7\u4f17\u4e92\u52a8\u3002",
       tasks: [
-        { name: "\u5ba1\u8ba1\u73b0\u6709\u793e\u4ea4\u5a92\u4f53\u8868\u73b0", status: "in_progress" },
+        { name: "\u5ba1\u8ba1\u73b0\u6709\u793e\u4ea4\u5a92\u4f53\u8868\u73b0", status: "pending" },
         { name: "\u521b\u5efa\u54c1\u724c\u58f0\u97f3\u548c\u5185\u5bb9\u6307\u5357", status: "pending" },
         { name: "\u6784\u5efa 2 \u5468\u5185\u5bb9\u961f\u5217\uff08\u5e16\u5b50\u3001\u4e3b\u9898\uff09", status: "pending" },
         { name: "\u8bbe\u7f6e\u5b9a\u65f6\u53d1\u5e03\u5de5\u5177\u96c6\u6210", status: "pending" },
@@ -155,7 +155,7 @@ const AGENT_PLANS: Record<string, Record<string, object>> = {
     product_manager: {
       plan: "\u76d1\u63a7\u7f51\u7ad9\u5065\u5eb7\uff0c\u5206\u6790\u7528\u6237\u884c\u4e3a\uff0c\u8ddf\u8e2a\u8f6c\u5316\u6f0f\u6597\uff0c\u5e76\u8bc6\u522b\u4f18\u5316\u673a\u4f1a\u3002",
       tasks: [
-        { name: "\u8bbe\u7f6e\u7f51\u7ad9\u76d1\u63a7\uff08\u8fd0\u884c\u65f6\u95f4\u3001\u901f\u5ea6\uff09", status: "in_progress" },
+        { name: "\u8bbe\u7f6e\u7f51\u7ad9\u76d1\u63a7\uff08\u8fd0\u884c\u65f6\u95f4\u3001\u901f\u5ea6\uff09", status: "pending" },
         { name: "\u5b89\u88c5\u5206\u6790\u8ddf\u8e2a", status: "pending" },
         { name: "\u6620\u5c04\u8f6c\u5316\u6f0f\u6597", status: "pending" },
         { name: "\u8fdb\u884c\u521d\u59cb UX \u5ba1\u8ba1", status: "pending" },
@@ -179,7 +179,7 @@ const AGENT_PLANS: Record<string, Record<string, object>> = {
     orchestrator: {
       plan: "协调所有项目的智能体。分析报告、识别跨智能体协同机会、生成市场情报、自动优化工作流程，并生成每周运营摘要。",
       tasks: [
-        { name: "分析智能体生态系统并收集报告", status: "in_progress" },
+        { name: "分析智能体生态系统并收集报告", status: "pending" },
         { name: "生成跨智能体优化建议", status: "pending" },
         { name: "市场情报与内容策略", status: "pending" },
         { name: "自动协调智能体（重置周期任务、标记阻塞）", status: "pending" },
