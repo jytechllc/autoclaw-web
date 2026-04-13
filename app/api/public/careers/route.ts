@@ -46,6 +46,9 @@ export async function GET(req: NextRequest) {
   const org = orgs[0];
   const orgId = org.id as number;
 
+  // Ensure views column exists
+  await sql`ALTER TABLE recruiting_positions ADD COLUMN IF NOT EXISTS views INTEGER DEFAULT 0`;
+
   // Get open positions for this org
   const positions = await sql`
     SELECT id, title, description, department, location, salary_min, salary_max, salary_type, required_skills, visa_sponsorship, created_at
@@ -53,6 +56,12 @@ export async function GET(req: NextRequest) {
     WHERE org_id = ${orgId} AND status = 'open'
     ORDER BY created_at DESC
   `;
+
+  // Increment views for all positions on this page
+  if (positions.length > 0) {
+    const posIds = positions.map((p) => p.id as number);
+    await sql`UPDATE recruiting_positions SET views = COALESCE(views, 0) + 1 WHERE id = ANY(${posIds})`;
+  }
 
   return NextResponse.json({
     org: { name: org.name, slug },

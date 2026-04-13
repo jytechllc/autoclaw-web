@@ -101,6 +101,7 @@ const ko = {
     location: "위치",
     salaryMin: "최소 급여",
     salaryMax: "최대 급여",
+    views: "조회수",
     seats: "채용 인원",
     unpaid: "무급",
     salaryHourly: "시급",

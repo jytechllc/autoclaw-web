@@ -42,6 +42,7 @@ interface Position {
   status: string;
   visa_sponsorship?: boolean;
   seats?: number;
+  views?: number;
   candidate_count?: number;
   created_at: string;
 }
@@ -684,6 +685,9 @@ function RecruitingContent() {
                         )}
                         {(p.seats || 1) > 1 && (
                           <span className="flex items-center gap-1 bg-orange-50 text-orange-700 px-2 py-1 rounded font-medium">{t.seats || "Seats"}: {p.seats}</span>
+                        )}
+                        {(p.views || 0) > 0 && (
+                          <span className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded">👁 {t.views || "Views"}: {p.views}</span>
                         )}
                         <span className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded">👤 {t.candidateCount}: {p.candidate_count || 0}</span>
                       </div>
