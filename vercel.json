@@ -1,16 +1,20 @@
 {
   "crons": [
     {
+      "path": "/api/cron/run-agents",
+      "schedule": "0,30 * * * *"
+    },
+    {
+      "path": "/api/cron/sync-email-stats",
+      "schedule": "0 6 * * *"
+    },
+    {
       "path": "/api/cron/process-embeddings",
       "schedule": "0 2 * * *"
     },
     {
       "path": "/api/cron/product-docs-rag",
       "schedule": "0 4 * * *"
-    },
-    {
-      "path": "/api/cron/sync-email-stats",
-      "schedule": "0 6 * * *"
     },
     {
       "path": "/api/cron/benchmark-models",
