@@ -142,6 +142,28 @@ That first deal gives you:
 
 ## Sources Used For Priority Leads
 
+Priority leads are built from public US-market buying signals, not scraped blindly.
+
+Selection rules:
+
+- the company is actively hiring SDR, BDR, AE, RevOps, or growth roles
+- the role description mentions outbound, pipeline, prospecting, sequencing, enrichment, or target accounts
+- the team looks like it can buy a small setup engagement quickly
+- the company is already selling into the US or explicitly growing North America
+
+How the list is built:
+
+- find target companies from public careers pages and hiring systems
+- capture the specific signal in `us-priority-leads.csv`
+- use the company domain to enrich decision-maker contacts with Apollo first and Hunter second
+- send a short sample-leads offer first, then follow up on Day 2 and Day 5
+
+Sending approach:
+
+- use Brevo as the sending channel for volume and deliverability
+- use `jytech202307@gmail.com` as the reply path for manual conversations
+- keep Gmail for human follow-up, not bulk cold sending
+
 - Storyteller careers: <https://www.getstoryteller.com/careers/sales-development-representative>
 - Progress careers: <https://www.progress.com/company/careers/open-positions/business-development-representative-oqlbzfwf>
 - Cloudvisor careers: <https://cloudvisor.co/careers/sales-development-representative/>
