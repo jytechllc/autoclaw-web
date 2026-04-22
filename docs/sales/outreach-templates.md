@@ -12,6 +12,8 @@ AutoClaw helps B2B teams generate target account lists, enrich contact data, and
 
 If useful, I can send over 10-20 sample leads for your ideal customer profile so you can see the quality first.
 
+If you prefer, you can book a quick chat here: https://calendly.com/jytech
+
 Worth sending a sample list?
 
 Best,
@@ -35,7 +37,7 @@ We help teams stand up outbound faster by handling:
 
 The fastest engagement is a 14-day outbound setup. If it makes sense, I can show you what that would look like for {{company}}.
 
-Open to a short call next week?
+Open to a short call next week? You can also book directly here: https://calendly.com/jytech
 
 Best,
 Jay
@@ -58,6 +60,8 @@ We help agencies and service firms build outbound pipeline with:
 
 Happy to send a small sample based on your ICP so you can judge fit quickly.
 
+If easier, book a quick chat here: https://calendly.com/jytech
+
 Interested?
 
 Best,
@@ -73,6 +77,8 @@ Hi {{first_name}},
 Following up in case outbound pipeline is still a priority.
 
 If useful, I can send a free sample lead pack based on your target market. No deck, just something concrete to review.
+
+If easier, you can grab time here: https://calendly.com/jytech
 
 Best,
 Jay
@@ -93,6 +99,8 @@ If outbound pipeline is something you want to improve this quarter, I can show:
 - how the follow-up workflow would run
 
 If now is not the right time, no problem.
+
+If you want to talk, book here: https://calendly.com/jytech
 
 Best,
 Jay
