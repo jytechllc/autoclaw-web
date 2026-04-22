@@ -38,10 +38,20 @@ function DashboardShellInner({ children, user, plan: planProp, fullHeight }: Pro
   const locale = (params.locale as Locale) || "en";
   const dict = getDictionary(locale);
   const tc = dict.common;
+  const growthOpsLabel =
+    locale === "zh"
+      ? "增长运营"
+      : locale === "zh-TW"
+        ? "增長營運"
+        : locale === "fr"
+          ? "Growth Ops"
+          : locale === "ko"
+            ? "성장 운영"
+            : "Growth Ops";
 
   const [fetchedPlan, setFetchedPlan] = useState<string | undefined>(planProp);
   useEffect(() => {
-    if (planProp) { setFetchedPlan(planProp); return; }
+    if (planProp) return;
     fetch("/api/usage-quota").then((r) => r.ok ? r.json() : null).then((d) => {
       if (d?.quota?.plan) setFetchedPlan(d.quota.plan);
     }).catch(() => {});
@@ -118,6 +128,7 @@ function DashboardShellInner({ children, user, plan: planProp, fullHeight }: Pro
     {
       label: tc.system,
       children: [
+        { href: `/${locale}/dashboard/growth-ops`, label: growthOpsLabel },
         { href: `/${locale}/dashboard/usage`, label: tc.usage },
         { href: `/${locale}/dashboard/settings`, label: tc.settings },
         { href: `/${locale}/dashboard/docs`, label: tc.docs },
@@ -293,7 +304,7 @@ function DashboardShellInner({ children, user, plan: planProp, fullHeight }: Pro
             <span className="text-sm text-gray-600 hidden sm:flex items-center gap-1.5">
               {user.email} <UserPlanBadge plan={plan} />
             </span>
-            <a href="/auth/logout" className="text-sm text-gray-500 hover:text-gray-700 transition-colors">{tc.logOut}</a>
+            <Link href="/auth/logout" className="text-sm text-gray-500 hover:text-gray-700 transition-colors">{tc.logOut}</Link>
           </div>
         </div>
       </header>
