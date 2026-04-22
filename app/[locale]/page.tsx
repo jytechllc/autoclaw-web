@@ -189,8 +189,49 @@ export default function Home() {
     { step: "3", title: t.step3Title, description: t.step3Desc },
   ];
 
+  const pageUrl = `https://autoclaw.jytech.us/${locale}`;
+  const structuredData = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebSite",
+        name: "AutoClaw",
+        url: "https://autoclaw.jytech.us",
+        inLanguage: locale,
+        potentialAction: {
+          "@type": "SearchAction",
+          target: `${pageUrl}#try-it`,
+          "query-input": "required name=target-market",
+        },
+      },
+      {
+        "@type": "SoftwareApplication",
+        name: "AutoClaw",
+        applicationCategory: "BusinessApplication",
+        operatingSystem: "Web",
+        url: pageUrl,
+        description: t.heroDescription,
+      },
+      {
+        "@type": "Organization",
+        name: "AutoClaw",
+        url: "https://autoclaw.jytech.us",
+        contactPoint: {
+          "@type": "ContactPoint",
+          telephone: "+1-415-518-2187",
+          contactType: "sales",
+          url: "https://calendly.com/jytech",
+        },
+      },
+    ],
+  };
+
   return (
     <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+      />
       {/* Header */}
       <header className="sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-gray-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
