@@ -46,6 +46,14 @@ if (!SEND) {
   process.exit(0);
 }
 
+try {
+  const me = await client.v2.me();
+  console.log(`Authenticated as ${me.data.username}`);
+} catch (error) {
+  console.error("X auth check failed before posting.");
+  throw error;
+}
+
 let replyToId;
 for (const post of posts) {
   const tweet = replyToId

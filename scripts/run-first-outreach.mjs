@@ -24,6 +24,10 @@ function getReplyTo() {
   return { email, name };
 }
 
+function getBusinessPhone() {
+  return process.env.BUSINESS_PHONE || "+1 415-518-2187";
+}
+
 function parseEnvFile(path) {
   const text = readFileSync(path, "utf8");
   const result = {};
@@ -157,6 +161,7 @@ function buildSubject(lead) {
 
 function buildHtml(lead, sender) {
   const firstName = lead.firstName || "there";
+  const phone = getBusinessPhone();
   return `
     <p>Hi ${firstName},</p>
     <p>I noticed ${lead.company} is actively investing in outbound pipeline and sales execution.</p>
@@ -169,7 +174,7 @@ function buildHtml(lead, sender) {
     </ul>
     <p>If useful, I can send over a small sample lead pack tailored to ${lead.company}'s market so you can judge fit quickly.</p>
     <p>Worth sending a sample?</p>
-    <p>Best,<br/>${sender.name}<br/>AutoClaw<br/><a href="https://autoclaw.jytech.us">autoclaw.jytech.us</a></p>
+    <p>Best,<br/>${sender.name}<br/>AutoClaw<br/><a href="https://autoclaw.jytech.us">autoclaw.jytech.us</a><br/>${phone}</p>
   `.trim();
 }
 
@@ -295,11 +300,12 @@ async function runFollowUp() {
   }
   let sent = 0;
   for (const entry of due.slice(0, LIMIT)) {
+    const phone = getBusinessPhone();
     const html = `
       <p>Hi,</p>
       <p>Following up in case outbound pipeline is still a priority.</p>
       <p>If useful, I can send a free sample lead pack based on your target market and show how the first 14-day setup would run.</p>
-      <p>Best,<br/>${sender.name}<br/>AutoClaw</p>
+      <p>Best,<br/>${sender.name}<br/>AutoClaw<br/>${phone}</p>
     `.trim();
     try {
       const res = await fetch("https://api.brevo.com/v3/smtp/email", {

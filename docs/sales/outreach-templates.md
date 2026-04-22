@@ -16,6 +16,7 @@ Worth sending a sample list?
 
 Best,
 Jay
++1 415-518-2187
 
 ## Template 2: Outbound Setup Offer
 
@@ -38,6 +39,7 @@ Open to a short call next week?
 
 Best,
 Jay
++1 415-518-2187
 
 ## Template 3: Agencies / Service Firms
 
@@ -60,6 +62,7 @@ Interested?
 
 Best,
 Jay
++1 415-518-2187
 
 ## Follow-Up 1
 
@@ -73,6 +76,7 @@ If useful, I can send a free sample lead pack based on your target market. No de
 
 Best,
 Jay
++1 415-518-2187
 
 ## Follow-Up 2
 
@@ -92,3 +96,4 @@ If now is not the right time, no problem.
 
 Best,
 Jay
++1 415-518-2187
