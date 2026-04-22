@@ -48,6 +48,16 @@ function DashboardShellInner({ children, user, plan: planProp, fullHeight }: Pro
           : locale === "ko"
             ? "성장 운영"
             : "Growth Ops";
+  const analyticsLabel =
+    locale === "zh"
+      ? "数据分析"
+      : locale === "zh-TW"
+        ? "數據分析"
+        : locale === "fr"
+          ? "Analytics"
+          : locale === "ko"
+            ? "분석"
+            : "Analytics";
 
   const [fetchedPlan, setFetchedPlan] = useState<string | undefined>(planProp);
   useEffect(() => {
@@ -60,7 +70,8 @@ function DashboardShellInner({ children, user, plan: planProp, fullHeight }: Pro
   const isPaid = plan && plan !== "starter";
 
   const navItems: NavItem[] = [
-    { href: `/${locale}/dashboard/reports`, label: tc.dashboard },
+    { href: `/${locale}/dashboard/growth-ops`, label: growthOpsLabel },
+    { href: `/${locale}/dashboard/reports`, label: analyticsLabel },
     { href: `/${locale}/dashboard/chat`, label: tc.chat },
     {
       label: tc.intelligent,
