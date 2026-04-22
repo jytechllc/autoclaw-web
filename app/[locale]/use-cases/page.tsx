@@ -148,6 +148,241 @@ AutoClaw 部署了一个自主运行的 Dev Agent：
   ],
   featured: [
     {
+      slug: "us-b2b-outbound",
+      industry: { en: "B2B Outbound / Revenue Operations", zh: "B2B 外联 / 收入运营" },
+      agents: 4,
+      title: {
+        en: "How AutoClaw helps B2B teams build outbound pipeline for the US market",
+        zh: "AutoClaw 如何帮助 B2B 团队搭建美国市场外联获客流程",
+      },
+      summary: {
+        en: "A practical guide to target-account research, contact enrichment, cold email setup, follow-up automation, and the first 14 days of outbound execution.",
+        zh: "一份关于目标客户研究、联系人补全、冷邮件触达、自动跟进和前 14 天外联执行流程的实操指南。",
+      },
+      content: {
+        en: `## What problem does AutoClaw solve?
+
+Most outbound programs underperform before the first email is sent.
+
+The usual issues are:
+
+- target accounts are too broad
+- contact data is incomplete
+- message sequencing is inconsistent
+- follow-up has no clear owner
+
+AutoClaw is designed to tighten that workflow for B2B teams selling into the US market.
+
+## Who is this best for?
+
+AutoClaw fits best when a company already knows outbound matters and wants faster pipeline creation without adding more SDR headcount.
+
+Common fits:
+
+- founder-led B2B SaaS
+- high-ticket agencies and service firms
+- exporters and suppliers targeting North America
+- lean revenue teams that need cleaner prospecting workflows
+
+## What does the workflow include?
+
+AutoClaw focuses on four linked jobs:
+
+1. **Target-account research**  
+   Build a narrower list of accounts that actually fit your ICP.
+
+2. **Contact enrichment**  
+   Find decision-makers, roles, company details, and reachable work emails.
+
+3. **Cold email setup**  
+   Turn ICP, account data, and offer positioning into practical outbound copy.
+
+4. **Follow-up automation**  
+   Keep the sequence moving so leads do not stall after the first touch.
+
+## What happens in the first 14 days?
+
+### Days 1-3
+
+- define ICP and target geography
+- collect target accounts
+- enrich initial decision-maker contacts
+
+### Days 4-7
+
+- prepare first-touch and follow-up copy
+- set reply path and booking CTA
+- launch the first outbound batch
+
+### Days 8-10
+
+- review replies, opens, and fit signals
+- refine targeting and message angle
+- prepare sample lead packs for warmer prospects
+
+### Days 11-14
+
+- send follow-ups
+- book calls
+- convert warm prospects into a paid setup or managed outbound engagement
+
+## What does a first deliverable look like?
+
+A practical first deliverable is usually a sample lead pack:
+
+- 10 to 20 target accounts
+- relevant decision-makers
+- enriched contact data
+- outreach angle for that ICP
+
+That keeps the first buying decision simple. The client sees list quality before committing to a larger engagement.
+
+## What metrics should a team watch first?
+
+For early outbound, the most useful weekly metrics are:
+
+- contacts enriched
+- initial emails sent
+- reply rate
+- qualified conversations
+- calls booked
+- paid setups closed
+
+Do not over-focus on vanity metrics before the first few real sales conversations happen.
+
+## Why is this page structured like a guide?
+
+Answer engines such as ChatGPT, Perplexity, and Google AI Overviews tend to prefer pages that are:
+
+- specific
+- factual
+- clearly structured
+- easy to quote in small sections
+
+That is why this guide answers direct buyer questions instead of relying on vague marketing copy.
+
+## How to talk with us
+
+If you want to discuss fit, book a short call here:
+
+<https://calendly.com/jytech>
+
+If you want a sample first, start here:
+
+<https://autoclaw.jytech.us/en#try-it>`,
+        zh: `## AutoClaw 解决什么问题？
+
+很多外联项目在第一封邮件发出之前就已经表现不佳。
+
+常见问题包括：
+
+- 目标客户范围过宽
+- 联系人数据不完整
+- 触达节奏不一致
+- 跟进没有明确负责人
+
+AutoClaw 的核心作用，就是帮助面向美国市场销售的 B2B 团队把这一整套流程收紧并标准化。
+
+## 最适合哪些团队？
+
+当一个团队已经明确知道 outbound 很重要，但又不想继续增加 SDR 人力时，AutoClaw 最有价值。
+
+典型适配场景：
+
+- 创始人主导销售的 B2B SaaS
+- 高客单 agency 与专业服务公司
+- 面向北美市场的出口商与供应商
+- 需要更干净 prospecting 流程的精简收入团队
+
+## 这套流程包含什么？
+
+AutoClaw 聚焦四个连续动作：
+
+1. **目标客户研究**  
+   先把真正符合 ICP 的公司名单缩窄。
+
+2. **联系人补全**  
+   找到决策人、岗位、公司信息和可触达的工作邮箱。
+
+3. **冷邮件启动**  
+   根据 ICP、账户信息和 offer 产出可执行的外联文案。
+
+4. **自动跟进**  
+   让线索不会在第一次触达后停掉。
+
+## 前 14 天一般怎么做？
+
+### 第 1-3 天
+
+- 定义 ICP 与目标市场
+- 收集目标账户
+- 补全第一批决策人联系人
+
+### 第 4-7 天
+
+- 准备首触和跟进文案
+- 配置回复路径与预约 CTA
+- 启动第一轮外联
+
+### 第 8-10 天
+
+- 看回复、打开和 fit signal
+- 调整名单与文案角度
+- 为更热的潜在线索准备 sample lead pack
+
+### 第 11-14 天
+
+- 发 follow-up
+- 推进预约
+- 把更热的客户转成付费 setup 或托管外联项目
+
+## 第一份交付通常长什么样？
+
+最容易成交的第一份交付通常是 sample lead pack：
+
+- 10 到 20 个目标账户
+- 对应决策人
+- 补全后的联系人信息
+- 适配该 ICP 的外联切入角度
+
+这样客户可以先看名单质量，再决定是否进入更大的合作。
+
+## 最先该看哪些指标？
+
+在前期 outbound 阶段，最有价值的每周指标通常是：
+
+- 补全了多少联系人
+- 发出了多少首轮邮件
+- 回复率
+- 合格对话数
+- 预约数
+- 成交的 setup 数
+
+在真正出现销售对话之前，不要过度关注虚荣指标。
+
+## 为什么这页写成问答指南？
+
+像 ChatGPT、Perplexity、Google AI Overviews 这类答案引擎，更容易引用：
+
+- 具体的
+- 事实清晰的
+- 结构化明确的
+- 可以被截取小段引用的页面
+
+所以这页不是泛营销文案，而是直接回答买家会问的问题。
+
+## 如何和我们沟通？
+
+如果你想直接聊，预约入口：
+
+<https://calendly.com/jytech>
+
+如果你想先看样例线索，从这里开始：
+
+<https://autoclaw.jytech.us/en#try-it>`,
+      },
+    },
+    {
       slug: "enterprise",
       industry: { en: "Enterprise Solution", zh: "企业级解决方案" },
       agents: 8,
