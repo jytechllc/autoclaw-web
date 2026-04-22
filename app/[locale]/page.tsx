@@ -145,12 +145,10 @@ export default function Home() {
   ];
 
   const caseStudies = [
-    { company: "DK Wholesale", industry: "B2B Wholesale", agents: 4, results: t.caseDkWholesale },
-    { company: "US ProGlove", industry: "Industrial Safety / PPE", agents: 3, results: t.caseUsProglove },
-    { company: "GPULaw", industry: "Legal Tech / SaaS", agents: 1, results: t.caseGpuLaw },
+    { company: "DK Wholesale", industry: "Wholesale Distribution", agents: 4, results: t.caseDkWholesale },
+    { company: "US ProGlove", industry: "Industrial Safety", agents: 3, results: t.caseUsProglove },
+    { company: "GPULaw", industry: "Legal Services SaaS", agents: 1, results: t.caseGpuLaw },
   ];
-
-  const isChineseLocale = locale === "zh" || locale === "zh-TW";
 
   const pricingPlans = [
     { name: t.planStarter, price: t.planStarterPrice, period: "", description: t.planStarterDesc, features: [t.feat2Agents, t.featUnlimitedContacts, t.feat100Emails, t.feat1Project, t.featFreeModels, t.featFreeMedia, t.featSocialMedia, t.featBasicTemplates, t.featTeam5, t.featDashboardReports], cta: t.ctaStarterFree, highlight: false, plan: "starter", disabled: false, minCommitment: false },
@@ -164,6 +162,25 @@ export default function Home() {
     { value: "30+", label: t.statSkills },
     { value: "24/7", label: t.statOperation },
     { value: "10K+", label: t.statEmails },
+  ];
+
+  const bestFitCards = [
+    { title: t.bestFit1Title, description: t.bestFit1Desc },
+    { title: t.bestFit2Title, description: t.bestFit2Desc },
+    { title: t.bestFit3Title, description: t.bestFit3Desc },
+  ];
+
+  const launchCards = [
+    { title: t.launch1Title, description: t.launch1Desc },
+    { title: t.launch2Title, description: t.launch2Desc },
+    { title: t.launch3Title, description: t.launch3Desc },
+  ];
+
+  const followUpCards = [
+    { day: t.followUp1Day, title: t.followUp1Title, description: t.followUp1Desc },
+    { day: t.followUp2Day, title: t.followUp2Title, description: t.followUp2Desc },
+    { day: t.followUp3Day, title: t.followUp3Title, description: t.followUp3Desc },
+    { day: t.followUp4Day, title: t.followUp4Title, description: t.followUp4Desc },
   ];
 
   const steps = [
@@ -202,7 +219,7 @@ export default function Home() {
                     )}
                     <span className="text-sm text-gray-700 max-w-[100px] truncate">{user.name || user.email}</span>
                   </a>
-                  <a href="/auth/logout" className="text-xs text-gray-400 hover:text-red-500 transition-colors">{tc.logOut}</a>
+                  <Link href="/auth/logout" className="text-xs text-gray-400 hover:text-red-500 transition-colors">{tc.logOut}</Link>
                 </div>
               ) : (
                 <a href={`/auth/login?returnTo=/${locale}/dashboard/reports`} className="bg-primary text-white px-5 py-2 rounded-lg hover:bg-primary-dark transition-colors">{t.getStarted}</a>
@@ -251,7 +268,7 @@ export default function Home() {
                       )}
                       <span className="text-sm text-gray-700 max-w-[100px] truncate">{user.name || user.email}</span>
                     </a>
-                    <a href="/auth/logout" className="text-xs text-gray-400 hover:text-red-500">{tc.logOut}</a>
+                    <Link href="/auth/logout" className="text-xs text-gray-400 hover:text-red-500">{tc.logOut}</Link>
                   </div>
                 ) : (
                   <a href={`/auth/login?returnTo=/${locale}/dashboard/reports`} className="bg-primary text-white px-5 py-2 rounded-lg text-sm font-medium">{t.getStarted}</a>
@@ -273,7 +290,7 @@ export default function Home() {
             <p className="text-xl text-gray-300 mb-10 max-w-2xl mx-auto leading-relaxed">{t.heroDescription}</p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <a href={`/auth/login?returnTo=/${locale}/dashboard/reports`} className="bg-red-700 hover:bg-red-800 text-white px-8 py-4 rounded-lg font-medium text-lg transition-colors">{t.startFree}</a>
-              <a href="#try-it" className="border border-red-400/50 hover:border-red-300 text-white px-8 py-4 rounded-lg font-medium text-lg transition-colors">{t.trialSearchBtn}</a>
+              <a href="#signup" className="border border-red-400/50 hover:border-red-300 text-white px-8 py-4 rounded-lg font-medium text-lg transition-colors">{t.bookCallCta}</a>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mt-20 pt-12 border-t border-red-500/30 max-w-3xl mx-auto">
               {stats.map((stat) => (
@@ -290,6 +307,23 @@ export default function Home() {
         <section id="try-it" className="py-16 bg-white border-b border-gray-100">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
             <TrialLeadSearch t={t} locale={locale} />
+          </div>
+        </section>
+
+        <section className="py-20 bg-gray-50">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="text-center mb-12">
+              <h2 className="text-3xl md:text-4xl font-bold mb-4">{t.bestFitTitle}</h2>
+              <p className="text-lg text-gray-500 max-w-3xl mx-auto">{t.bestFitSubtitle}</p>
+            </div>
+            <div className="grid md:grid-cols-3 gap-6">
+              {bestFitCards.map((card) => (
+                <div key={card.title} className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">{card.title}</h3>
+                  <p className="text-sm leading-relaxed text-gray-600">{card.description}</p>
+                </div>
+              ))}
+            </div>
           </div>
         </section>
 
@@ -339,6 +373,47 @@ export default function Home() {
                   <span key={tech} className="bg-gray-50 px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-100">{tech}</span>
                 ))}
               </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="py-20 bg-white border-y border-gray-100">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="text-center mb-12">
+              <h2 className="text-3xl md:text-4xl font-bold mb-4">{t.launchTitle}</h2>
+              <p className="text-lg text-gray-500 max-w-3xl mx-auto">{t.launchSubtitle}</p>
+            </div>
+            <div className="grid md:grid-cols-3 gap-6">
+              {launchCards.map((card, index) => (
+                <div key={card.title} className="rounded-2xl bg-slate-900 text-white p-6">
+                  <p className="text-sm font-semibold text-red-300 mb-3">0{index + 1}</p>
+                  <h3 className="text-xl font-semibold mb-3">{card.title}</h3>
+                  <p className="text-sm leading-relaxed text-slate-300">{card.description}</p>
+                </div>
+              ))}
+            </div>
+            <div className="mt-10 text-center">
+              <a href="#signup" className="inline-flex items-center justify-center rounded-lg bg-red-700 px-8 py-4 text-lg font-medium text-white transition-colors hover:bg-red-800">
+                {t.bookCallCta}
+              </a>
+            </div>
+          </div>
+        </section>
+
+        <section className="py-20 bg-gray-50">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="text-center mb-12">
+              <h2 className="text-3xl md:text-4xl font-bold mb-4">{t.followUpTitle}</h2>
+              <p className="text-lg text-gray-500 max-w-3xl mx-auto">{t.followUpSubtitle}</p>
+            </div>
+            <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-6">
+              {followUpCards.map((card) => (
+                <div key={card.day + card.title} className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+                  <p className="text-sm font-semibold text-red-600 mb-3">{card.day}</p>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">{card.title}</h3>
+                  <p className="text-sm leading-relaxed text-gray-600">{card.description}</p>
+                </div>
+              ))}
             </div>
           </div>
         </section>
