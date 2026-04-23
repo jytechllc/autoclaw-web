@@ -105,7 +105,7 @@ export default function GrowthOpsView({
           noData: "当前没有可显示的 growth tracker 数据。",
           noCompanyData: "当前公司还没有独立的 growth tracker 数据。",
           allCompaniesView: "全部公司视图",
-          noAllCompaniesData: "当前没有可聚合的 company-level growth tracker 数据。",
+          noAllCompaniesData: "当前没有可聚合的 company-level growth tracker 数据。请先添加 scope_type=org 的 tracker 行。",
         }
       : {
           title: "Growth Ops",
@@ -139,7 +139,7 @@ export default function GrowthOpsView({
           noData: "No growth tracker data is available yet.",
           noCompanyData: "This company does not have dedicated growth tracker data yet.",
           allCompaniesView: "All Companies View",
-          noAllCompaniesData: "No company-level growth tracker data is available to combine yet.",
+          noAllCompaniesData: "No company-level growth tracker data is available to combine yet. Add tracker rows with scope_type=org first.",
         };
 
   const { current, previous, filteredRows, usingFallback, currentViewLabel } = useMemo(() => {
