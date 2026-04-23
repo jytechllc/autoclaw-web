@@ -167,8 +167,10 @@ function DashboardShellInner({ children, user, plan: planProp, fullHeight }: Pro
   const [orgDropdownOpen, setOrgDropdownOpen] = useState(false);
   const { orgs: userOrgs, activeOrg, setActiveOrgId } = useOrg();
   const onGrowthOpsPage = pathname === `/${locale}/dashboard/growth-ops`;
+  const onReportsPage = pathname === `/${locale}/dashboard/reports`;
+  const supportsAllCompanies = onGrowthOpsPage || onReportsPage;
   const growthScope = searchParams.get("scope");
-  const allCompaniesSelected = onGrowthOpsPage && growthScope === "all";
+  const allCompaniesSelected = supportsAllCompanies && growthScope === "all";
 
   const toggleGroup = (label: string) => {
     setExpandedGroups((prev) => {
@@ -292,10 +294,13 @@ function DashboardShellInner({ children, user, plan: planProp, fullHeight }: Pro
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setOrgDropdownOpen(false)} />
                     <div className="absolute right-0 mt-1 z-50 w-[min(90vw,28rem)] max-w-[28rem] bg-white border border-gray-200 rounded-lg shadow-lg py-1">
-                      {onGrowthOpsPage && userOrgs.length > 1 && (
+                      {supportsAllCompanies && userOrgs.length > 1 && (
                         <button
                           onClick={() => {
-                            router.push(`/${locale}/dashboard/growth-ops?scope=all`);
+                            const basePath = onGrowthOpsPage
+                              ? `/${locale}/dashboard/growth-ops`
+                              : `/${locale}/dashboard/reports`;
+                            router.push(`${basePath}?scope=all`);
                             setOrgDropdownOpen(false);
                           }}
                           className={`w-full px-3 py-2 flex items-center justify-between cursor-pointer transition-colors ${
@@ -317,8 +322,12 @@ function DashboardShellInner({ children, user, plan: planProp, fullHeight }: Pro
                           key={org.id}
                           onClick={() => {
                             setActiveOrgId(org.id);
-                            if (onGrowthOpsPage) {
-                              router.push(`/${locale}/dashboard/growth-ops`);
+                            if (supportsAllCompanies) {
+                              if (onGrowthOpsPage) {
+                                router.push(`/${locale}/dashboard/growth-ops`);
+                              } else {
+                                router.push(`/${locale}/dashboard/reports?org_id=${org.id}`);
+                              }
                             }
                             setOrgDropdownOpen(false);
                           }}

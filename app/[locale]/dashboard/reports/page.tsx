@@ -2,7 +2,7 @@
 
 import { useUser } from "@auth0/nextjs-auth0/client";
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
@@ -491,6 +491,7 @@ const ACTION_LABELS: Record<string, Record<string, string>> = {
 
 export default function ReportsPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const locale = (params.locale as Locale) || "en";
   const dict = getDictionary(locale);
   const tr = dict.reportsPage;
@@ -498,6 +499,8 @@ export default function ReportsPage() {
   const ts = dict.settings;
 
   const { user, isLoading: userLoading } = useUser();
+  const allCompaniesSelected = searchParams.get("scope") === "all";
+  const activeOrgIdParam = searchParams.get("org_id");
   const [reports, setReports] = useState<AgentReport[]>([]);
   const [brevoStats, setBrevoStats] = useState({ emailsSent: 0, delivered: 0, opened: 0, clicked: 0 });
   const [brevoCampaigns, setBrevoCampaigns] = useState<BrevoCampaign[]>([]);
@@ -539,8 +542,17 @@ export default function ReportsPage() {
 
   useEffect(() => {
     if (!user) return;
-    setLoading(true);
-    fetch(`/api/reports?locale=${locale}`)
+    const url = new URL("/api/reports", window.location.origin);
+    url.searchParams.set("locale", locale);
+    if (allCompaniesSelected) {
+      url.searchParams.set("scope", "all");
+    } else {
+      const activeOrgId = activeOrgIdParam || window.localStorage.getItem("autoclaw_active_org");
+      if (activeOrgId) {
+        url.searchParams.set("org_id", String(activeOrgId));
+      }
+    }
+    fetch(url.toString())
       .then((r) => r.json())
       .then((data) => {
         setReports(data.reports || []);
@@ -591,12 +603,11 @@ export default function ReportsPage() {
         if (data.contactAnalytics) setContactAnalytics(data.contactAnalytics);
       })
       .finally(() => setLoading(false));
-    setAuditLoading(true);
     fetch("/api/audit-logs?limit=20")
       .then((r) => r.json())
       .then((data) => setAuditLogs(data.logs || []))
       .finally(() => setAuditLoading(false));
-  }, [user, locale, trafficFilterStorageKey]);
+  }, [activeOrgIdParam, allCompaniesSelected, locale, trafficFilterStorageKey, user]);
 
   useEffect(() => {
     if (!trafficFilterStorageKey || gaProjects.length === 0) return;

@@ -946,6 +946,8 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const locale = url.searchParams.get("locale") || "en";
+  const scope = url.searchParams.get("scope") || "";
+  const orgIdParam = url.searchParams.get("org_id");
   const email = session.user.email as string;
 
   const sql = getDb();
@@ -957,6 +959,10 @@ export async function GET(request: Request) {
   }
   const userId = users[0].id;
   const isAdmin = users[0].role === "admin";
+  const selectedOrgId = orgIdParam ? Number(orgIdParam) : null;
+  if (selectedOrgId !== null && (!Number.isFinite(selectedOrgId) || selectedOrgId <= 0)) {
+    return NextResponse.json({ error: "Invalid org_id" }, { status: 400 });
+  }
   const userPlan = await resolveUserPlan(
     sql,
     userId,
@@ -964,9 +970,35 @@ export async function GET(request: Request) {
     email,
   );
   const emailDomain = email.split("@")[1] || "";
+  if (!isAdmin && selectedOrgId !== null) {
+    const orgAccess = await sql`
+      SELECT 1
+      FROM organization_members
+      WHERE user_id = ${userId} AND org_id = ${selectedOrgId}
+      LIMIT 1
+    `;
+    if (orgAccess.length === 0) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+  }
   const userProjects = isAdmin
-    ? await sql`SELECT id, name, ga_property_id FROM projects`
-    : await sql`SELECT DISTINCT ON (name) id, name, ga_property_id FROM projects WHERE user_id = ${userId} OR id IN (SELECT project_id FROM project_members WHERE user_id = ${userId}) OR (domain IS NOT NULL AND domain != '' AND domain = ${emailDomain}) OR org_id IN (SELECT org_id FROM organization_members WHERE user_id = ${userId}) ORDER BY name`;
+    ? await sql`
+        SELECT id, name, ga_property_id
+        FROM projects
+        WHERE ${scope === "all" || selectedOrgId === null ? sql`TRUE` : sql`org_id = ${selectedOrgId}`}
+      `
+    : await sql`
+        SELECT DISTINCT ON (name) id, name, ga_property_id
+        FROM projects
+        WHERE (
+          user_id = ${userId}
+          OR id IN (SELECT project_id FROM project_members WHERE user_id = ${userId})
+          OR (domain IS NOT NULL AND domain != '' AND domain = ${emailDomain})
+          OR org_id IN (SELECT org_id FROM organization_members WHERE user_id = ${userId})
+        )
+          AND ${scope === "all" || selectedOrgId === null ? sql`TRUE` : sql`org_id = ${selectedOrgId}`}
+        ORDER BY name
+      `;
   const userProjectNames = userProjects.map((p) => p.name as string);
   const projectIds = userProjects.map((p) => p.id as number);
 
@@ -1183,17 +1215,17 @@ export async function GET(request: Request) {
 
   // Override brevoStats with local email_logs (most accurate, per-user/org filtered)
   try {
-    const localStats = await sql`
-      SELECT
-        COUNT(*)::int as sent,
-        COUNT(*) FILTER (WHERE status = 'delivered')::int as delivered,
-        COUNT(*) FILTER (WHERE status = 'opened')::int as opened,
-        COUNT(*) FILTER (WHERE status IN ('clicks', 'clicked'))::int as clicked
-      FROM email_logs
-      WHERE user_id = ${userId}
-        OR user_id IN (SELECT om2.user_id FROM organization_members om1 JOIN organization_members om2 ON om1.org_id = om2.org_id WHERE om1.user_id = ${userId})
-        OR project_id IN (SELECT DISTINCT p.id FROM projects p LEFT JOIN project_members pm ON pm.project_id = p.id WHERE p.user_id = ${userId} OR pm.user_id = ${userId} OR p.org_id IN (SELECT org_id FROM organization_members WHERE user_id = ${userId}))
-    `;
+    const localStats = projectIds.length === 0
+      ? []
+      : await sql`
+          SELECT
+            COUNT(*)::int as sent,
+            COUNT(*) FILTER (WHERE status = 'delivered')::int as delivered,
+            COUNT(*) FILTER (WHERE status = 'opened')::int as opened,
+            COUNT(*) FILTER (WHERE status IN ('clicks', 'clicked'))::int as clicked
+          FROM email_logs
+          WHERE project_id = ANY(${projectIds})
+        `;
     if (localStats.length > 0 && localStats[0].sent > 0) {
       brevoStats = {
         emailsSent: localStats[0].sent,
