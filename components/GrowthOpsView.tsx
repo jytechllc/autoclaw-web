@@ -30,6 +30,18 @@ export type TrackerRow = {
   next_change: string;
 };
 
+export type CoverageRow = {
+  company: string;
+  projectCount: number;
+  ga4ProjectCount: number;
+  homepageVisits30d: number;
+  contactsEnriched14d: number;
+  initialEmails14d: number;
+  followups14d: number;
+  hasTrackerNotes: boolean;
+  lastActivityAt: string | null;
+};
+
 function toNumber(value: string) {
   const num = Number(value);
   return Number.isFinite(num) ? num : 0;
@@ -62,11 +74,13 @@ export default function GrowthOpsView({
   locale,
   tracker,
   realMetricRows,
+  coverageRows,
   isAdmin,
 }: {
   locale: string;
   tracker: TrackerRow[];
   realMetricRows: TrackerRow[];
+  coverageRows: CoverageRow[];
   isAdmin: boolean;
 }) {
   const { activeOrg, loading, orgs } = useOrg();
@@ -110,6 +124,20 @@ export default function GrowthOpsView({
           noAllCompaniesData: "当前用户可访问的公司还没有可显示的增长数据。",
           companiesIncluded: "纳入公司",
           companiesWithData: "有数据公司",
+          coverageTitle: "数据覆盖查询",
+          coverageSubtitle: "用来排查哪些公司已经接上项目、GA4 和 outbound 数据。",
+          coverageEmpty: "当前没有可显示的公司覆盖数据。",
+          company: "公司",
+          projects: "项目数",
+          ga4Connected: "GA4",
+          homepageVisits30d: "首页访问 30d",
+          contactsEnriched14d: "联系人补全 14d",
+          initialEmails14d: "首轮邮件 14d",
+          followups14d: "跟进邮件 14d",
+          trackerNotes: "Tracker Notes",
+          lastActivityAt: "最后活动",
+          connected: "已连接",
+          missing: "缺失",
         }
       : {
           title: "Growth Ops",
@@ -146,6 +174,20 @@ export default function GrowthOpsView({
           noAllCompaniesData: "No growth data is available yet for the companies included in this view.",
           companiesIncluded: "Companies Included",
           companiesWithData: "Companies With Data",
+          coverageTitle: "Coverage Query",
+          coverageSubtitle: "Use this to inspect which companies actually have projects, GA4, and outbound data connected.",
+          coverageEmpty: "No company coverage data is available yet.",
+          company: "Company",
+          projects: "Projects",
+          ga4Connected: "GA4",
+          homepageVisits30d: "Homepage 30d",
+          contactsEnriched14d: "Contacts 14d",
+          initialEmails14d: "Initial Emails 14d",
+          followups14d: "Follow-Ups 14d",
+          trackerNotes: "Tracker Notes",
+          lastActivityAt: "Last Activity",
+          connected: "Connected",
+          missing: "Missing",
         };
 
   const { current, previous, filteredRows, usingFallback, currentViewLabel, includedOrgCount, orgsWithDataCount } = useMemo(() => {
@@ -324,6 +366,21 @@ export default function GrowthOpsView({
     };
   }, [activeOrg, allCompaniesSelected, isAdmin, labels.allCompaniesView, labels.companyView, labels.globalView, orgs, realMetricRows, tracker]);
 
+  const visibleCoverageRows = useMemo(() => {
+    if (allCompaniesSelected) {
+      const orgNameSet = new Set(orgs.map((org) => org.name.trim().toLowerCase()));
+      return coverageRows.filter((row) => orgNameSet.has(row.company.trim().toLowerCase()));
+    }
+
+    if (activeOrg) {
+      return coverageRows.filter(
+        (row) => row.company.trim().toLowerCase() === activeOrg.name.trim().toLowerCase()
+      );
+    }
+
+    return isAdmin ? coverageRows : [];
+  }, [activeOrg, allCompaniesSelected, coverageRows, isAdmin, orgs]);
+
   if (!current) {
     return (
       <div className="p-4 sm:p-6 lg:p-8">
@@ -487,6 +544,65 @@ export default function GrowthOpsView({
             </tbody>
           </table>
         </div>
+      </section>
+
+      <section className="rounded-xl border border-gray-200 bg-white p-5">
+        <div className="flex flex-col gap-1">
+          <h3 className="text-sm font-semibold text-gray-900">{labels.coverageTitle}</h3>
+          <p className="text-sm text-gray-500">{labels.coverageSubtitle}</p>
+        </div>
+        {visibleCoverageRows.length === 0 ? (
+          <div className="mt-4 rounded-lg border border-dashed border-gray-200 px-4 py-6 text-sm text-gray-500">
+            {labels.coverageEmpty}
+          </div>
+        ) : (
+          <div className="mt-4 overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-400">
+                  <th className="px-3 py-2">{labels.company}</th>
+                  <th className="px-3 py-2">{labels.projects}</th>
+                  <th className="px-3 py-2">{labels.ga4Connected}</th>
+                  <th className="px-3 py-2">{labels.homepageVisits30d}</th>
+                  <th className="px-3 py-2">{labels.contactsEnriched14d}</th>
+                  <th className="px-3 py-2">{labels.initialEmails14d}</th>
+                  <th className="px-3 py-2">{labels.followups14d}</th>
+                  <th className="px-3 py-2">{labels.trackerNotes}</th>
+                  <th className="px-3 py-2">{labels.lastActivityAt}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleCoverageRows.map((row) => (
+                  <tr key={row.company} className="border-b border-gray-100 align-top">
+                    <td className="px-3 py-3 font-medium text-gray-900">{row.company}</td>
+                    <td className="px-3 py-3 text-gray-700">{row.projectCount}</td>
+                    <td className="px-3 py-3 text-gray-700">
+                      <span
+                        className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${
+                          row.ga4ProjectCount > 0
+                            ? "bg-green-100 text-green-700"
+                            : "bg-gray-100 text-gray-600"
+                        }`}
+                      >
+                        {row.ga4ProjectCount > 0
+                          ? `${labels.connected} (${row.ga4ProjectCount})`
+                          : labels.missing}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3 text-gray-700">{row.homepageVisits30d}</td>
+                    <td className="px-3 py-3 text-gray-700">{row.contactsEnriched14d}</td>
+                    <td className="px-3 py-3 text-gray-700">{row.initialEmails14d}</td>
+                    <td className="px-3 py-3 text-gray-700">{row.followups14d}</td>
+                    <td className="px-3 py-3 text-gray-700">{row.hasTrackerNotes ? "Yes" : "No"}</td>
+                    <td className="px-3 py-3 text-gray-600">
+                      {row.lastActivityAt ? new Date(row.lastActivityAt).toLocaleString() : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
     </div>
   );

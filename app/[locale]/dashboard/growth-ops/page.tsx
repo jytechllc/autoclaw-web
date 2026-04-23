@@ -3,12 +3,17 @@ import { resolve } from "node:path";
 import { redirect } from "next/navigation";
 import { BetaAnalyticsDataClient } from "@google-analytics/data";
 import DashboardShell from "@/components/DashboardShell";
-import GrowthOpsView, { type TrackerRow } from "@/components/GrowthOpsView";
+import GrowthOpsView, { type CoverageRow, type TrackerRow } from "@/components/GrowthOpsView";
 import { auth0 } from "@/lib/auth0";
 import { getDb } from "@/lib/db";
 import { isValidLocale } from "@/lib/i18n";
 
 const TRACKER_PATH = resolve("/Users/wlin/dev/autoclaw/autoclaw-web/docs/sales/growth-execution-tracker.csv");
+
+function toNumber(value: string) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
+}
 
 function parseCsv(text: string): TrackerRow[] {
   const lines = text.trim().split("\n");
@@ -251,6 +256,180 @@ async function fetchRealMetricRows(
   );
 }
 
+async function fetchCoverageRows(
+  sql: ReturnType<typeof getDb>,
+  isAdmin: boolean,
+  userId: number,
+  tracker: TrackerRow[],
+): Promise<CoverageRow[]> {
+  const orgRows = isAdmin
+    ? await sql`SELECT id, name FROM organizations ORDER BY name`
+    : await sql`
+        SELECT o.id, o.name
+        FROM organizations o
+        JOIN organization_members om ON om.org_id = o.id
+        WHERE om.user_id = ${userId}
+        ORDER BY o.name
+      `;
+
+  const orgIds = orgRows.map((row) => row.id as number);
+  if (orgIds.length === 0) return [];
+
+  const metricsSince = new Date();
+  metricsSince.setUTCDate(metricsSince.getUTCDate() - 14);
+  metricsSince.setUTCHours(0, 0, 0, 0);
+
+  const projectRows = isAdmin
+    ? await sql`
+        SELECT p.id, p.org_id, o.name AS org_name, p.ga_property_id
+        FROM projects p
+        JOIN organizations o ON o.id = p.org_id
+        WHERE p.org_id = ANY(${orgIds})
+      `
+    : await sql`
+        SELECT DISTINCT p.id, p.org_id, o.name AS org_name, p.ga_property_id
+        FROM projects p
+        JOIN organizations o ON o.id = p.org_id
+        LEFT JOIN project_members pm ON pm.project_id = p.id
+        WHERE p.org_id = ANY(${orgIds})
+          AND (
+            p.user_id = ${userId}
+            OR pm.user_id = ${userId}
+            OR p.org_id IN (SELECT org_id FROM organization_members WHERE user_id = ${userId})
+          )
+      `;
+
+  const [contactRows, emailRows] = await Promise.all([
+    sql`
+      SELECT
+        o.name AS org_name,
+        COUNT(*)::int AS contacts_enriched_14d,
+        MAX(c.created_at) AS last_contact_at
+      FROM contacts c
+      JOIN projects p ON p.id = c.project_id
+      JOIN organizations o ON o.id = p.org_id
+      WHERE p.org_id = ANY(${orgIds})
+        AND c.created_at >= ${metricsSince.toISOString()}
+      GROUP BY o.name
+    `,
+    sql`
+      SELECT
+        o.name AS org_name,
+        COUNT(*) FILTER (WHERE COALESCE(e.subject, '') NOT ILIKE 'Re:%')::int AS initial_emails_14d,
+        COUNT(*) FILTER (WHERE COALESCE(e.subject, '') ILIKE 'Re:%')::int AS followups_14d,
+        MAX(e.created_at) AS last_email_at
+      FROM email_logs e
+      JOIN projects p ON p.id = e.project_id
+      JOIN organizations o ON o.id = p.org_id
+      WHERE p.org_id = ANY(${orgIds})
+        AND e.created_at >= ${metricsSince.toISOString()}
+      GROUP BY o.name
+    `,
+  ]);
+
+  const trackerNames = new Set(
+    tracker
+      .filter((row) => row.scope_type === "org" && row.scope_value.trim())
+      .map((row) => row.scope_value.trim().toLowerCase()),
+  );
+
+  const coverageMap = new Map<string, CoverageRow>();
+  for (const org of orgRows) {
+    coverageMap.set(String(org.name), {
+      company: String(org.name),
+      projectCount: 0,
+      ga4ProjectCount: 0,
+      homepageVisits30d: 0,
+      contactsEnriched14d: 0,
+      initialEmails14d: 0,
+      followups14d: 0,
+      hasTrackerNotes: trackerNames.has(String(org.name).trim().toLowerCase()),
+      lastActivityAt: null,
+    });
+  }
+
+  for (const row of projectRows) {
+    const company = String(row.org_name);
+    const entry = coverageMap.get(company);
+    if (!entry) continue;
+    entry.projectCount += 1;
+    if (row.ga_property_id) entry.ga4ProjectCount += 1;
+  }
+
+  const setLastActivity = (entry: CoverageRow, candidate: unknown) => {
+    if (!candidate) return;
+    const next = new Date(String(candidate)).toISOString();
+    if (!entry.lastActivityAt || next > entry.lastActivityAt) {
+      entry.lastActivityAt = next;
+    }
+  };
+
+  for (const row of contactRows) {
+    const entry = coverageMap.get(String(row.org_name));
+    if (!entry) continue;
+    entry.contactsEnriched14d = Number(row.contacts_enriched_14d) || 0;
+    setLastActivity(entry, row.last_contact_at);
+  }
+
+  for (const row of emailRows) {
+    const entry = coverageMap.get(String(row.org_name));
+    if (!entry) continue;
+    entry.initialEmails14d = Number(row.initial_emails_14d) || 0;
+    entry.followups14d = Number(row.followups_14d) || 0;
+    setLastActivity(entry, row.last_email_at);
+  }
+
+  const gaProjectRows = projectRows.filter((row) => row.ga_property_id) as Array<{
+    org_name: string;
+    ga_property_id: string;
+  }>;
+
+  if (process.env.GA_SERVICE_ACCOUNT_KEY && gaProjectRows.length > 0) {
+    try {
+      const credentials = JSON.parse(process.env.GA_SERVICE_ACCOUNT_KEY);
+      const analyticsClient = new BetaAnalyticsDataClient({ credentials });
+      const gaResults = await Promise.all(
+        gaProjectRows.map(async (project) => {
+          try {
+            const [response] = await analyticsClient.runReport({
+              property: `properties/${project.ga_property_id}`,
+              dateRanges: [{ startDate: "30daysAgo", endDate: "today" }],
+              dimensions: [{ name: "pagePath" }],
+              metrics: [{ name: "screenPageViews" }],
+              limit: 1000,
+            });
+
+            let homepage = 0;
+            for (const row of response.rows || []) {
+              const path = row.dimensionValues?.[0]?.value || "";
+              const views = Number(row.metricValues?.[0]?.value || 0);
+              if (!views) continue;
+              if (/^\/(en|zh|zh-TW|fr|ko)?$/.test(path) || /^\/(en|zh|zh-TW|fr|ko)\/?$/.test(path)) {
+                homepage += views;
+              }
+            }
+
+            return { company: project.org_name, homepage };
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      for (const row of gaResults) {
+        if (!row) continue;
+        const entry = coverageMap.get(row.company);
+        if (!entry) continue;
+        entry.homepageVisits30d += row.homepage;
+      }
+    } catch {
+      // Ignore GA coverage errors.
+    }
+  }
+
+  return Array.from(coverageMap.values()).sort((a, b) => a.company.localeCompare(b.company));
+}
+
 export default async function GrowthOpsPage({
   params,
 }: {
@@ -273,10 +452,17 @@ export default async function GrowthOpsPage({
   const userId = (users[0]?.id as number) || 0;
   const tracker = parseCsv(readFileSync(TRACKER_PATH, "utf8"));
   const realMetricRows = userId ? await fetchRealMetricRows(sql, isAdmin, userId) : [];
+  const coverageRows = userId ? await fetchCoverageRows(sql, isAdmin, userId, tracker) : [];
 
   return (
     <DashboardShell user={{ email: session.user.email }} fullHeight={false}>
-      <GrowthOpsView locale={locale} tracker={tracker} realMetricRows={realMetricRows} isAdmin={isAdmin} />
+      <GrowthOpsView
+        locale={locale}
+        tracker={tracker}
+        realMetricRows={realMetricRows}
+        coverageRows={coverageRows}
+        isAdmin={isAdmin}
+      />
     </DashboardShell>
   );
 }
