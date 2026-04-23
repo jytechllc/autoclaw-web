@@ -291,7 +291,7 @@ function DashboardShellInner({ children, user, plan: planProp, fullHeight }: Pro
                 {orgDropdownOpen && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setOrgDropdownOpen(false)} />
-                    <div className="absolute right-0 mt-1 z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-45">
+                    <div className="absolute right-0 mt-1 z-50 w-[min(90vw,28rem)] max-w-[28rem] bg-white border border-gray-200 rounded-lg shadow-lg py-1">
                       {onGrowthOpsPage && userOrgs.length > 1 && (
                         <button
                           onClick={() => {
@@ -302,7 +302,7 @@ function DashboardShellInner({ children, user, plan: planProp, fullHeight }: Pro
                             allCompaniesSelected ? "bg-blue-50 text-blue-700" : "hover:bg-gray-50 text-gray-700"
                           }`}
                         >
-                          <span className="text-sm font-medium">
+                          <span className="text-sm font-medium text-left">
                             {locale === "zh" ? "全部公司" : locale === "zh-TW" ? "全部公司" : "All Companies"}
                           </span>
                           {allCompaniesSelected && (
@@ -322,14 +322,14 @@ function DashboardShellInner({ children, user, plan: planProp, fullHeight }: Pro
                             }
                             setOrgDropdownOpen(false);
                           }}
-                          className={`w-full px-3 py-2 flex items-center justify-between cursor-pointer transition-colors ${
+                          className={`w-full px-3 py-2 flex items-start justify-between gap-3 cursor-pointer transition-colors ${
                             !allCompaniesSelected && activeOrg?.id === org.id ? "bg-blue-50 text-blue-700" : "hover:bg-gray-50 text-gray-700"
                           }`}
                         >
-                          <span className="text-sm font-medium">{org.name}</span>
-                          <div className="flex items-center gap-2">
+                          <span className="min-w-0 flex-1 text-left text-sm font-medium break-words leading-6">{org.name}</span>
+                          <div className="flex shrink-0 items-center gap-2 pt-0.5">
                             {org.member_role && (
-                              <span className="text-xs text-gray-400 capitalize">{org.member_role}</span>
+                              <span className="text-xs text-gray-400 capitalize whitespace-nowrap">{org.member_role}</span>
                             )}
                             {!allCompaniesSelected && activeOrg?.id === org.id && (
                               <svg className="w-3.5 h-3.5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
