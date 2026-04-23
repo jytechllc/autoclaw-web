@@ -107,7 +107,9 @@ export default function GrowthOpsView({
           noData: "当前没有可显示的 growth tracker 数据。",
           noCompanyData: "当前公司还没有独立的 growth tracker 数据。",
           allCompaniesView: "全部公司视图",
-          noAllCompaniesData: "当前没有可聚合的 company-level growth tracker 数据。请先添加 scope_type=org 的 tracker 行。",
+          noAllCompaniesData: "当前用户可访问的公司还没有可显示的增长数据。",
+          companiesIncluded: "纳入公司",
+          companiesWithData: "有数据公司",
         }
       : {
           title: "Growth Ops",
@@ -141,10 +143,12 @@ export default function GrowthOpsView({
           noData: "No growth tracker data is available yet.",
           noCompanyData: "This company does not have dedicated growth tracker data yet.",
           allCompaniesView: "All Companies View",
-          noAllCompaniesData: "No company-level growth tracker data is available to combine yet. Add tracker rows with scope_type=org first.",
+          noAllCompaniesData: "No growth data is available yet for the companies included in this view.",
+          companiesIncluded: "Companies Included",
+          companiesWithData: "Companies With Data",
         };
 
-  const { current, previous, filteredRows, usingFallback, currentViewLabel } = useMemo(() => {
+  const { current, previous, filteredRows, usingFallback, currentViewLabel, includedOrgCount, orgsWithDataCount } = useMemo(() => {
     const sortRows = (rows: TrackerRow[]) =>
       [...rows].sort((a, b) => (a.week_start < b.week_start ? 1 : -1));
     const sorted = sortRows(tracker);
@@ -239,16 +243,24 @@ export default function GrowthOpsView({
     };
 
     if (allCompaniesSelected) {
-      const aggregated = mergeRows(
-        aggregateRows(sorted.filter((row) => row.scope_type === "org" && orgNameSet.has(row.scope_value.trim().toLowerCase()))),
-        aggregateRows(metricRows.filter((row) => row.scope_type === "org" && orgNameSet.has(row.scope_value.trim().toLowerCase()))),
+      const accessibleOrgRows = sorted.filter(
+        (row) => row.scope_type === "org" && orgNameSet.has(row.scope_value.trim().toLowerCase())
       );
+      const accessibleMetricRows = metricRows.filter(
+        (row) => row.scope_type === "org" && orgNameSet.has(row.scope_value.trim().toLowerCase())
+      );
+      const accessibleNames = new Set<string>();
+      for (const row of accessibleOrgRows) accessibleNames.add(row.scope_value.trim().toLowerCase());
+      for (const row of accessibleMetricRows) accessibleNames.add(row.scope_value.trim().toLowerCase());
+      const aggregated = mergeRows(aggregateRows(accessibleOrgRows), aggregateRows(accessibleMetricRows));
       return {
         current: aggregated[0] || null,
         previous: aggregated[1] || null,
         filteredRows: aggregated,
         usingFallback: false,
         currentViewLabel: labels.allCompaniesView,
+        includedOrgCount: orgs.length,
+        orgsWithDataCount: accessibleNames.size,
       };
     }
 
@@ -259,6 +271,8 @@ export default function GrowthOpsView({
         filteredRows: isAdmin ? (globalRows.length > 0 ? globalRows : sorted) : [],
         usingFallback: false,
         currentViewLabel: isAdmin ? labels.globalView : labels.companyView,
+        includedOrgCount: isAdmin ? orgs.length : 0,
+        orgsWithDataCount: 0,
       };
     }
 
@@ -281,6 +295,8 @@ export default function GrowthOpsView({
         filteredRows: mergedOrgRows,
         usingFallback: false,
         currentViewLabel: activeOrg.name,
+        includedOrgCount: 1,
+        orgsWithDataCount: 1,
       };
     }
 
@@ -292,6 +308,8 @@ export default function GrowthOpsView({
         filteredRows: adminGlobalRows,
         usingFallback: true,
         currentViewLabel: activeOrg.name,
+        includedOrgCount: 1,
+        orgsWithDataCount: 0,
       };
     }
 
@@ -301,6 +319,8 @@ export default function GrowthOpsView({
       filteredRows: [],
       usingFallback: false,
       currentViewLabel: activeOrg.name,
+      includedOrgCount: 1,
+      orgsWithDataCount: 0,
     };
   }, [activeOrg, allCompaniesSelected, isAdmin, labels.allCompaniesView, labels.companyView, labels.globalView, orgs, realMetricRows, tracker]);
 
@@ -348,6 +368,15 @@ export default function GrowthOpsView({
             <p className="mt-1 text-sm text-gray-600">
               {labels.geoUpdate}: <span className="font-medium text-gray-900">{current.geo_page_or_update}</span>
             </p>
+            {allCompaniesSelected ? (
+              <p className="mt-1 text-sm text-gray-600">
+                {labels.companiesIncluded}:{" "}
+                <span className="font-medium text-gray-900">{includedOrgCount}</span>
+                {" · "}
+                {labels.companiesWithData}:{" "}
+                <span className="font-medium text-gray-900">{orgsWithDataCount}</span>
+              </p>
+            ) : null}
           </div>
           {previous ? (
             <div className="rounded-xl border border-white bg-white/80 px-4 py-3 text-sm text-gray-600">
