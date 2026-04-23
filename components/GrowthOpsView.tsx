@@ -61,10 +61,12 @@ function metricCard(label: string, value: number | string, hint?: string) {
 export default function GrowthOpsView({
   locale,
   tracker,
+  realMetricRows,
   isAdmin,
 }: {
   locale: string;
   tracker: TrackerRow[];
+  realMetricRows: TrackerRow[];
   isAdmin: boolean;
 }) {
   const { activeOrg, loading, orgs } = useOrg();
@@ -143,17 +145,14 @@ export default function GrowthOpsView({
         };
 
   const { current, previous, filteredRows, usingFallback, currentViewLabel } = useMemo(() => {
-    const sorted = [...tracker].sort((a, b) => (a.week_start < b.week_start ? 1 : -1));
+    const sortRows = (rows: TrackerRow[]) =>
+      [...rows].sort((a, b) => (a.week_start < b.week_start ? 1 : -1));
+    const sorted = sortRows(tracker);
+    const metricRows = sortRows(realMetricRows);
     const globalRows = sorted.filter(
       (row) => row.scope_type === "global" || row.scope_value === "all"
     );
     const orgNameSet = new Set(orgs.map((org) => org.name.trim().toLowerCase()));
-    const accessibleOrgRows = sorted.filter(
-      (row) =>
-        row.scope_type === "org" &&
-        orgNameSet.has(row.scope_value.trim().toLowerCase())
-    );
-
     const aggregateRows = (rows: TrackerRow[]): TrackerRow[] => {
       const grouped = new Map<string, TrackerRow[]>();
       for (const row of rows) {
@@ -200,8 +199,50 @@ export default function GrowthOpsView({
         .sort((a, b) => (a.week_start < b.week_start ? 1 : -1));
     };
 
+    const mergeRows = (baseRows: TrackerRow[], metricSourceRows: TrackerRow[]) => {
+      const byWeek = new Map<string, TrackerRow>();
+      const metricKeys: (keyof TrackerRow)[] = [
+        "outbound_batch_sent",
+        "followup_batch_sent",
+        "social_posts_published",
+        "homepage_visits",
+        "use_case_visits",
+        "geo_page_visits",
+        "contacts_enriched",
+        "initial_emails_sent",
+        "followups_sent",
+        "replies",
+        "positive_replies",
+        "calls_booked",
+        "paid_setups_closed",
+      ];
+
+      for (const row of baseRows) {
+        byWeek.set(row.week_start, { ...row });
+      }
+
+      for (const metricRow of metricSourceRows) {
+        const existing = byWeek.get(metricRow.week_start) || { ...metricRow };
+        const merged = { ...existing };
+        for (const key of metricKeys) {
+          if (metricRow[key] !== "") {
+            merged[key] = metricRow[key];
+          }
+        }
+        merged.week_start = metricRow.week_start;
+        merged.scope_type = existing.scope_type || metricRow.scope_type;
+        merged.scope_value = existing.scope_value || metricRow.scope_value;
+        byWeek.set(metricRow.week_start, merged);
+      }
+
+      return sortRows(Array.from(byWeek.values()));
+    };
+
     if (allCompaniesSelected) {
-      const aggregated = aggregateRows(accessibleOrgRows);
+      const aggregated = mergeRows(
+        aggregateRows(sorted.filter((row) => row.scope_type === "org" && orgNameSet.has(row.scope_value.trim().toLowerCase()))),
+        aggregateRows(metricRows.filter((row) => row.scope_type === "org" && orgNameSet.has(row.scope_value.trim().toLowerCase()))),
+      );
       return {
         current: aggregated[0] || null,
         previous: aggregated[1] || null,
@@ -226,22 +267,29 @@ export default function GrowthOpsView({
         row.scope_type === "org" &&
         row.scope_value.trim().toLowerCase() === activeOrg.name.trim().toLowerCase()
     );
+    const orgMetricRows = metricRows.filter(
+      (row) =>
+        row.scope_type === "org" &&
+        row.scope_value.trim().toLowerCase() === activeOrg.name.trim().toLowerCase()
+    );
+    const mergedOrgRows = mergeRows(orgRows, orgMetricRows);
 
-    if (orgRows.length > 0) {
+    if (mergedOrgRows.length > 0) {
       return {
-        current: orgRows[0],
-        previous: orgRows[1] || null,
-        filteredRows: orgRows,
+        current: mergedOrgRows[0],
+        previous: mergedOrgRows[1] || null,
+        filteredRows: mergedOrgRows,
         usingFallback: false,
         currentViewLabel: activeOrg.name,
       };
     }
 
     if (isAdmin) {
+      const adminGlobalRows = mergeRows(globalRows, aggregateRows(metricRows));
       return {
-        current: globalRows[0] || sorted[0] || null,
-        previous: globalRows[1] || sorted[1] || null,
-        filteredRows: globalRows.length > 0 ? globalRows : sorted,
+        current: adminGlobalRows[0] || null,
+        previous: adminGlobalRows[1] || null,
+        filteredRows: adminGlobalRows,
         usingFallback: true,
         currentViewLabel: activeOrg.name,
       };
@@ -254,7 +302,7 @@ export default function GrowthOpsView({
       usingFallback: false,
       currentViewLabel: activeOrg.name,
     };
-  }, [activeOrg, allCompaniesSelected, isAdmin, labels.allCompaniesView, labels.companyView, labels.globalView, orgs, tracker]);
+  }, [activeOrg, allCompaniesSelected, isAdmin, labels.allCompaniesView, labels.companyView, labels.globalView, orgs, realMetricRows, tracker]);
 
   if (!current) {
     return (
