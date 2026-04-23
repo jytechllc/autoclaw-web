@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { redirect } from "next/navigation";
+import { BetaAnalyticsDataClient } from "@google-analytics/data";
 import DashboardShell from "@/components/DashboardShell";
 import GrowthOpsView, { type TrackerRow } from "@/components/GrowthOpsView";
 import { auth0 } from "@/lib/auth0";
@@ -63,6 +64,32 @@ async function fetchRealMetricRows(
   const metricsSince = new Date();
   metricsSince.setUTCDate(metricsSince.getUTCDate() - 14);
   metricsSince.setUTCHours(0, 0, 0, 0);
+  const weekBucketDate = new Date();
+  const day = weekBucketDate.getUTCDay();
+  const offset = day === 0 ? 6 : day - 1;
+  weekBucketDate.setUTCDate(weekBucketDate.getUTCDate() - offset);
+  weekBucketDate.setUTCHours(0, 0, 0, 0);
+  const currentWeekStart = weekBucketDate.toISOString().slice(0, 10);
+
+  const projectRows = isAdmin
+    ? await sql`
+        SELECT p.id, p.name, p.org_id, o.name AS org_name, p.ga_property_id
+        FROM projects p
+        JOIN organizations o ON o.id = p.org_id
+        WHERE p.org_id = ANY(${orgIds})
+      `
+    : await sql`
+        SELECT DISTINCT p.id, p.name, p.org_id, o.name AS org_name, p.ga_property_id
+        FROM projects p
+        JOIN organizations o ON o.id = p.org_id
+        LEFT JOIN project_members pm ON pm.project_id = p.id
+        WHERE p.org_id = ANY(${orgIds})
+          AND (
+            p.user_id = ${userId}
+            OR pm.user_id = ${userId}
+            OR p.org_id IN (SELECT org_id FROM organization_members WHERE user_id = ${userId})
+          )
+      `;
 
   const [contactRows, emailRows] = await Promise.all([
     sql`
@@ -141,6 +168,78 @@ async function fetchRealMetricRows(
     entry.followups_sent = String(followups);
     entry.outbound_batch_sent = initial > 0 ? "yes" : "no";
     entry.followup_batch_sent = followups > 0 ? "yes" : "no";
+  }
+
+  const gaProjectRows = projectRows.filter((row) => row.ga_property_id) as Array<{
+    id: number;
+    name: string;
+    org_id: number;
+    org_name: string;
+    ga_property_id: string;
+  }>;
+
+  if (process.env.GA_SERVICE_ACCOUNT_KEY && gaProjectRows.length > 0) {
+    try {
+      const credentials = JSON.parse(process.env.GA_SERVICE_ACCOUNT_KEY);
+      const analyticsClient = new BetaAnalyticsDataClient({ credentials });
+      const gaResults = await Promise.all(
+        gaProjectRows.map(async (project) => {
+          try {
+            const [response] = await analyticsClient.runReport({
+              property: `properties/${project.ga_property_id}`,
+              dateRanges: [{ startDate: "30daysAgo", endDate: "today" }],
+              dimensions: [{ name: "pagePath" }],
+              metrics: [{ name: "screenPageViews" }],
+              limit: 1000,
+            });
+
+            let homepage = 0;
+            let useCases = 0;
+            let geo = 0;
+            for (const row of response.rows || []) {
+              const path = row.dimensionValues?.[0]?.value || "";
+              const views = Number(row.metricValues?.[0]?.value || 0);
+              if (!views) continue;
+
+              if (/^\/(en|zh|zh-TW|fr|ko)?$/.test(path) || /^\/(en|zh|zh-TW|fr|ko)\/?$/.test(path)) {
+                homepage += views;
+              }
+              if (path.includes("/use-cases")) {
+                useCases += views;
+              }
+              if (
+                path.includes("/use-cases/us-b2b-outbound") ||
+                path.includes("/docs") ||
+                path.includes("/status") ||
+                path.includes("/changelog")
+              ) {
+                geo += views;
+              }
+            }
+
+            return {
+              orgName: project.org_name,
+              weekStart: currentWeekStart,
+              homepage,
+              useCases,
+              geo,
+            };
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      for (const row of gaResults) {
+        if (!row) continue;
+        const entry = ensureRow(row.orgName, row.weekStart);
+        entry.homepage_visits = String((toNumber(entry.homepage_visits) || 0) + row.homepage);
+        entry.use_case_visits = String((toNumber(entry.use_case_visits) || 0) + row.useCases);
+        entry.geo_page_visits = String((toNumber(entry.geo_page_visits) || 0) + row.geo);
+      }
+    } catch {
+      // Ignore GA errors and fall back to tracker text-only values.
+    }
   }
 
   return Array.from(metricMap.values()).sort((a, b) =>
