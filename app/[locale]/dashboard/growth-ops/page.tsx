@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import DashboardShell from "@/components/DashboardShell";
 import GrowthOpsView, { type TrackerRow } from "@/components/GrowthOpsView";
 import { auth0 } from "@/lib/auth0";
+import { getDb } from "@/lib/db";
 import { isValidLocale } from "@/lib/i18n";
 
 const TRACKER_PATH = resolve("/Users/wlin/dev/autoclaw/autoclaw-web/docs/sales/growth-execution-tracker.csv");
@@ -57,11 +58,14 @@ export default async function GrowthOpsPage({
     redirect("/en/dashboard/growth-ops");
   }
 
+  const sql = getDb();
+  const users = await sql`SELECT role FROM users WHERE email = ${session.user.email as string} LIMIT 1`;
+  const isAdmin = users.length > 0 && users[0].role === "admin";
   const tracker = parseCsv(readFileSync(TRACKER_PATH, "utf8"));
 
   return (
     <DashboardShell user={{ email: session.user.email }} fullHeight={false}>
-      <GrowthOpsView locale={locale} tracker={tracker} />
+      <GrowthOpsView locale={locale} tracker={tracker} isAdmin={isAdmin} />
     </DashboardShell>
   );
 }

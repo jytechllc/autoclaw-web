@@ -60,9 +60,11 @@ function metricCard(label: string, value: number | string, hint?: string) {
 export default function GrowthOpsView({
   locale,
   tracker,
+  isAdmin,
 }: {
   locale: string;
   tracker: TrackerRow[];
+  isAdmin: boolean;
 }) {
   const { activeOrg, loading } = useOrg();
 
@@ -96,8 +98,9 @@ export default function GrowthOpsView({
           socialPosts: "Social Posts",
           companyView: "当前公司视图",
           globalView: "全局视图",
-          fallbackNote: "当前公司还没有独立的 growth tracker，先显示 global 数据。",
+          fallbackNote: "当前公司还没有独立的 growth tracker，已显示 global 数据（仅管理员可见）。",
           noData: "当前没有可显示的 growth tracker 数据。",
+          noCompanyData: "当前公司还没有独立的 growth tracker 数据。",
         }
       : {
           title: "Growth Ops",
@@ -127,8 +130,9 @@ export default function GrowthOpsView({
           socialPosts: "Social Posts",
           companyView: "Current Company View",
           globalView: "Global View",
-          fallbackNote: "This company does not have a dedicated growth tracker yet, so the page is showing global data.",
+          fallbackNote: "This company does not have a dedicated growth tracker yet, so global data is being shown to admins only.",
           noData: "No growth tracker data is available yet.",
+          noCompanyData: "This company does not have dedicated growth tracker data yet.",
         };
 
   const { current, previous, filteredRows, usingFallback } = useMemo(() => {
@@ -139,9 +143,9 @@ export default function GrowthOpsView({
 
     if (!activeOrg) {
       return {
-        current: globalRows[0] || sorted[0] || null,
-        previous: globalRows[1] || sorted[1] || null,
-        filteredRows: globalRows.length > 0 ? globalRows : sorted,
+        current: isAdmin ? globalRows[0] || sorted[0] || null : null,
+        previous: isAdmin ? globalRows[1] || sorted[1] || null : null,
+        filteredRows: isAdmin ? (globalRows.length > 0 ? globalRows : sorted) : [],
         usingFallback: false,
       };
     }
@@ -161,19 +165,28 @@ export default function GrowthOpsView({
       };
     }
 
+    if (isAdmin) {
+      return {
+        current: globalRows[0] || sorted[0] || null,
+        previous: globalRows[1] || sorted[1] || null,
+        filteredRows: globalRows.length > 0 ? globalRows : sorted,
+        usingFallback: true,
+      };
+    }
+
     return {
-      current: globalRows[0] || sorted[0] || null,
-      previous: globalRows[1] || sorted[1] || null,
-      filteredRows: globalRows.length > 0 ? globalRows : sorted,
-      usingFallback: true,
+      current: null,
+      previous: null,
+      filteredRows: [],
+      usingFallback: false,
     };
-  }, [activeOrg, tracker]);
+  }, [activeOrg, isAdmin, tracker]);
 
   if (!current) {
     return (
       <div className="p-4 sm:p-6 lg:p-8">
         <div className="rounded-xl border border-gray-200 bg-white p-6 text-sm text-gray-500">
-          {labels.noData}
+          {activeOrg ? labels.noCompanyData : labels.noData}
         </div>
       </div>
     );
