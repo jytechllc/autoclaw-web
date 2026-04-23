@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, usePathname } from "next/navigation";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect } from "react";
 import { getDictionary, type Locale } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
@@ -35,6 +35,8 @@ export default function DashboardShell(props: Props) {
 function DashboardShellInner({ children, user, plan: planProp, fullHeight }: Props) {
   const params = useParams();
   const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const locale = (params.locale as Locale) || "en";
   const dict = getDictionary(locale);
   const tc = dict.common;
@@ -164,6 +166,9 @@ function DashboardShellInner({ children, user, plan: planProp, fullHeight }: Pro
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [orgDropdownOpen, setOrgDropdownOpen] = useState(false);
   const { orgs: userOrgs, activeOrg, setActiveOrgId } = useOrg();
+  const onGrowthOpsPage = pathname === `/${locale}/dashboard/growth-ops`;
+  const growthScope = searchParams.get("scope");
+  const allCompaniesSelected = onGrowthOpsPage && growthScope === "all";
 
   const toggleGroup = (label: string) => {
     setExpandedGroups((prev) => {
@@ -276,7 +281,9 @@ function DashboardShellInner({ children, user, plan: planProp, fullHeight }: Pro
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                   </svg>
-                  {activeOrg?.name || (locale === "zh" ? "选择组织" : locale === "zh-TW" ? "選擇組織" : "Select Org")}
+                  {allCompaniesSelected
+                    ? (locale === "zh" ? "全部公司" : locale === "zh-TW" ? "全部公司" : "All Companies")
+                    : activeOrg?.name || (locale === "zh" ? "选择组织" : locale === "zh-TW" ? "選擇組織" : "Select Org")}
                   <svg className={`w-3 h-3 transition-transform ${orgDropdownOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
@@ -285,12 +292,38 @@ function DashboardShellInner({ children, user, plan: planProp, fullHeight }: Pro
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setOrgDropdownOpen(false)} />
                     <div className="absolute right-0 mt-1 z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-45">
+                      {onGrowthOpsPage && userOrgs.length > 1 && (
+                        <button
+                          onClick={() => {
+                            router.push(`/${locale}/dashboard/growth-ops?scope=all`);
+                            setOrgDropdownOpen(false);
+                          }}
+                          className={`w-full px-3 py-2 flex items-center justify-between cursor-pointer transition-colors ${
+                            allCompaniesSelected ? "bg-blue-50 text-blue-700" : "hover:bg-gray-50 text-gray-700"
+                          }`}
+                        >
+                          <span className="text-sm font-medium">
+                            {locale === "zh" ? "全部公司" : locale === "zh-TW" ? "全部公司" : "All Companies"}
+                          </span>
+                          {allCompaniesSelected && (
+                            <svg className="w-3.5 h-3.5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                            </svg>
+                          )}
+                        </button>
+                      )}
                       {userOrgs.map((org) => (
                         <button
                           key={org.id}
-                          onClick={() => { setActiveOrgId(org.id); setOrgDropdownOpen(false); }}
+                          onClick={() => {
+                            setActiveOrgId(org.id);
+                            if (onGrowthOpsPage) {
+                              router.push(`/${locale}/dashboard/growth-ops`);
+                            }
+                            setOrgDropdownOpen(false);
+                          }}
                           className={`w-full px-3 py-2 flex items-center justify-between cursor-pointer transition-colors ${
-                            activeOrg?.id === org.id ? "bg-blue-50 text-blue-700" : "hover:bg-gray-50 text-gray-700"
+                            !allCompaniesSelected && activeOrg?.id === org.id ? "bg-blue-50 text-blue-700" : "hover:bg-gray-50 text-gray-700"
                           }`}
                         >
                           <span className="text-sm font-medium">{org.name}</span>
@@ -298,7 +331,7 @@ function DashboardShellInner({ children, user, plan: planProp, fullHeight }: Pro
                             {org.member_role && (
                               <span className="text-xs text-gray-400 capitalize">{org.member_role}</span>
                             )}
-                            {activeOrg?.id === org.id && (
+                            {!allCompaniesSelected && activeOrg?.id === org.id && (
                               <svg className="w-3.5 h-3.5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
                                 <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                               </svg>

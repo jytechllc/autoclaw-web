@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import { useOrg } from "@/components/OrgContext";
 
 export type TrackerRow = {
@@ -66,7 +67,9 @@ export default function GrowthOpsView({
   tracker: TrackerRow[];
   isAdmin: boolean;
 }) {
-  const { activeOrg, loading } = useOrg();
+  const { activeOrg, loading, orgs } = useOrg();
+  const searchParams = useSearchParams();
+  const allCompaniesSelected = searchParams.get("scope") === "all";
 
   const labels =
     locale === "zh" || locale === "zh-TW"
@@ -101,6 +104,8 @@ export default function GrowthOpsView({
           fallbackNote: "当前公司还没有独立的 growth tracker，已显示 global 数据（仅管理员可见）。",
           noData: "当前没有可显示的 growth tracker 数据。",
           noCompanyData: "当前公司还没有独立的 growth tracker 数据。",
+          allCompaniesView: "全部公司视图",
+          noAllCompaniesData: "当前没有可聚合的 company-level growth tracker 数据。",
         }
       : {
           title: "Growth Ops",
@@ -133,13 +138,78 @@ export default function GrowthOpsView({
           fallbackNote: "This company does not have a dedicated growth tracker yet, so global data is being shown to admins only.",
           noData: "No growth tracker data is available yet.",
           noCompanyData: "This company does not have dedicated growth tracker data yet.",
+          allCompaniesView: "All Companies View",
+          noAllCompaniesData: "No company-level growth tracker data is available to combine yet.",
         };
 
-  const { current, previous, filteredRows, usingFallback } = useMemo(() => {
+  const { current, previous, filteredRows, usingFallback, currentViewLabel } = useMemo(() => {
     const sorted = [...tracker].sort((a, b) => (a.week_start < b.week_start ? 1 : -1));
     const globalRows = sorted.filter(
       (row) => row.scope_type === "global" || row.scope_value === "all"
     );
+    const orgNameSet = new Set(orgs.map((org) => org.name.trim().toLowerCase()));
+    const accessibleOrgRows = sorted.filter(
+      (row) =>
+        row.scope_type === "org" &&
+        orgNameSet.has(row.scope_value.trim().toLowerCase())
+    );
+
+    const aggregateRows = (rows: TrackerRow[]): TrackerRow[] => {
+      const grouped = new Map<string, TrackerRow[]>();
+      for (const row of rows) {
+        const bucket = grouped.get(row.week_start) || [];
+        bucket.push(row);
+        grouped.set(row.week_start, bucket);
+      }
+
+      const combineText = (items: TrackerRow[], key: keyof TrackerRow) =>
+        Array.from(new Set(items.map((item) => item[key]).filter(Boolean))).join(" | ");
+
+      const combineYesNo = (items: TrackerRow[], key: keyof TrackerRow) =>
+        items.some((item) => String(item[key]).toLowerCase() === "yes") ? "yes" : "no";
+
+      const sumNumeric = (items: TrackerRow[], key: keyof TrackerRow) =>
+        String(items.reduce((sum, item) => sum + toNumber(String(item[key])), 0));
+
+      return Array.from(grouped.entries())
+        .map(([weekStart, items]) => ({
+          week_start: weekStart,
+          scope_type: "org-group",
+          scope_value: "all-selected-orgs",
+          owner: combineText(items, "owner"),
+          focus_icp: combineText(items, "focus_icp"),
+          offer_angle: combineText(items, "offer_angle"),
+          geo_page_or_update: combineText(items, "geo_page_or_update"),
+          outbound_batch_sent: combineYesNo(items, "outbound_batch_sent"),
+          followup_batch_sent: combineYesNo(items, "followup_batch_sent"),
+          social_posts_published: sumNumeric(items, "social_posts_published"),
+          homepage_visits: sumNumeric(items, "homepage_visits"),
+          use_case_visits: sumNumeric(items, "use_case_visits"),
+          geo_page_visits: sumNumeric(items, "geo_page_visits"),
+          contacts_enriched: sumNumeric(items, "contacts_enriched"),
+          initial_emails_sent: sumNumeric(items, "initial_emails_sent"),
+          followups_sent: sumNumeric(items, "followups_sent"),
+          replies: sumNumeric(items, "replies"),
+          positive_replies: sumNumeric(items, "positive_replies"),
+          calls_booked: sumNumeric(items, "calls_booked"),
+          paid_setups_closed: sumNumeric(items, "paid_setups_closed"),
+          top_signal: combineText(items, "top_signal"),
+          top_problem: combineText(items, "top_problem"),
+          next_change: combineText(items, "next_change"),
+        }))
+        .sort((a, b) => (a.week_start < b.week_start ? 1 : -1));
+    };
+
+    if (allCompaniesSelected) {
+      const aggregated = aggregateRows(accessibleOrgRows);
+      return {
+        current: aggregated[0] || null,
+        previous: aggregated[1] || null,
+        filteredRows: aggregated,
+        usingFallback: false,
+        currentViewLabel: labels.allCompaniesView,
+      };
+    }
 
     if (!activeOrg) {
       return {
@@ -147,6 +217,7 @@ export default function GrowthOpsView({
         previous: isAdmin ? globalRows[1] || sorted[1] || null : null,
         filteredRows: isAdmin ? (globalRows.length > 0 ? globalRows : sorted) : [],
         usingFallback: false,
+        currentViewLabel: isAdmin ? labels.globalView : labels.companyView,
       };
     }
 
@@ -162,6 +233,7 @@ export default function GrowthOpsView({
         previous: orgRows[1] || null,
         filteredRows: orgRows,
         usingFallback: false,
+        currentViewLabel: activeOrg.name,
       };
     }
 
@@ -171,6 +243,7 @@ export default function GrowthOpsView({
         previous: globalRows[1] || sorted[1] || null,
         filteredRows: globalRows.length > 0 ? globalRows : sorted,
         usingFallback: true,
+        currentViewLabel: activeOrg.name,
       };
     }
 
@@ -179,14 +252,19 @@ export default function GrowthOpsView({
       previous: null,
       filteredRows: [],
       usingFallback: false,
+      currentViewLabel: activeOrg.name,
     };
-  }, [activeOrg, isAdmin, tracker]);
+  }, [activeOrg, allCompaniesSelected, isAdmin, labels.allCompaniesView, labels.companyView, labels.globalView, orgs, tracker]);
 
   if (!current) {
     return (
       <div className="p-4 sm:p-6 lg:p-8">
         <div className="rounded-xl border border-gray-200 bg-white p-6 text-sm text-gray-500">
-          {activeOrg ? labels.noCompanyData : labels.noData}
+          {allCompaniesSelected
+            ? labels.noAllCompaniesData
+            : activeOrg
+              ? labels.noCompanyData
+              : labels.noData}
         </div>
       </div>
     );
@@ -207,7 +285,7 @@ export default function GrowthOpsView({
             <p className="mt-1 text-sm text-gray-600">
               {labels.companyView}:{" "}
               <span className="font-medium text-gray-900">
-                {loading ? "..." : activeOrg?.name || labels.globalView}
+                {loading ? "..." : currentViewLabel}
               </span>
             </p>
             {usingFallback ? (
