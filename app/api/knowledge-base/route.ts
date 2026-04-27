@@ -568,46 +568,54 @@ async function handleDelete(
   userId: number,
   plan?: string,
 ) {
-  const { document_id } = body;
-  if (!document_id) {
-    return NextResponse.json({ error: "document_id required" }, { status: 400 });
-  }
+  try {
+    const { document_id } = body;
+    if (!document_id) {
+      return NextResponse.json({ error: "document_id required" }, { status: 400 });
+    }
 
-  // Verify ownership (user owns the doc, or is admin of the org that owns it)
-  const docs = await sql`SELECT id, user_id, org_id, llamaindex_file_id FROM kb_documents WHERE id = ${document_id}`;
-  if (docs.length === 0) {
-    return NextResponse.json({ error: "Document not found" }, { status: 404 });
-  }
+    const docs = await sql`SELECT id, user_id, org_id, llamaindex_file_id FROM kb_documents WHERE id = ${document_id}`;
+    if (docs.length === 0) {
+      return NextResponse.json({ error: "Document not found" }, { status: 404 });
+    }
 
-  const doc = docs[0];
-  if (Number(doc.user_id) !== Number(userId)) {
-    // Check if user is admin of the org
-    if (doc.org_id) {
-      const membership = await sql`
-        SELECT role FROM organization_members
-        WHERE org_id = ${doc.org_id} AND user_id = ${userId} AND role IN ('admin', 'operator', 'member')
-      `;
-      if (membership.length === 0) {
+    const doc = docs[0];
+    if (Number(doc.user_id) !== Number(userId)) {
+      if (doc.org_id) {
+        const membership = await sql`
+          SELECT role FROM organization_members
+          WHERE org_id = ${doc.org_id} AND user_id = ${userId} AND role IN ('admin', 'operator', 'member')
+        `;
+        if (membership.length === 0) {
+          return NextResponse.json({ error: "Not authorized to delete this document" }, { status: 403 });
+        }
+      } else {
         return NextResponse.json({ error: "Not authorized to delete this document" }, { status: 403 });
       }
-    } else {
-      return NextResponse.json({ error: "Not authorized to delete this document" }, { status: 403 });
     }
-  }
 
-  // Delete from LlamaIndex Cloud if indexed there
-  if (doc.llamaindex_file_id) {
-    try {
-      const liConfig = await loadLlamaIndexConfig(sql, userId, plan || "starter");
-      if (liConfig) {
-        await deleteFromLlamaIndex(liConfig, doc.llamaindex_file_id as string, sql, userId);
+    // Delete from LlamaIndex Cloud if indexed there (best-effort)
+    if (doc.llamaindex_file_id) {
+      try {
+        const liConfig = await loadLlamaIndexConfig(sql, userId, plan || "starter");
+        if (liConfig) {
+          await deleteFromLlamaIndex(liConfig, doc.llamaindex_file_id as string, sql, userId);
+        }
+      } catch (e) {
+        console.error("[KB Delete] LlamaIndex cleanup failed (non-fatal):", e);
       }
-    } catch { /* best-effort */ }
-  }
+    }
 
-  // Cascade delete handles chunks (pgvector fallback)
-  await sql`DELETE FROM kb_documents WHERE id = ${document_id}`;
-  return NextResponse.json({ deleted: true });
+    // Hard delete — chunks cascade via FK
+    await sql`DELETE FROM kb_documents WHERE id = ${document_id}`;
+    return NextResponse.json({ deleted: true });
+  } catch (e) {
+    console.error("[KB Delete] Failed:", e);
+    return NextResponse.json({
+      error: "Delete failed",
+      details: e instanceof Error ? e.message : String(e),
+    }, { status: 500 });
+  }
 }
 
 async function handleReprocess(
@@ -844,11 +852,11 @@ async function handleEditChunk(
 }
 
 async function handleAssignProject(
-  body: { document_id?: number; project_id?: number | null },
+  body: { document_id?: number; project_id?: number | null; org_id?: number | null; scope?: string },
   sql: ReturnType<typeof getDb>,
   userId: number,
 ) {
-  const { document_id, project_id } = body;
+  const { document_id, project_id, org_id, scope } = body;
   if (!document_id) {
     return NextResponse.json({ error: "document_id required" }, { status: 400 });
   }
@@ -872,6 +880,19 @@ async function handleAssignProject(
     }
   }
 
+  // Validate scope
+  const validScope = scope && ["personal", "org", "project"].includes(scope) ? scope : null;
+
+  // Validate org membership if assigning to org
+  if (org_id !== null && org_id !== undefined) {
+    const membership = await sql`
+      SELECT 1 FROM organization_members WHERE org_id = ${org_id} AND user_id = ${userId}
+    `;
+    if (membership.length === 0) {
+      return NextResponse.json({ error: "Not a member of that organization" }, { status: 403 });
+    }
+  }
+
   // Validate project access if assigning
   if (project_id !== null && project_id !== undefined) {
     const projects = await sql`
@@ -883,19 +904,22 @@ async function handleAssignProject(
     if (projects.length === 0) {
       return NextResponse.json({ error: "Project not found or not accessible" }, { status: 404 });
     }
-    await sql`
-      UPDATE kb_documents
-      SET project_id = ${project_id}, scope = 'project', updated_at = NOW()
-      WHERE id = ${document_id}
-    `;
-  } else {
-    // Remove project assignment
-    await sql`
-      UPDATE kb_documents
-      SET project_id = NULL, scope = 'personal', updated_at = NOW()
-      WHERE id = ${document_id}
-    `;
   }
+
+  // Decide final scope: explicit > derived from project/org > personal
+  const finalScope = validScope
+    || (project_id ? "project" : null)
+    || (org_id ? "org" : null)
+    || "personal";
+
+  await sql`
+    UPDATE kb_documents SET
+      scope = ${finalScope},
+      org_id = ${org_id ?? null},
+      project_id = ${project_id ?? null},
+      updated_at = NOW()
+    WHERE id = ${document_id}
+  `;
 
   const updated = await sql`SELECT * FROM kb_documents WHERE id = ${document_id}`;
   return NextResponse.json({ updated: true, document: updated[0] });

@@ -20,6 +20,7 @@ interface KBDocument {
   status: string;
   error_message?: string;
   org_name?: string;
+  org_id?: number;
   project_id?: number;
   created_at: string;
 }
@@ -85,6 +86,9 @@ export default function KnowledgePage() {
   const [editSaving, setEditSaving] = useState(false);
   const [editContent, setEditContent] = useState("");
   const [editDocType, setEditDocType] = useState("");
+  const [editScope, setEditScope] = useState<"personal" | "org" | "project">("personal");
+  const [editOrgId, setEditOrgId] = useState<number | null>(null);
+  const [editProjectId, setEditProjectId] = useState<number | null>(null);
   const [editingChunk, setEditingChunk] = useState<{ docId: number; index: number } | null>(null);
   const [editChunkContent, setEditChunkContent] = useState("");
   const [chunkSaving, setChunkSaving] = useState(false);
@@ -213,14 +217,19 @@ export default function KnowledgePage() {
   async function handleDelete(docId: number) {
     if (!confirm(t.deleteConfirm)) return;
     try {
-      await fetch("/api/knowledge-base", {
+      const res = await fetch("/api/knowledge-base", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "delete", document_id: docId }),
       });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(`Delete failed (${res.status}): ${data.error || "unknown error"}`);
+        return;
+      }
       fetchDocuments();
-    } catch {
-      // ignore
+    } catch (e) {
+      alert(`Delete failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
@@ -266,6 +275,9 @@ export default function KnowledgePage() {
     setEditTitle(doc.title);
     setEditDocType(doc.doc_type);
     setEditContent("");
+    setEditScope((doc.scope as "personal" | "org" | "project") || "personal");
+    setEditOrgId(doc.org_id ?? null);
+    setEditProjectId(doc.project_id ?? null);
 
     // For text/pdf/docx docs, load chunk content to allow editing
     if (doc.doc_type !== "url" && doc.chunk_count > 0) {
@@ -303,10 +315,27 @@ export default function KnowledgePage() {
       const data = await res.json();
       if (!res.ok) {
         alert(data.error || "Failed to save");
-      } else {
-        setEditingDoc(null);
-        fetchDocuments();
+        return;
       }
+      // Persist scope/org/project changes
+      const assignRes = await fetch("/api/knowledge-base", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "assign_project",
+          document_id: docId,
+          scope: editScope,
+          org_id: editScope === "org" ? editOrgId : null,
+          project_id: editScope === "project" ? editProjectId : null,
+        }),
+      });
+      const assignData = await assignRes.json();
+      if (!assignRes.ok) {
+        alert(assignData.error || "Failed to update assignment");
+        return;
+      }
+      setEditingDoc(null);
+      fetchDocuments();
     } catch {
       alert("Failed to save");
     } finally {
@@ -672,6 +701,52 @@ export default function KnowledgePage() {
                           onChange={(e) => setEditTitle(e.target.value)}
                           className="w-full border border-gray-300 rounded-md px-3 py-1.5 text-sm"
                         />
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div>
+                          <label className="text-xs text-gray-500 block mb-1">{t.scope || "Scope"}</label>
+                          <select
+                            value={editScope}
+                            onChange={(e) => {
+                              const newScope = e.target.value as "personal" | "org" | "project";
+                              setEditScope(newScope);
+                              if (newScope === "personal") { setEditOrgId(null); setEditProjectId(null); }
+                              if (newScope === "org") { setEditProjectId(null); }
+                              if (newScope === "project") { setEditOrgId(null); }
+                            }}
+                            className="w-full border border-gray-300 rounded-md px-3 py-1.5 text-sm cursor-pointer"
+                          >
+                            <option value="personal">{t.scopePersonal || "Personal"}</option>
+                            {orgs.length > 0 && <option value="org">{t.scopeOrg || "Organization"}</option>}
+                            {projects.length > 0 && <option value="project">{t.scopeProject || "Project"}</option>}
+                          </select>
+                        </div>
+                        {editScope === "org" && orgs.length > 0 && (
+                          <div className="sm:col-span-2">
+                            <label className="text-xs text-gray-500 block mb-1">{t.scopeOrg || "Organization"}</label>
+                            <select
+                              value={editOrgId ?? ""}
+                              onChange={(e) => setEditOrgId(e.target.value ? Number(e.target.value) : null)}
+                              className="w-full border border-gray-300 rounded-md px-3 py-1.5 text-sm cursor-pointer"
+                            >
+                              <option value="">— {t.selectOrg || "Select organization"} —</option>
+                              {orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                            </select>
+                          </div>
+                        )}
+                        {editScope === "project" && projects.length > 0 && (
+                          <div className="sm:col-span-2">
+                            <label className="text-xs text-gray-500 block mb-1">{t.scopeProject || "Project"}</label>
+                            <select
+                              value={editProjectId ?? ""}
+                              onChange={(e) => setEditProjectId(e.target.value ? Number(e.target.value) : null)}
+                              className="w-full border border-gray-300 rounded-md px-3 py-1.5 text-sm cursor-pointer"
+                            >
+                              <option value="">— {t.selectProject || "Select project"} —</option>
+                              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                            </select>
+                          </div>
+                        )}
                       </div>
                       {doc.doc_type === "url" && (
                         <div>

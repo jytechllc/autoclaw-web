@@ -8,6 +8,7 @@ import LanguageSwitcher from "@/components/LanguageSwitcher";
 import UserPlanBadge from "@/components/UserPlanBadge";
 import ChatWidget from "@/components/ChatWidget";
 import { OrgProvider, useOrg } from "@/components/OrgContext";
+import CreditsBadge from "@/components/CreditsBadge";
 
 interface Props {
   children: React.ReactNode;
@@ -115,10 +116,19 @@ function DashboardShellInner({ children, user, plan: planProp, fullHeight }: Pro
       label: tc.socialMediaMarketing,
       children: [
         { href: `/${locale}/dashboard/buffer`, label: tc.buffer || "Buffer" },
+        { href: `/${locale}/dashboard/youtube`, label: tc.youtube || "YouTube" },
         { href: `/${locale}/dashboard/tiktok`, label: tc.tiktok },
         { href: `/${locale}/dashboard/x`, label: tc.x },
         { href: `/${locale}/dashboard/facebook`, label: tc.facebook },
         { href: `/${locale}/dashboard/instagram`, label: tc.instagram },
+      ],
+    },
+    {
+      label: tc.paidAds || "Paid Ads",
+      children: [
+        { href: `/${locale}/dashboard/google-ads`, label: tc.googleAds || "Google Ads" },
+        { href: `/${locale}/dashboard/meta-ads`, label: tc.metaAds || "Meta Ads" },
+        { href: `/${locale}/dashboard/tiktok-ads`, label: tc.tiktokAds || "TikTok Ads" },
       ],
     },
     {
@@ -136,6 +146,7 @@ function DashboardShellInner({ children, user, plan: planProp, fullHeight }: Pro
       children: [
         { href: `/${locale}/dashboard/billing`, label: tc.billing },
         { href: `/${locale}/dashboard/income`, label: tc.income },
+        { href: `/${locale}/dashboard/budget`, label: tc.budget || "Budget" },
       ],
     },
     {
@@ -144,9 +155,9 @@ function DashboardShellInner({ children, user, plan: planProp, fullHeight }: Pro
         { href: `/${locale}/dashboard/growth-ops`, label: growthOpsLabel },
         { href: `/${locale}/dashboard/usage`, label: tc.usage },
         { href: `/${locale}/dashboard/settings`, label: tc.settings },
-        { href: `/${locale}/dashboard/docs`, label: tc.docs },
       ],
     },
+    { href: `/${locale}/dashboard/docs`, label: tc.docs },
   ];
 
   const isActive = (href: string) => pathname === href;
@@ -273,6 +284,7 @@ function DashboardShellInner({ children, user, plan: planProp, fullHeight }: Pro
             </Link>
           </div>
           <div className="flex items-center gap-3">
+            <CreditsBadge locale={locale} />
             {/* Org selector */}
             {userOrgs.length > 0 && (
               <div className="relative hidden sm:block">
@@ -348,6 +360,37 @@ function DashboardShellInner({ children, user, plan: planProp, fullHeight }: Pro
                           </div>
                         </button>
                       ))}
+                      <div className="border-t border-gray-100 my-1" />
+                      <button
+                        onClick={() => {
+                          setOrgDropdownOpen(false);
+                          const name = window.prompt(locale === "zh" ? "新公司名称" : locale === "zh-TW" ? "新公司名稱" : locale === "fr" ? "Nom de la société" : locale === "ko" ? "새 회사 이름" : "New company name");
+                          if (!name?.trim()) return;
+                          fetch("/api/organizations", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ action: "create", name: name.trim() }),
+                          })
+                            .then((r) => r.json())
+                            .then((data) => {
+                              if (data.org_id) {
+                                setActiveOrgId(data.org_id);
+                                window.location.reload();
+                              } else {
+                                window.alert(data.error || "Failed to create company");
+                              }
+                            })
+                            .catch((e) => window.alert(e.message || "Failed to create company"));
+                        }}
+                        className="w-full px-3 py-2 flex items-center gap-2 text-sm text-emerald-700 hover:bg-emerald-50 cursor-pointer transition-colors"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                        <span className="font-medium">
+                          {locale === "zh" ? "添加新公司" : locale === "zh-TW" ? "新增公司" : locale === "fr" ? "Ajouter une société" : locale === "ko" ? "새 회사 추가" : "Add New Company"}
+                        </span>
+                      </button>
                     </div>
                   </>
                 )}

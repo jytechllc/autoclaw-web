@@ -535,3 +535,45 @@ CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id);
 CREATE INDEX IF NOT EXISTS idx_payments_order_no ON payments(order_no);
 CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
 CREATE INDEX IF NOT EXISTS idx_payments_created ON payments(created_at DESC);
+
+-- ============================================
+-- YouTube channel management
+-- ============================================
+
+-- Stores Google OAuth tokens scoped to YouTube. One row per user (MVP single channel).
+CREATE TABLE IF NOT EXISTS youtube_tokens (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE UNIQUE,
+  channel_id VARCHAR(255),
+  channel_title VARCHAR(255),
+  access_token TEXT NOT NULL,
+  refresh_token TEXT,
+  expires_at TIMESTAMP NOT NULL,
+  scope TEXT,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_youtube_tokens_user ON youtube_tokens(user_id);
+
+-- Tracks scheduled / completed uploads. publish_at uses YouTube's native scheduled publish.
+CREATE TABLE IF NOT EXISTS youtube_uploads (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  title VARCHAR(500) NOT NULL,
+  description TEXT,
+  tags TEXT[] DEFAULT '{}',
+  category_id VARCHAR(10) DEFAULT '22',         -- 22 = People & Blogs (YouTube default)
+  privacy_status VARCHAR(20) DEFAULT 'public',  -- 'public' | 'unlisted' | 'private'
+  publish_at TIMESTAMP,                         -- if set, video is uploaded as private and YouTube auto-publishes at this time
+  video_url TEXT NOT NULL,                      -- source URL we fetch from to upload
+  status VARCHAR(20) DEFAULT 'pending',         -- 'pending' | 'uploading' | 'scheduled' | 'published' | 'failed'
+  youtube_video_id VARCHAR(50),                 -- populated after upload
+  error TEXT,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_youtube_uploads_user ON youtube_uploads(user_id);
+CREATE INDEX IF NOT EXISTS idx_youtube_uploads_status ON youtube_uploads(status);
+CREATE INDEX IF NOT EXISTS idx_youtube_uploads_publish_at ON youtube_uploads(publish_at);

@@ -407,14 +407,22 @@ function RecruitingContent() {
               {t.aiGenerate || "AI Generate"}
             </button>
             {careersSlug ? (
-              <a
-                href={`/${locale}/careers/${careersSlug}`}
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 transition text-gray-600 cursor-pointer"
-              >
-                🔗 {t.careersPage || "Careers Page"}
-              </a>
+              <>
+                <a
+                  href={`/${locale}/careers/${careersSlug}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 transition text-gray-600 cursor-pointer"
+                >
+                  🔗 {t.careersPage || "Careers Page"}
+                </a>
+                <button
+                  onClick={() => { setSlugInput(careersSlug); setShowSlugForm(!showSlugForm); }}
+                  className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 transition text-gray-600 cursor-pointer"
+                >
+                  {t.editCareersUrl || "Edit URL"}
+                </button>
+              </>
             ) : (
               <button
                 onClick={() => setShowSlugForm(!showSlugForm)}

@@ -38,7 +38,11 @@ export type AuditAction =
   | "recruiting.delete_position"
   | "recruiting.create_interview"
   | "recruiting.update_interview"
-  | "recruiting.delete_interview";
+  | "recruiting.delete_interview"
+  | "google_ads.create_campaign"
+  | "google_ads.topup"
+  | "google_ads.reserve"
+  | "google_ads.release";
 
 interface AuditLogParams {
   userId: number | null;

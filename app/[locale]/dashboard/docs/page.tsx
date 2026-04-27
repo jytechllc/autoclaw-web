@@ -78,6 +78,121 @@ export default function DocsPage() {
           </div>
         </div>
 
+        {/* STEP 1 — Google Ads Manager Link (MCC) */}
+        <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="px-2 py-0.5 bg-red-50 text-red-700 text-xs font-bold rounded-full">REQUIRED · STEP 1</span>
+          </div>
+          <h2 className="text-lg font-semibold mb-1 mt-2">{td.mccLinkTitle}</h2>
+          <p className="text-sm text-gray-500 mb-4">{td.mccLinkDesc}</p>
+
+          <div className="bg-gray-50 rounded-lg border border-gray-200 p-4 space-y-3">
+            <div>
+              <p className="text-sm font-medium text-gray-700 mb-1">{td.mccLinkStep1}</p>
+              <p className="text-sm text-gray-500">{td.mccLinkStep1Desc}</p>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-700 mb-1">{td.mccLinkStep2}</p>
+              <p className="text-sm text-gray-500">{td.mccLinkStep2Desc}</p>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-700 mb-1">{td.mccLinkStep3}</p>
+              <p className="text-sm text-gray-500 mb-1">{td.mccLinkStep3Hint}</p>
+              <div className="flex items-center gap-2 mt-1">
+                <code className="bg-white border border-gray-300 rounded px-3 py-1.5 text-sm text-gray-800 select-all font-mono">
+                  712-566-6601
+                </code>
+                <button
+                  onClick={() => { navigator.clipboard.writeText("712-566-6601"); }}
+                  className="text-xs text-red-600 hover:text-red-800 transition-colors cursor-pointer"
+                >
+                  {td.copy}
+                </button>
+              </div>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-700 mb-1">{td.mccLinkStep4}</p>
+              <p className="text-sm text-gray-500">{td.mccLinkStep4Desc}</p>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-700 mb-1">{td.mccLinkStep5}</p>
+              <p className="text-sm text-gray-500">{td.mccLinkStep5Desc}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* STEP 2 — YouTube Channel Link to YOUR Google Ads */}
+        <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="px-2 py-0.5 bg-amber-50 text-amber-700 text-xs font-bold rounded-full">VIDEO ADS ONLY · STEP 2</span>
+          </div>
+          <h2 className="text-lg font-semibold mb-1 mt-2">{td.ytLinkTitle}</h2>
+          <p className="text-sm text-gray-500 mb-4">{td.ytLinkDesc}</p>
+
+          <div className="bg-gray-50 rounded-lg border border-gray-200 p-4 space-y-3">
+            <div>
+              <p className="text-sm font-medium text-gray-700 mb-1">{td.ytLinkStep1}</p>
+              <p className="text-sm text-gray-500">{td.ytLinkStep1Desc}</p>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-700 mb-1">{td.ytLinkStep2}</p>
+              <p className="text-sm text-gray-500">{td.ytLinkStep2Desc}</p>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-700 mb-1">{td.ytLinkStep3}</p>
+              <p className="text-sm text-gray-500 mb-1">{td.ytLinkStep3Hint}</p>
+              <div className="flex items-center gap-2 mt-1">
+                <code className="bg-white border border-gray-300 rounded px-3 py-1.5 text-sm text-gray-500 font-mono italic">
+                  XXX-XXX-XXXX (your Google Ads ID)
+                </code>
+              </div>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-700 mb-1">{td.ytLinkStep4}</p>
+              <p className="text-sm text-gray-500">{td.ytLinkStep4Desc}</p>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-700 mb-1">{td.ytLinkStep5}</p>
+              <p className="text-sm text-gray-500">{td.ytLinkStep5Desc}</p>
+            </div>
+          </div>
+
+          <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <p className="text-sm font-semibold text-blue-900 mb-2">{td.ytLinkLimitsTitle}</p>
+            <p className="text-sm text-blue-800 leading-relaxed">{td.ytLinkLimitsLine1}</p>
+            <p className="text-sm text-blue-800 leading-relaxed">{td.ytLinkLimitsLine2}</p>
+            <p className="text-sm text-blue-800 leading-relaxed">{td.ytLinkLimitsLine3}</p>
+            <p className="text-sm text-blue-800 leading-relaxed">{td.ytLinkLimitsLine4}</p>
+          </div>
+        </div>
+
+        {/* STEP 3 — Create Video Campaign in Google Ads UI then Import */}
+        <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="px-2 py-0.5 bg-amber-50 text-amber-700 text-xs font-bold rounded-full">VIDEO ADS · STEP 3</span>
+          </div>
+          <h2 className="text-lg font-semibold mb-1 mt-2">{td.videoCreateGuideTitle}</h2>
+          <p className="text-sm text-gray-500 mb-4">{td.videoCreateGuideDesc}</p>
+
+          <div className="bg-gray-50 rounded-lg border border-gray-200 p-4 space-y-3">
+            {[
+              { title: td.videoCreateStep1, desc: td.videoCreateStep1Desc },
+              { title: td.videoCreateStep2, desc: td.videoCreateStep2Desc },
+              { title: td.videoCreateStep3, desc: td.videoCreateStep3Desc },
+              { title: td.videoCreateStep4, desc: td.videoCreateStep4Desc },
+              { title: td.videoCreateStep5, desc: td.videoCreateStep5Desc },
+              { title: td.videoCreateStep6, desc: td.videoCreateStep6Desc },
+              { title: td.videoCreateStep7, desc: td.videoCreateStep7Desc },
+              { title: td.videoCreateStep8, desc: td.videoCreateStep8Desc },
+            ].map((step, i) => (
+              <div key={i}>
+                <p className="text-sm font-medium text-gray-700 mb-1">{step.title}</p>
+                <p className="text-sm text-gray-500">{step.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
         {/* Organizations & Teams */}
         <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
           <h2 className="text-lg font-semibold mb-1">{td.orgTitle}</h2>
