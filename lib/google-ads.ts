@@ -209,11 +209,12 @@ export async function suggestGeoTargets(query: string, locale = "en", countryCod
   if (!res.ok) {
     throw new Error(`suggestGeoTargets failed: ${res.status} ${await res.text()}`);
   }
-  type Row = { geoTargetConstantSuggestion: { geoTargetConstant: { id?: string; name?: string; canonicalName?: string; countryCode?: string; targetType?: string; status?: string } } };
+  // Response shape: { geoTargetConstantSuggestions: [{ geoTargetConstant: {...}, geoTargetConstantParents: [...], reach, ...}] }
+  type Row = { geoTargetConstant?: { id?: string; name?: string; canonicalName?: string; countryCode?: string; targetType?: string; status?: string } };
   const data = (await res.json()) as { geoTargetConstantSuggestions?: Row[] };
   const suggestions = data.geoTargetConstantSuggestions || [];
   return suggestions.map((s) => {
-    const g = s.geoTargetConstantSuggestion.geoTargetConstant;
+    const g = s.geoTargetConstant || {};
     return {
       id: String(g.id || ""),
       name: g.name || "",
@@ -314,6 +315,14 @@ export interface CampaignDetail {
     ctr: number;
     avgCpcMicros: number;
   };
+  /** Last 30 days, one entry per calendar day (zeros filled for days with no data). */
+  dailyMetrics: Array<{
+    date: string;        // YYYY-MM-DD
+    impressions: number;
+    clicks: number;
+    costMicros: number;
+    conversions: number;
+  }>;
   locations: Array<{ id: string; name: string }>;
   audiences: Array<{
     category: string;
@@ -324,6 +333,8 @@ export interface CampaignDetail {
     value: string;
   }>;
   adGroups: Array<{ resourceName: string; name: string; status: string; cpcBidMicros: number }>;
+  /** Performance Max only — PMax has no ad groups, instead it has asset groups. Empty for other channels. */
+  assetGroups: Array<{ resourceName: string; name: string; status: string; adStrength: string; primaryStatus: string; primaryStatusReasons: string[]; finalUrls: string[] }>;
   keywords: Array<{ text: string; matchType: string }>;
   ads: Array<{
     resourceName: string;
@@ -346,25 +357,52 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
 
   const escaped = resourceName.replace(/'/g, "''");
 
-  // Campaign settings + aggregated metrics (last 30 days)
+  // Campaign settings + per-day metrics (last 30 days, one row per calendar day)
   type CampaignRow = {
     campaign: { name: string; status: string; advertisingChannelType: string; startDate?: string; endDate?: string; optimizationScore?: number };
     metrics?: { impressions?: string; clicks?: string; costMicros?: string; conversions?: number; ctr?: number; averageCpc?: string };
+    segments?: { date?: string };
   };
   const campaignRows = await adsSearchStream(customerId, `
     SELECT campaign.name, campaign.status, campaign.advertising_channel_type, campaign.start_date, campaign.end_date, campaign.optimization_score,
-           metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, metrics.ctr, metrics.average_cpc
+           metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, metrics.ctr, metrics.average_cpc,
+           segments.date
     FROM campaign
     WHERE campaign.resource_name = '${escaped}' AND segments.date DURING LAST_30_DAYS
   `) as CampaignRow[];
 
-  // Aggregate (one row per day)
+  // Aggregate + capture per-day breakdown
   let impressions = 0, clicks = 0, costMicros = 0, conversions = 0;
+  const byDate = new Map<string, { impressions: number; clicks: number; costMicros: number; conversions: number }>();
   for (const r of campaignRows) {
-    impressions += Number(r.metrics?.impressions || 0);
-    clicks += Number(r.metrics?.clicks || 0);
-    costMicros += Number(r.metrics?.costMicros || 0);
-    conversions += Number(r.metrics?.conversions || 0);
+    const imp = Number(r.metrics?.impressions || 0);
+    const clk = Number(r.metrics?.clicks || 0);
+    const cost = Number(r.metrics?.costMicros || 0);
+    const conv = Number(r.metrics?.conversions || 0);
+    impressions += imp;
+    clicks += clk;
+    costMicros += cost;
+    conversions += conv;
+    const date = r.segments?.date;
+    if (date) {
+      const existing = byDate.get(date) || { impressions: 0, clicks: 0, costMicros: 0, conversions: 0 };
+      byDate.set(date, {
+        impressions: existing.impressions + imp,
+        clicks: existing.clicks + clk,
+        costMicros: existing.costMicros + cost,
+        conversions: existing.conversions + conv,
+      });
+    }
+  }
+  // Fill in 30 contiguous days so the chart renders even when Google omits zero days.
+  const dailyMetrics: CampaignDetail["dailyMetrics"] = [];
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(today.getTime() - i * 86_400_000);
+    const key = d.toISOString().slice(0, 10);
+    const v = byDate.get(key) || { impressions: 0, clicks: 0, costMicros: 0, conversions: 0 };
+    dailyMetrics.push({ date: key, ...v });
   }
   const first = campaignRows[0]?.campaign;
 
@@ -692,11 +730,43 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
     };
   });
 
+  // Performance Max uses asset_group instead of ad_group; only query when relevant.
+  const channelType = camp?.advertisingChannelType || "";
+  let assetGroups: CampaignDetail["assetGroups"] = [];
+  if (channelType === "PERFORMANCE_MAX") {
+    type AssetGroupRow = {
+      assetGroup: {
+        resourceName: string;
+        name?: string;
+        status?: string;
+        adStrength?: string;
+        primaryStatus?: string;
+        primaryStatusReasons?: string[];
+        finalUrls?: string[];
+      };
+    };
+    const agRows = await adsSearchStream(customerId, `
+      SELECT asset_group.resource_name, asset_group.name, asset_group.status,
+             asset_group.ad_strength, asset_group.primary_status, asset_group.primary_status_reasons,
+             asset_group.final_urls
+      FROM asset_group WHERE campaign.id = ${numericCampaignId}
+    `) as AssetGroupRow[];
+    assetGroups = agRows.map((r) => ({
+      resourceName: r.assetGroup.resourceName,
+      name: r.assetGroup.name || "",
+      status: r.assetGroup.status || "",
+      adStrength: r.assetGroup.adStrength || "",
+      primaryStatus: r.assetGroup.primaryStatus || "",
+      primaryStatusReasons: r.assetGroup.primaryStatusReasons || [],
+      finalUrls: r.assetGroup.finalUrls || [],
+    }));
+  }
+
   return {
     resourceName,
     name: camp?.name || "",
     status: camp?.status || "",
-    channelType: camp?.advertisingChannelType || "",
+    channelType,
     startDate: camp?.startDate,
     endDate: camp?.endDate,
     optimizationScore: camp?.optimizationScore,
@@ -708,9 +778,11 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
       ctr: clicks && impressions ? clicks / impressions : 0,
       avgCpcMicros: clicks ? costMicros / clicks : 0,
     },
+    dailyMetrics,
     locations,
     audiences,
     adGroups,
+    assetGroups,
     keywords,
     ads,
   };
@@ -1197,6 +1269,127 @@ export async function createVideoAd(input: CreateVideoAdInput): Promise<{ resour
   return { resourceName: (res.data as { results?: Array<{ resourceName?: string }> }).results?.[0]?.resourceName || null };
 }
 
+/**
+ * Fetch an image from a public URL and upload it as a Google Ads IMAGE asset.
+ * Returns the asset resourceName, reusable across responsive display ads.
+ */
+export async function createImageAssetFromUrl(url: string): Promise<{ resourceName: string | null; error?: unknown }> {
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
+  if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
+
+  if (!/^https?:\/\//i.test(url)) return { resourceName: null, error: "Image URL must start with http:// or https://" };
+
+  let imgRes: Response;
+  try {
+    imgRes = await fetch(url, { redirect: "follow" });
+  } catch (e) {
+    return { resourceName: null, error: { step: "fetch", details: e instanceof Error ? e.message : String(e) } };
+  }
+  if (!imgRes.ok) return { resourceName: null, error: { step: "fetch", status: imgRes.status } };
+
+  const contentType = (imgRes.headers.get("content-type") || "").toLowerCase();
+  if (!/^image\/(png|jpeg|jpg|gif)$/.test(contentType)) {
+    return { resourceName: null, error: `Unsupported image type: ${contentType || "unknown"} (need PNG/JPEG/GIF)` };
+  }
+  const buf = Buffer.from(await imgRes.arrayBuffer());
+  // Google Ads accepts up to 5 MB per image asset.
+  if (buf.byteLength > 5 * 1024 * 1024) {
+    return { resourceName: null, error: `Image too large: ${(buf.byteLength / 1024 / 1024).toFixed(2)} MB (max 5 MB)` };
+  }
+  const data = buf.toString("base64");
+
+  const res = await adsMutate(customerId, "assets:mutate", {
+    operations: [{ create: {
+      type: "IMAGE",
+      imageAsset: { data },
+    } }],
+  });
+  if (res.status !== 200) return { resourceName: null, error: res.data };
+  const resourceName = (res.data as { results?: Array<{ resourceName?: string }> }).results?.[0]?.resourceName || null;
+  return { resourceName };
+}
+
+export interface CreateResponsiveDisplayAdInput {
+  adGroupResourceName: string;
+  /** ≥1 landscape image URLs (1.91:1, recommended 1200×628). Max 15. */
+  marketingImageUrls: string[];
+  /** ≥1 square image URLs (1:1, recommended 1200×1200). Max 15. */
+  squareMarketingImageUrls: string[];
+  /** Optional landscape logo URL (4:1) */
+  logoImageUrl?: string;
+  /** 1-5 short headlines, ≤30 chars each */
+  headlines: string[];
+  /** 1 long headline, ≤90 chars */
+  longHeadline: string;
+  /** 1-5 descriptions, ≤90 chars each */
+  descriptions: string[];
+  /** Required, ≤25 chars */
+  businessName: string;
+  finalUrl: string;
+}
+
+export async function createResponsiveDisplayAd(input: CreateResponsiveDisplayAdInput): Promise<{ resourceName: string | null; error?: unknown }> {
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
+  if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
+
+  if (input.marketingImageUrls.length === 0) return { resourceName: null, error: "At least 1 marketing (landscape) image required" };
+  if (input.squareMarketingImageUrls.length === 0) return { resourceName: null, error: "At least 1 square marketing image required" };
+  if (input.headlines.length === 0) return { resourceName: null, error: "At least 1 headline required" };
+  if (!input.longHeadline.trim()) return { resourceName: null, error: "Long headline required" };
+  if (input.descriptions.length === 0) return { resourceName: null, error: "At least 1 description required" };
+  if (!input.businessName.trim()) return { resourceName: null, error: "Business name required" };
+  if (!/^https?:\/\//i.test(input.finalUrl)) return { resourceName: null, error: "Final URL must start with http:// or https://" };
+
+  // Upload each image as an asset; collect resourceNames. Stop on first error.
+  async function uploadAll(urls: string[]): Promise<{ resourceNames: string[]; error?: unknown }> {
+    const out: string[] = [];
+    for (const u of urls) {
+      const r = await createImageAssetFromUrl(u);
+      if (!r.resourceName) return { resourceNames: out, error: { url: u, details: r.error } };
+      out.push(r.resourceName);
+    }
+    return { resourceNames: out };
+  }
+
+  const marketing = await uploadAll(input.marketingImageUrls.slice(0, 15));
+  if (marketing.error) return { resourceName: null, error: { step: "marketingImages", details: marketing.error } };
+
+  const squares = await uploadAll(input.squareMarketingImageUrls.slice(0, 15));
+  if (squares.error) return { resourceName: null, error: { step: "squareMarketingImages", details: squares.error } };
+
+  let logoResource: string | null = null;
+  if (input.logoImageUrl && input.logoImageUrl.trim()) {
+    const r = await createImageAssetFromUrl(input.logoImageUrl.trim());
+    if (!r.resourceName) return { resourceName: null, error: { step: "logo", details: r.error } };
+    logoResource = r.resourceName;
+  }
+
+  const adBody: Record<string, unknown> = {
+    headlines: input.headlines.slice(0, 5).map((h) => ({ text: h.slice(0, 30) })),
+    longHeadline: { text: input.longHeadline.slice(0, 90) },
+    descriptions: input.descriptions.slice(0, 5).map((d) => ({ text: d.slice(0, 90) })),
+    businessName: input.businessName.slice(0, 25),
+    marketingImages: marketing.resourceNames.map((rn) => ({ asset: rn })),
+    squareMarketingImages: squares.resourceNames.map((rn) => ({ asset: rn })),
+  };
+  if (logoResource) {
+    adBody.logoImages = [{ asset: logoResource }];
+  }
+
+  const res = await adsMutate(customerId, "adGroupAds:mutate", {
+    operations: [{ create: {
+      adGroup: input.adGroupResourceName,
+      status: "PAUSED",
+      ad: {
+        finalUrls: [input.finalUrl],
+        responsiveDisplayAd: adBody,
+      },
+    } }],
+  });
+  if (res.status !== 200) return { resourceName: null, error: { step: "ad", details: res.data } };
+  return { resourceName: (res.data as { results?: Array<{ resourceName?: string }> }).results?.[0]?.resourceName || null };
+}
+
 export interface CreateResponsiveSearchAdInput {
   adGroupResourceName: string;
   headlines: string[];   // 3-15, max 30 chars each
@@ -1227,6 +1420,93 @@ export async function createResponsiveSearchAd(input: CreateResponsiveSearchAdIn
   });
   if (res.status !== 200) return { resourceName: null, error: res.data };
   return { resourceName: (res.data as { results?: Array<{ resourceName?: string }> }).results?.[0]?.resourceName || null };
+}
+
+export type KeywordMatchType = "BROAD" | "PHRASE" | "EXACT";
+
+export interface KeywordInput {
+  text: string;
+  matchType?: KeywordMatchType;  // default BROAD
+}
+
+export interface CreateKeywordsResult {
+  created: number;
+  resourceNames: string[];
+  errors: Array<{ keyword: string; details: unknown }>;
+  /** Keywords Google rejected for being identical to ones already in the ad group. */
+  duplicatesIgnored: string[];
+}
+
+/**
+ * Add keyword criteria to an ad group. Each keyword becomes its own
+ * `ad_group_criterion` of type KEYWORD. Caller has already validated that the
+ * ad group belongs to a SEARCH-channel campaign on this customer.
+ */
+export async function createKeywords(adGroupResourceName: string, keywords: KeywordInput[]): Promise<CreateKeywordsResult> {
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
+  if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
+
+  const out: CreateKeywordsResult = { created: 0, resourceNames: [], errors: [], duplicatesIgnored: [] };
+  const cleaned = keywords
+    .map((k) => ({ text: (k.text || "").trim(), matchType: (k.matchType || "BROAD").toUpperCase() as KeywordMatchType }))
+    .filter((k) => k.text.length > 0 && k.text.length <= 80);
+  if (cleaned.length === 0) return out;
+
+  // partialFailure lets Google accept the valid ones and tell us which failed
+  // (e.g. duplicates) instead of rejecting the whole batch.
+  const operations = cleaned.map((k) => ({
+    create: {
+      adGroup: adGroupResourceName,
+      status: "ENABLED",
+      keyword: { text: k.text, matchType: k.matchType },
+    },
+  }));
+
+  const res = await adsMutate(customerId, "adGroupCriteria:mutate", {
+    operations,
+    partialFailure: true,
+  });
+  const data = res.data as {
+    results?: Array<{ resourceName?: string }>;
+    partialFailureError?: { details?: Array<{ errors?: Array<{ message?: string; location?: { fieldPathElements?: Array<{ index?: number }> }; errorCode?: { criterionError?: string } }> }> };
+  };
+
+  if (res.status !== 200) {
+    out.errors.push({ keyword: "(batch)", details: res.data });
+    return out;
+  }
+
+  // Collect indexes that failed (so we can map back to which keyword text errored).
+  const failedIndexes = new Map<number, string>();
+  const detailsList = data.partialFailureError?.details || [];
+  for (const d of detailsList) {
+    for (const err of d.errors || []) {
+      const idx = err.location?.fieldPathElements?.[0]?.index;
+      if (typeof idx === "number") {
+        failedIndexes.set(idx, err.errorCode?.criterionError || err.message || "unknown");
+      }
+    }
+  }
+
+  for (let i = 0; i < cleaned.length; i++) {
+    const r = data.results?.[i];
+    if (failedIndexes.has(i)) {
+      const reason = failedIndexes.get(i) || "";
+      // Treat duplicates as "ignored" rather than user-facing errors.
+      if (/EXISTS|DUPLICATE/i.test(reason)) {
+        out.duplicatesIgnored.push(cleaned[i].text);
+      } else {
+        out.errors.push({ keyword: cleaned[i].text, details: reason });
+      }
+      continue;
+    }
+    if (r?.resourceName) {
+      out.created += 1;
+      out.resourceNames.push(r.resourceName);
+    }
+  }
+
+  return out;
 }
 
 export interface CreateAdGroupInput {

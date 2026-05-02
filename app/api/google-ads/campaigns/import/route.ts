@@ -8,6 +8,7 @@ import {
   resolveOrgId,
   reserveForCampaign,
   attachReserveReference,
+  applyPlatformMarkup,
   InsufficientCreditsError,
 } from "@/lib/credits";
 
@@ -77,8 +78,14 @@ export async function POST(req: NextRequest) {
     }, { status: 400 });
   }
 
+  // Only reserve for the REMAINING Google-side budget (cap minus already-spent), then mark up to platform-side.
+  // Reserving the full cap would over-bill the user for ad spend that happened before import.
+  const orgPlanRow = await sql`SELECT plan FROM organizations WHERE id = ${orgId}`;
+  const orgPlan = (orgPlanRow[0]?.plan as string | null | undefined) ?? null;
+  const remainingGoogleCents = Math.max(totalBudgetCents - initialSpentCents, 0);
+  const reservedPlatformCents = applyPlatformMarkup(remainingGoogleCents, orgPlan);
   try {
-    await reserveForCampaign(sql, orgId, totalBudgetCents, target.name);
+    await reserveForCampaign(sql, orgId, reservedPlatformCents, target.name);
   } catch (e) {
     if (e instanceof InsufficientCreditsError) {
       return NextResponse.json({
@@ -119,7 +126,7 @@ export async function POST(req: NextRequest) {
   `;
   const campaignId = inserted[0].id as number;
 
-  await attachReserveReference(sql, orgId, campaignId, totalBudgetCents);
+  await attachReserveReference(sql, orgId, campaignId, reservedPlatformCents);
 
   logAudit({
     userId, userEmail,

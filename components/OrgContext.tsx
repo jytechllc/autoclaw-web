@@ -6,6 +6,7 @@ export interface Org {
   id: number;
   name: string;
   member_role: string | null;
+  plan: string | null;
 }
 
 interface OrgContextValue {
@@ -39,6 +40,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
           id: o.id as number,
           name: o.name as string,
           member_role: o.member_role as string | null,
+          plan: (o.plan as string | null) ?? null,
         }));
         setOrgs(orgList);
 

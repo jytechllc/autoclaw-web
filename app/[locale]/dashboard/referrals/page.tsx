@@ -55,7 +55,7 @@ export default function ReferralsPage() {
   }
 
   const formatCurrency = (amount: number, currency = "usd") => {
-    return new Intl.NumberFormat(locale === "zh" ? "zh-CN" : locale === "zh-TW" ? "zh-TW" : locale === "fr" ? "fr-FR" : "en-US", {
+    return new Intl.NumberFormat(locale === "zh" ? "zh-CN" : locale === "zh-TW" ? "zh-TW" : "en-US", {
       style: "currency",
       currency: currency.toUpperCase(),
     }).format(amount);

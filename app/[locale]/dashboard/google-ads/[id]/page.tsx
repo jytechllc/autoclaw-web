@@ -8,6 +8,7 @@ import { getDictionary, type Locale } from "@/lib/i18n";
 import DashboardShell from "@/components/DashboardShell";
 import { useOrg } from "@/components/OrgContext";
 import { COUNTRIES } from "@/lib/google-ads";
+import { applyPlatformMarkup, paymentGatewayFee, platformFee, isPaidPlan } from "@/lib/billing";
 
 interface CampaignRow {
   id: number;
@@ -34,9 +35,11 @@ interface Detail {
   endDate?: string;
   optimizationScore?: number;
   metrics: { impressions: number; clicks: number; costMicros: number; conversions: number; ctr: number; avgCpcMicros: number };
+  dailyMetrics?: Array<{ date: string; impressions: number; clicks: number; costMicros: number; conversions: number }>;
   locations: Array<{ id: string; name: string }>;
   audiences: Array<{ category: string; label: string; negative: boolean; adGroupName: string; apiType: string; value: string }>;
   adGroups: Array<{ resourceName: string; name: string; status: string; cpcBidMicros: number }>;
+  assetGroups?: Array<{ resourceName: string; name: string; status: string; adStrength: string; primaryStatus: string; primaryStatusReasons: string[]; finalUrls: string[] }>;
   keywords: Array<{ text: string; matchType: string }>;
   ads: Array<{
     resourceName: string;
@@ -165,10 +168,14 @@ export default function CampaignDetailPage() {
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        setToast(t.updated || "Updated");
+        if (data.dailyAdjusted) {
+          setToast(`${t.updated || "Updated"} · ${t.dailyAutoLowered || "Daily budget auto-lowered"} $${data.dailyAdjusted.from.toFixed(2)} → $${data.dailyAdjusted.to.toFixed(2)}`);
+        } else {
+          setToast(t.updated || "Updated");
+        }
         setEditingField(null);
         fetchData();
-        setTimeout(() => setToast(""), 3000);
+        setTimeout(() => setToast(""), 5000);
       } else if (res.status === 402) {
         setToast(`${t.insufficientCredits || "Insufficient credits"} (${formatUsd(data.balanceCents)} / ${formatUsd(data.requestedCents)})`);
         setTimeout(() => setToast(""), 4000);
@@ -319,6 +326,26 @@ export default function CampaignDetailPage() {
   const [vCta, setVCta] = useState("Subscribe");
   const [vFinalUrl, setVFinalUrl] = useState("");
 
+  // Auto-generate copy from landing page
+  const [genCopyLoading, setGenCopyLoading] = useState(false);
+
+  // Keyword input form (per ad group, Search only)
+  const [kwFormFor, setKwFormFor] = useState<string | null>(null);
+  const [kwText, setKwText] = useState("");
+  const [kwMatchType, setKwMatchType] = useState<"BROAD" | "PHRASE" | "EXACT">("BROAD");
+  const [kwSubmitting, setKwSubmitting] = useState(false);
+  const [kwError, setKwError] = useState("");
+
+  // Display ad form
+  const [dMarketingImages, setDMarketingImages] = useState("");
+  const [dSquareImages, setDSquareImages] = useState("");
+  const [dLogoUrl, setDLogoUrl] = useState("");
+  const [dHeadlines, setDHeadlines] = useState("");
+  const [dLongHeadline, setDLongHeadline] = useState("");
+  const [dDescriptions, setDDescriptions] = useState("");
+  const [dBusinessName, setDBusinessName] = useState("");
+  const [dFinalUrl, setDFinalUrl] = useState("");
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     const orgQuery = activeOrg ? `?org_id=${activeOrg.id}` : "";
@@ -457,6 +484,173 @@ export default function CampaignDetailPage() {
         setAdHeadlines("");
         setAdDescriptions("");
         setAdFinalUrl("");
+        fetchData();
+        setTimeout(() => setToast(""), 3000);
+      } else {
+        setAdError(typeof data.details === "object" ? JSON.stringify(data.details, null, 2) : (data.error || "Failed"));
+      }
+    } catch (e) {
+      setAdError(e instanceof Error ? e.message : "Failed");
+    }
+    setAdSubmitting(false);
+  }
+
+  async function handleAddKeywords() {
+    if (!kwFormFor) return;
+    // Lines starting with [exact]/[phrase]/[broad] override the form match type for that line.
+    const lines = kwText.split("\n").map((s) => s.trim()).filter(Boolean);
+    if (lines.length === 0) {
+      setKwError(t.kwValidation || "Enter at least 1 keyword (one per line)");
+      return;
+    }
+    const keywords = lines.map((line) => {
+      const m = line.match(/^\[(exact|phrase|broad)\]\s*(.+)$/i);
+      if (m) return { text: m[2].trim(), matchType: m[1].toUpperCase() as "EXACT" | "PHRASE" | "BROAD" };
+      return { text: line, matchType: kwMatchType };
+    }).filter((k) => k.text.length > 0 && k.text.length <= 80);
+
+    if (keywords.length === 0) {
+      setKwError(t.kwValidation || "No valid keywords (each must be 1-80 chars)");
+      return;
+    }
+
+    setKwSubmitting(true);
+    setKwError("");
+    try {
+      const res = await fetch(`/api/google-ads/campaigns/${campaignId}/keywords`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adGroupResourceName: kwFormFor, keywords, orgId: activeOrg?.id }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const dupes = Array.isArray(data.duplicatesIgnored) ? data.duplicatesIgnored.length : 0;
+        const errs = Array.isArray(data.errors) ? data.errors.length : 0;
+        const parts: string[] = [`${data.created} ${t.kwCreated || "keywords created"}`];
+        if (dupes > 0) parts.push(`${dupes} ${t.kwDuplicatesIgnored || "duplicates ignored"}`);
+        if (errs > 0) parts.push(`${errs} ${t.kwErrored || "failed"}`);
+        setToast(parts.join(" · "));
+        setKwFormFor(null);
+        setKwText("");
+        fetchData();
+        setTimeout(() => setToast(""), 4000);
+      } else {
+        setKwError(typeof data.errors === "object" ? JSON.stringify(data.errors, null, 2) : (data.error || "Failed"));
+      }
+    } catch (e) {
+      setKwError(e instanceof Error ? e.message : "Failed");
+    }
+    setKwSubmitting(false);
+  }
+
+  async function handleGenerateCopy(channel: "DISPLAY" | "SEARCH" | "VIDEO", url: string) {
+    if (!/^https?:\/\//i.test(url.trim())) {
+      setAdError(t.adCopyNeedsUrl || "Enter a valid http(s) Final URL first");
+      return;
+    }
+    setGenCopyLoading(true);
+    setAdError("");
+    try {
+      const res = await fetch("/api/google-ads/ad-copy/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: url.trim(), channel, locale }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setAdError(data.error || "Failed to generate copy");
+        setGenCopyLoading(false);
+        return;
+      }
+      const headlines: string[] = Array.isArray(data.headlines) ? data.headlines : [];
+      const longHeadline: string = data.longHeadline || "";
+      const descriptions: string[] = Array.isArray(data.descriptions) ? data.descriptions : [];
+      const businessName: string = data.businessName || "";
+
+      if (channel === "DISPLAY") {
+        setDHeadlines(headlines.join("\n"));
+        setDLongHeadline(longHeadline.slice(0, 90));
+        setDDescriptions(descriptions.join("\n"));
+        setDBusinessName(businessName.slice(0, 25));
+      } else if (channel === "SEARCH") {
+        setAdHeadlines(headlines.join("\n"));
+        setAdDescriptions(descriptions.join("\n"));
+        // If the AI suggested keywords too, open the keyword form for the same ad group
+        // and pre-fill the textarea (user can edit before submit).
+        const generatedKeywords: Array<{ text: string; matchType: string }> = Array.isArray(data.keywords) ? data.keywords : [];
+        if (generatedKeywords.length > 0 && adFormFor) {
+          setKwFormFor(adFormFor);
+          setKwText(generatedKeywords.map((k) => `[${(k.matchType || "BROAD").toLowerCase()}] ${k.text}`).join("\n"));
+        }
+      } else if (channel === "VIDEO") {
+        // Video short headlines are ≤15 chars; clip just in case the AI overshot
+        setVShortHeadlines(headlines.map((h) => h.slice(0, 15)).join("\n"));
+        setVLongHeadline(longHeadline.slice(0, 90));
+        setVDescriptions(descriptions.join("\n"));
+      }
+
+      const warnings: string[] = Array.isArray(data.warnings) ? data.warnings : [];
+      if (warnings.length > 0) {
+        setToast(`${t.adCopyGenerated || "Copy generated"} — ${warnings.join("; ")}`);
+      } else {
+        setToast(t.adCopyGenerated || "Copy generated from landing page");
+      }
+      setTimeout(() => setToast(""), 4000);
+    } catch (e) {
+      setAdError(e instanceof Error ? e.message : "Failed to generate copy");
+    }
+    setGenCopyLoading(false);
+  }
+
+  async function handleCreateDisplayAd() {
+    if (!adFormFor) return;
+    const marketingImageUrls = dMarketingImages.split("\n").map((s) => s.trim()).filter(Boolean);
+    const squareMarketingImageUrls = dSquareImages.split("\n").map((s) => s.trim()).filter(Boolean);
+    const headlines = dHeadlines.split("\n").map((s) => s.trim()).filter(Boolean);
+    const descriptions = dDescriptions.split("\n").map((s) => s.trim()).filter(Boolean);
+    const finalUrl = dFinalUrl.trim();
+    const businessName = dBusinessName.trim();
+    const longHeadline = dLongHeadline.trim();
+    const logoImageUrl = dLogoUrl.trim();
+
+    if (
+      marketingImageUrls.length === 0 ||
+      squareMarketingImageUrls.length === 0 ||
+      headlines.length === 0 ||
+      !longHeadline ||
+      descriptions.length === 0 ||
+      !businessName ||
+      !/^https?:\/\//i.test(finalUrl)
+    ) {
+      setAdError(t.displayAdValidation || "Need ≥1 landscape image URL, ≥1 square image URL, ≥1 headline, long headline, ≥1 description, business name, and a valid http(s) URL");
+      return;
+    }
+    setAdSubmitting(true);
+    setAdError("");
+    try {
+      const res = await fetch(`/api/google-ads/campaigns/${campaignId}/display-ads`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          adGroupResourceName: adFormFor,
+          marketingImageUrls,
+          squareMarketingImageUrls,
+          logoImageUrl: logoImageUrl || undefined,
+          headlines,
+          longHeadline,
+          descriptions,
+          businessName,
+          finalUrl,
+          orgId: activeOrg?.id,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setToast(t.displayAdCreated || "Display ad created");
+        setAdFormFor(null);
+        setDMarketingImages(""); setDSquareImages(""); setDLogoUrl("");
+        setDHeadlines(""); setDLongHeadline(""); setDDescriptions("");
+        setDBusinessName(""); setDFinalUrl("");
         fetchData();
         setTimeout(() => setToast(""), 3000);
       } else {
@@ -663,7 +857,7 @@ export default function CampaignDetailPage() {
         {/* Performance metrics (last 30 days) */}
         <div>
           <h2 className="text-sm font-semibold text-gray-700 mb-2">{t.metricsTitle || "Performance (last 30 days)"}</h2>
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 mb-3">
             <Stat label={t.metricImpressions || "Impressions"} value={m ? m.impressions.toLocaleString() : "—"} />
             <Stat label={t.metricClicks || "Clicks"} value={m ? m.clicks.toLocaleString() : "—"} />
             <Stat label={t.metricCtr || "CTR"} value={m ? `${(m.ctr * 100).toFixed(2)}%` : "—"} />
@@ -671,6 +865,7 @@ export default function CampaignDetailPage() {
             <Stat label={t.metricCost || "Cost"} value={m ? `$${fromMicros(m.costMicros).toFixed(2)}` : "—"} />
             <Stat label={t.metricAvgCpc || "Avg CPC"} value={m ? `$${fromMicros(m.avgCpcMicros).toFixed(2)}` : "—"} />
           </div>
+          <DailyChart data={detail?.dailyMetrics || []} t={t} />
           {detailError && (
             <p className="text-xs text-amber-600 mt-2">⚠️ {t.detailError || "Could not load live metrics"}: {detailError}</p>
           )}
@@ -706,6 +901,22 @@ export default function CampaignDetailPage() {
               ) : (
                 <div className="text-base font-semibold text-gray-900">${Number(campaign.daily_budget).toFixed(2)}</div>
               )}
+              {(() => {
+                const remainingCapCents = Math.max(cap - spent, 0);
+                if (cap === 0 || remainingCapCents === 0) return null;
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const endDate = detail?.endDate ? new Date(detail.endDate) : new Date(today.getTime() + 30 * 86_400_000);
+                const remainingDays = Math.max(Math.ceil((endDate.getTime() - today.getTime()) / 86_400_000), 1);
+                const impliedDaily = remainingCapCents / 100 / remainingDays;
+                const exceeds = Number(campaign.daily_budget) > impliedDaily;
+                return (
+                  <div className={`text-xs mt-1 ${exceeds ? "text-amber-600" : "text-gray-400"}`} title={t.dailyCapTooltip || `Implied daily cap = remaining cap ($${(remainingCapCents/100).toFixed(2)}) / remaining days (${remainingDays})`}>
+                    {exceeds ? "⚠️ " : ""}
+                    {t.dailyCapImplied || "Cap implies"} ≤${impliedDaily.toFixed(2)}/day · {remainingDays}d {t.daysRemaining || "left"}
+                  </div>
+                );
+              })()}
             </div>
             <div>
               <div className="text-xs text-gray-500 mb-0.5 flex items-center gap-1">
@@ -734,17 +945,49 @@ export default function CampaignDetailPage() {
                 <div className="text-base font-semibold text-gray-900">{formatUsd(campaign.total_budget_cents)}</div>
               )}
             </div>
-            <Stat label={t.spent || "Spent"} value={formatUsd(campaign.spent_cents)} />
-            <Stat label={t.reserved || "Reserved"} value={formatUsd(campaign.reserved_cents)} />
+            <Stat label={t.spent || "Spent (incl. fees)"} value={formatUsd(applyPlatformMarkup(Number(campaign.spent_cents || 0), activeOrg?.plan ?? null))} />
+            <Stat label={t.reserved || "Reserved (incl. fees)"} value={formatUsd(applyPlatformMarkup(Number(campaign.reserved_cents || 0), activeOrg?.plan ?? null))} />
           </div>
-          {cap > 0 && (
-            <div className="mt-3">
-              <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
-                <div className={`h-full ${pct >= 100 ? "bg-red-500" : pct >= 80 ? "bg-amber-500" : "bg-emerald-500"}`} style={{ width: `${pct}%` }} />
+          {cap > 0 && (() => {
+            const orgPlan = activeOrg?.plan ?? null;
+            const platformFeeWaived = isPaidPlan(orgPlan);
+            const capPlatform = applyPlatformMarkup(cap, orgPlan);
+            const gatewaySpent = paymentGatewayFee(spent);
+            const platformSpent = platformFee(spent, orgPlan);
+            const adPctOfBar = Math.min(100, (spent / capPlatform) * 100);
+            const gatewayPctOfBar = Math.min(100 - adPctOfBar, (gatewaySpent / capPlatform) * 100);
+            const platformPctOfBar = Math.min(100 - adPctOfBar - gatewayPctOfBar, (platformSpent / capPlatform) * 100);
+            const adColor = pct >= 100 ? "bg-red-500" : pct >= 80 ? "bg-amber-500" : "bg-emerald-500";
+            const gatewayColor = pct >= 100 ? "bg-red-300" : pct >= 80 ? "bg-amber-300" : "bg-emerald-300";
+            const platformColor = "bg-slate-400";
+            return (
+              <div className="mt-3">
+                <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden flex">
+                  <div className={`h-full ${adColor}`} style={{ width: `${adPctOfBar}%` }} title={`Ad spend: ${formatUsd(spent)}`} />
+                  <div className={`h-full ${gatewayColor}`} style={{ width: `${gatewayPctOfBar}%` }} title={`Payment gateway fee (2.9%): ${formatUsd(gatewaySpent)}`} />
+                  {!platformFeeWaived && (
+                    <div className={`h-full ${platformColor}`} style={{ width: `${platformPctOfBar}%` }} title={`Platform fee (5%): ${formatUsd(platformSpent)}`} />
+                  )}
+                </div>
+                <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500 mt-1.5">
+                  <span>{pct.toFixed(1)}% {t.ofCapUsed || "of cap used"}</span>
+                  <span className="flex items-center gap-1.5">
+                    <span className={`inline-block w-2 h-2 rounded-sm ${adColor}`} /> {t.legendAdSpend || "Ad spend"} {formatUsd(spent)}
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className={`inline-block w-2 h-2 rounded-sm ${gatewayColor}`} /> {t.legendPaymentGatewayFee || "Payment gateway fee (2.9%)"} {formatUsd(gatewaySpent)}
+                  </span>
+                  {platformFeeWaived ? (
+                    <span className="text-emerald-700 font-medium">{t.platformFeeWaived || "Platform fee waived (subscription plan)"}</span>
+                  ) : (
+                    <span className="flex items-center gap-1.5">
+                      <span className={`inline-block w-2 h-2 rounded-sm ${platformColor}`} /> {t.legendPlatformFee || "Platform fee (5%)"} {formatUsd(platformSpent)}
+                    </span>
+                  )}
+                </div>
               </div>
-              <p className="text-xs text-gray-500 mt-1">{pct.toFixed(1)}% {t.ofCapUsed || "of cap used"}</p>
-            </div>
-          )}
+            );
+          })()}
         </div>
 
         {/* Targeting */}
@@ -986,7 +1229,74 @@ export default function CampaignDetailPage() {
           )}
         </div>
 
-        {/* Ad Groups */}
+        {/* Asset Groups (Performance Max only — PMax has no ad groups) */}
+        {campaign.channel === "PERFORMANCE_MAX" && (
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-gray-700">
+                {t.assetGroupsSection || "Asset Groups"}
+                {detail?.assetGroups && ` (${detail.assetGroups.length})`}
+              </h2>
+              <a
+                href={googleAdsUrl || "#"}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs text-blue-700 hover:underline"
+                title={t.pmaxEditInGoogleHint || "Performance Max assets can only be edited in Google Ads"}
+              >
+                {t.pmaxEditInGoogle || "Edit in Google Ads ↗"}
+              </a>
+            </div>
+            <p className="text-xs text-gray-500 mb-3">
+              {t.pmaxReadOnlyNote || "Performance Max uses asset groups (not ad groups). AutoClaw shows them read-only — to edit assets, audience signals, or pause individual asset groups, use Google Ads directly."}
+            </p>
+            {!detail?.assetGroups || detail.assetGroups.length === 0 ? (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg">
+                ⚠️ {t.pmaxNoAssetGroups || "No asset groups found yet."}
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {detail.assetGroups.map((ag) => (
+                  <div key={ag.resourceName} className="border border-gray-100 rounded-lg px-3 py-2 text-sm">
+                    <div className="flex flex-wrap items-center gap-2 mb-1">
+                      <span className="font-medium text-gray-800">{ag.name || "(unnamed)"}</span>
+                      <span className={`px-1.5 py-0.5 text-xs rounded-full ${
+                        ag.status === "ENABLED" ? "bg-green-50 text-green-700" :
+                        ag.status === "PAUSED" ? "bg-yellow-50 text-yellow-700" :
+                        "bg-gray-100 text-gray-600"
+                      }`}>{ag.status}</span>
+                      {ag.adStrength && (
+                        <span className={`px-1.5 py-0.5 text-xs rounded-full ${
+                          ag.adStrength === "EXCELLENT" ? "bg-emerald-50 text-emerald-700" :
+                          ag.adStrength === "GOOD" ? "bg-emerald-50 text-emerald-700" :
+                          ag.adStrength === "AVERAGE" ? "bg-amber-50 text-amber-700" :
+                          ag.adStrength === "POOR" ? "bg-red-50 text-red-700" :
+                          "bg-gray-100 text-gray-600"
+                        }`}>{t.assetGroupStrength || "Ad strength"}: {ag.adStrength}</span>
+                      )}
+                      {ag.primaryStatus && ag.primaryStatus !== ag.status && (
+                        <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 text-xs rounded-full">{ag.primaryStatus}</span>
+                      )}
+                    </div>
+                    {ag.finalUrls.length > 0 && (
+                      <div className="text-xs text-gray-500 truncate">
+                        → {ag.finalUrls.slice(0, 2).join(", ")}{ag.finalUrls.length > 2 ? ` +${ag.finalUrls.length - 2}` : ""}
+                      </div>
+                    )}
+                    {ag.primaryStatusReasons.length > 0 && (
+                      <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1.5 rounded mt-1.5">
+                        ⏳ {ag.primaryStatusReasons.map((r) => r.replace(/_/g, " ").toLowerCase()).join(" · ")}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Ad Groups (hidden for PMax) */}
+        {campaign.channel !== "PERFORMANCE_MAX" && (
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-gray-700">{t.adGroupsSection || "Ad Groups"} {detail?.adGroups && `(${detail.adGroups.length})`}</h2>
@@ -1058,6 +1368,17 @@ export default function CampaignDetailPage() {
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="text-xs text-gray-500">CPC ${(ag.cpcBidMicros / 1_000_000).toFixed(2)}</span>
+                      {!campaign.closed && campaign.channel === "SEARCH" && (
+                        <button
+                          onClick={() => {
+                            setKwFormFor(kwFormFor === ag.resourceName ? null : ag.resourceName);
+                            setKwError("");
+                          }}
+                          className="text-xs px-2 py-1 border border-emerald-200 text-emerald-700 rounded hover:bg-emerald-50 cursor-pointer"
+                        >
+                          {kwFormFor === ag.resourceName ? (t.cancel || "Cancel") : `+ ${t.addKeywords || "Add Keywords"}`}
+                        </button>
+                      )}
                       {!campaign.closed && (
                         <button
                           onClick={() => {
@@ -1072,10 +1393,69 @@ export default function CampaignDetailPage() {
                     </div>
                   </div>
 
-                  {adFormFor === ag.resourceName && campaign.channel !== "VIDEO" && (
+                  {kwFormFor === ag.resourceName && campaign.channel === "SEARCH" && (
                     <div className="border-t border-gray-100 p-3 bg-gray-50 space-y-2">
                       <div className="text-xs font-semibold text-gray-700 mb-2">
-                        {t.searchAdHeading || "Responsive Search Ad"} <span className="font-normal text-gray-400">· channel: {campaign.channel}</span>
+                        {t.kwHeading || "Add Keywords"} <span className="font-normal text-gray-400">· ad group: {ag.name}</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">{t.kwLabel || "Keywords (one per line, ≤80 chars each). Prefix with [exact] / [phrase] / [broad] to override the default."}</label>
+                          <textarea
+                            value={kwText}
+                            onChange={(e) => setKwText(e.target.value)}
+                            rows={5}
+                            placeholder={"vietnamese pho san francisco\n[phrase] cheap pho mission district\n[exact] $2 vietnamese pho"}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+                          />
+                          <div className="text-xs text-gray-400 mt-0.5">
+                            {kwText.split("\n").filter((s) => s.trim()).length} {t.lines || "lines"}
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">{t.kwDefaultMatchType || "Default match type"}</label>
+                          <select
+                            value={kwMatchType}
+                            onChange={(e) => setKwMatchType(e.target.value as "BROAD" | "PHRASE" | "EXACT")}
+                            className="w-full sm:w-32 px-3 py-2 border border-gray-300 rounded-lg text-sm cursor-pointer"
+                          >
+                            <option value="BROAD">Broad</option>
+                            <option value="PHRASE">Phrase</option>
+                            <option value="EXACT">Exact</option>
+                          </select>
+                        </div>
+                      </div>
+                      {kwError && <pre className="text-xs text-red-600 bg-red-50 p-2 rounded whitespace-pre-wrap break-all">{kwError}</pre>}
+                      <div className="flex gap-2">
+                        <button
+                          onClick={handleAddKeywords}
+                          disabled={kwSubmitting}
+                          className="bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-emerald-800 disabled:opacity-50 cursor-pointer"
+                        >
+                          {kwSubmitting ? (t.creating || "Creating...") : (t.kwSubmit || "Add Keywords")}
+                        </button>
+                        <button onClick={() => { setKwFormFor(null); setKwError(""); }} className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 cursor-pointer">
+                          {t.cancel || "Cancel"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {adFormFor === ag.resourceName && campaign.channel !== "VIDEO" && campaign.channel !== "DISPLAY" && (
+                    <div className="border-t border-gray-100 p-3 bg-gray-50 space-y-2">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-xs font-semibold text-gray-700">
+                          {t.searchAdHeading || "Responsive Search Ad"} <span className="font-normal text-gray-400">· channel: {campaign.channel}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleGenerateCopy("SEARCH", adFinalUrl)}
+                          disabled={genCopyLoading || !adFinalUrl.trim()}
+                          className="text-xs px-2 py-1 border border-violet-200 text-violet-700 rounded hover:bg-violet-50 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                          title={t.adCopyGenerateHint || "Auto-generate headlines & descriptions from the Final URL"}
+                        >
+                          {genCopyLoading ? (t.adCopyGenerating || "Generating…") : `✨ ${t.adCopyGenerate || "Generate from URL"}`}
+                        </button>
                       </div>
                       <div>
                         <label className="block text-xs text-gray-500 mb-1">{t.adHeadlinesLabel || "Headlines (one per line, 3-15 lines, max 30 chars each)"}</label>
@@ -1128,10 +1508,138 @@ export default function CampaignDetailPage() {
                     </div>
                   )}
 
+                  {adFormFor === ag.resourceName && campaign.channel === "DISPLAY" && (
+                    <div className="border-t border-gray-100 p-3 bg-gray-50 space-y-2">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-xs font-semibold text-gray-700">
+                          {t.displayAdHeading || "Responsive Display Ad"} <span className="font-normal text-gray-400">· channel: DISPLAY</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleGenerateCopy("DISPLAY", dFinalUrl)}
+                          disabled={genCopyLoading || !dFinalUrl.trim()}
+                          className="text-xs px-2 py-1 border border-violet-200 text-violet-700 rounded hover:bg-violet-50 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                          title={t.adCopyGenerateHint || "Auto-generate headlines, descriptions, and business name from the Final URL"}
+                        >
+                          {genCopyLoading ? (t.adCopyGenerating || "Generating…") : `✨ ${t.adCopyGenerate || "Generate from URL"}`}
+                        </button>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">{t.displayMarketingImagesLabel || "Landscape image URLs (one per line, ≥1, recommended 1200×628 PNG/JPG, max 5 MB each)"}</label>
+                        <textarea
+                          value={dMarketingImages}
+                          onChange={(e) => setDMarketingImages(e.target.value)}
+                          rows={2}
+                          placeholder={"https://cdn.example.com/banner-1200x628.jpg"}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-red-500 font-mono"
+                        />
+                        <div className="text-xs text-gray-400 mt-0.5">
+                          {dMarketingImages.split("\n").filter((s) => s.trim()).length} {t.lines || "lines"}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">{t.displaySquareImagesLabel || "Square image URLs (one per line, ≥1, recommended 1200×1200 PNG/JPG)"}</label>
+                        <textarea
+                          value={dSquareImages}
+                          onChange={(e) => setDSquareImages(e.target.value)}
+                          rows={2}
+                          placeholder={"https://cdn.example.com/square-1200x1200.jpg"}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-red-500 font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">{t.displayLogoLabel || "Logo URL (optional, recommended 1200×1200 or 1200×300)"}</label>
+                        <input
+                          value={dLogoUrl}
+                          onChange={(e) => setDLogoUrl(e.target.value)}
+                          placeholder="https://cdn.example.com/logo.png"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-red-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">{t.displayHeadlinesLabel || "Headlines (one per line, 1-5 lines, max 30 chars each)"}</label>
+                        <textarea
+                          value={dHeadlines}
+                          onChange={(e) => setDHeadlines(e.target.value)}
+                          rows={3}
+                          placeholder={t.headlinesPlaceholder || "Best Online Tutoring\nTry It Free Today\n..."}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-red-500 font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">{t.longHeadlineLabel || "Long headline (max 90 chars)"}</label>
+                        <input
+                          value={dLongHeadline}
+                          onChange={(e) => setDLongHeadline(e.target.value.slice(0, 90))}
+                          placeholder="AI Tutoring for K-12 — Personalized, Affordable"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-red-500"
+                          maxLength={90}
+                        />
+                        <div className="text-xs text-gray-400 mt-0.5">{dLongHeadline.length}/90</div>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">{t.displayDescriptionsLabel || "Descriptions (one per line, 1-5 lines, max 90 chars each)"}</label>
+                        <textarea
+                          value={dDescriptions}
+                          onChange={(e) => setDDescriptions(e.target.value)}
+                          rows={3}
+                          placeholder={t.descriptionsPlaceholder || "Personalized AI tutoring for K-12. Free trial.\n..."}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-red-500 font-mono"
+                        />
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">{t.displayBusinessNameLabel || "Business name (max 25 chars)"}</label>
+                          <input
+                            value={dBusinessName}
+                            onChange={(e) => setDBusinessName(e.target.value.slice(0, 25))}
+                            placeholder="AutoClaw"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-red-500"
+                            maxLength={25}
+                          />
+                          <div className="text-xs text-gray-400 mt-0.5">{dBusinessName.length}/25</div>
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">{t.adFinalUrlLabel || "Final URL"}</label>
+                          <input
+                            value={dFinalUrl}
+                            onChange={(e) => setDFinalUrl(e.target.value)}
+                            placeholder="https://example.com/landing"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-red-500"
+                          />
+                        </div>
+                      </div>
+                      {adError && <pre className="text-xs text-red-600 bg-red-50 p-2 rounded whitespace-pre-wrap break-all">{adError}</pre>}
+                      <div className="flex gap-2">
+                        <button
+                          onClick={handleCreateDisplayAd}
+                          disabled={adSubmitting}
+                          className="bg-red-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-900 disabled:opacity-50 cursor-pointer"
+                        >
+                          {adSubmitting ? (t.creating || "Creating...") : (t.create || "Create")}
+                        </button>
+                        <button onClick={() => { setAdFormFor(null); setAdError(""); }} className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 cursor-pointer">
+                          {t.cancel || "Cancel"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {adFormFor === ag.resourceName && campaign.channel === "VIDEO" && (
                     <div className="border-t border-gray-100 p-3 bg-gray-50 space-y-2">
-                      <div className="text-xs font-semibold text-gray-700 mb-2">
-                        {t.videoAdHeading || "Video Responsive Ad"} <span className="font-normal text-gray-400">· channel: VIDEO</span>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-xs font-semibold text-gray-700">
+                          {t.videoAdHeading || "Video Responsive Ad"} <span className="font-normal text-gray-400">· channel: VIDEO</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleGenerateCopy("VIDEO", vFinalUrl)}
+                          disabled={genCopyLoading || !vFinalUrl.trim()}
+                          className="text-xs px-2 py-1 border border-violet-200 text-violet-700 rounded hover:bg-violet-50 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                          title={t.adCopyGenerateHint || "Auto-generate headlines and descriptions from the Final URL"}
+                        >
+                          {genCopyLoading ? (t.adCopyGenerating || "Generating…") : `✨ ${t.adCopyGenerate || "Generate from URL"}`}
+                        </button>
                       </div>
                       <div>
                         <label className="block text-xs text-gray-500 mb-1">{t.youtubeUrlLabel || "YouTube video URL or ID"}</label>
@@ -1219,6 +1727,7 @@ export default function CampaignDetailPage() {
             </div>
           )}
         </div>
+        )}
 
         {/* Keywords */}
         {detail?.keywords && detail.keywords.length > 0 && (
@@ -1345,6 +1854,107 @@ function Stat({ label, value }: { label: string; value: string }) {
     <div>
       <div className="text-xs text-gray-500 mb-0.5">{label}</div>
       <div className="text-base font-semibold text-gray-900">{value}</div>
+    </div>
+  );
+}
+
+interface DailyMetric { date: string; impressions: number; clicks: number; costMicros: number; conversions: number }
+type ChartMetric = "costMicros" | "impressions" | "clicks" | "conversions";
+
+function DailyChart({ data, t }: { data: DailyMetric[]; t: Record<string, string> }) {
+  const [metric, setMetric] = useState<ChartMetric>("costMicros");
+  if (data.length === 0) return null;
+
+  const values = data.map((d) => d[metric] as number);
+  const max = Math.max(...values);
+  const totalImp = data.reduce((s, d) => s + d.impressions, 0);
+  const allZero = max === 0;
+
+  const W = 600;
+  const H = 100;
+  const padL = 28;
+  const padR = 8;
+  const padT = 8;
+  const padB = 18;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+  const barW = innerW / data.length;
+
+  const fmt = (v: number) => {
+    if (metric === "costMicros") return `$${(v / 1_000_000).toFixed(2)}`;
+    if (metric === "conversions") return v.toFixed(1);
+    return v.toLocaleString();
+  };
+  const fmtAxis = (v: number) => {
+    if (metric === "costMicros") return `$${Math.round(v / 1_000_000)}`;
+    if (v >= 1000) return `${(v / 1000).toFixed(1)}k`;
+    return String(Math.round(v));
+  };
+
+  const metricOptions: Array<{ id: ChartMetric; label: string }> = [
+    { id: "costMicros",  label: t.metricCost || "Cost" },
+    { id: "impressions", label: t.metricImpressions || "Impressions" },
+    { id: "clicks",      label: t.metricClicks || "Clicks" },
+    { id: "conversions", label: t.metricConversions || "Conversions" },
+  ];
+
+  // Y-axis ticks: 0, mid, max
+  const yMax = allZero ? 1 : max;
+  const ticks = [yMax, yMax / 2, 0];
+
+  return (
+    <div className="bg-white border border-gray-100 rounded-xl p-3 mt-2 relative">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs text-gray-500">{t.dailyTrend || "Daily trend"}</span>
+        <div className="flex gap-1">
+          {metricOptions.map((opt) => (
+            <button
+              key={opt.id}
+              onClick={() => setMetric(opt.id)}
+              className={`text-xs px-2 py-0.5 rounded cursor-pointer ${metric === opt.id ? "bg-emerald-100 text-emerald-800 font-medium" : "text-gray-500 hover:bg-gray-100"}`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="relative">
+        <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" preserveAspectRatio="none">
+          {ticks.map((tv, i) => {
+            const y = padT + (1 - tv / yMax) * innerH;
+            return (
+              <g key={i}>
+                <line x1={padL} y1={y} x2={W - padR} y2={y} stroke="#e5e7eb" strokeWidth={1} strokeDasharray={i === ticks.length - 1 ? "0" : "2 3"} />
+                <text x={padL - 4} y={y + 3} textAnchor="end" fontSize={9} fill="#9ca3af">{fmtAxis(tv)}</text>
+              </g>
+            );
+          })}
+          {data.map((d, i) => {
+            const v = d[metric] as number;
+            const x = padL + i * barW + 1;
+            const w = Math.max(barW - 2, 1);
+            const h = allZero ? 0 : (v / yMax) * innerH;
+            const y = padT + innerH - h;
+            return (
+              <rect key={d.date} x={x} y={y} width={w} height={h || 0.5} fill={v > 0 ? "#10b981" : "#e5e7eb"}>
+                <title>{`${d.date} · ${fmt(v)}`}</title>
+              </rect>
+            );
+          })}
+          {[0, Math.floor(data.length / 2), data.length - 1].map((i) => (
+            <text key={i} x={padL + i * barW + barW / 2} y={H - 4} textAnchor="middle" fontSize={9} fill="#9ca3af">
+              {data[i]?.date.slice(5) /* MM-DD */}
+            </text>
+          ))}
+        </svg>
+        {allZero && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="text-xs text-gray-400 bg-white/80 px-2 py-1 rounded">
+              {totalImp === 0 ? (t.chartNoTrafficYet || "No traffic yet — Google may still be reviewing the campaign") : (t.chartZeroForMetric || "No data for this metric in the last 30 days")}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

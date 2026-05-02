@@ -140,6 +140,10 @@ export async function addTopup(sql: Sql, orgId: number, amountCents: number, str
   return getCredits(sql, orgId);
 }
 
+// Markup helpers live in lib/billing.ts so client components can import them too.
+// Re-export so existing server-side imports from "@/lib/credits" keep working.
+export { applyPlatformMarkup, isPaidPlan, platformFeeBps } from "@/lib/billing";
+
 export class InsufficientCreditsError extends Error {
   constructor(public readonly balanceCents: number, public readonly requestedCents: number) {
     super(`Insufficient credits: balance=${balanceCents}, requested=${requestedCents}`);
@@ -181,6 +185,29 @@ export async function attachReserveReference(sql: Sql, orgId: number, campaignId
       ORDER BY created_at DESC LIMIT 1
     ) AND amount_cents = ${-amountCents}
   `;
+}
+
+/**
+ * Record actual ad spend reported by the platform.
+ * Moves money out of org-level reserved (does not touch balance — that was already moved to reserve at campaign-create time).
+ * Caller is responsible for clamping `amountCents` to the per-campaign reserve to avoid org-pool drift on overshoot.
+ */
+export async function recordSpend(sql: Sql, orgId: number, amountCents: number, campaignId: number, note: string) {
+  if (amountCents <= 0) return;
+  const updated = await sql`
+    UPDATE ad_credits
+    SET reserved_cents = GREATEST(reserved_cents - ${amountCents}, 0),
+        updated_at = NOW()
+    WHERE org_id = ${orgId}
+    RETURNING balance_cents, reserved_cents
+  `;
+  const balanceAfter = Number(updated[0]?.balance_cents || 0);
+  const reservedAfter = Number(updated[0]?.reserved_cents || 0);
+  await logTx(sql, orgId, "spend", -amountCents, balanceAfter, reservedAfter, {
+    referenceType: "campaign",
+    referenceId: String(campaignId),
+    note,
+  });
 }
 
 export async function releaseReserve(sql: Sql, orgId: number, amountCents: number, campaignId: number, note: string) {

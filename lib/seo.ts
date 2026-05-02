@@ -9,7 +9,6 @@ const OG_LOCALE: Record<Locale, string> = {
   en: "en_US",
   zh: "zh_CN",
   "zh-TW": "zh_TW",
-  fr: "fr_FR",
   ko: "ko_KR",
 };
 

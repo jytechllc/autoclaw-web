@@ -3,8 +3,8 @@ import { auth0 } from "@/lib/auth0";
 import { getDb } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { setCampaignStatus, fetchCampaignDetail, renameCampaign, setCampaignDailyBudget, setCampaignSchedule } from "@/lib/google-ads";
-import { resolveOrgId, releaseReserve, reserveForCampaign, InsufficientCreditsError } from "@/lib/credits";
+import { setCampaignStatus, fetchCampaignDetail, renameCampaign, setCampaignDailyBudget, setCampaignSchedule, adsSearchStream } from "@/lib/google-ads";
+import { resolveOrgId, releaseReserve, reserveForCampaign, applyPlatformMarkup, InsufficientCreditsError } from "@/lib/credits";
 
 export const dynamic = "force-dynamic";
 
@@ -104,6 +104,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (rows.length === 0) return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
   const c = rows[0];
 
+  const orgPlanRow = await sql`SELECT plan FROM organizations WHERE id = ${orgId}`;
+  const orgPlan = (orgPlanRow[0]?.plan as string | null | undefined) ?? null;
+
   if (c.closed) {
     return NextResponse.json({ error: "Campaign already closed" }, { status: 409 });
   }
@@ -144,9 +147,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
     const delta = newCapCents - currentCapCents;
     if (delta > 0) {
-      // Reserve more
+      // Reserve more (pool side is markup of Google-side delta)
       try {
-        await reserveForCampaign(sql, orgId, delta, c.campaign_name as string);
+        await reserveForCampaign(sql, orgId, applyPlatformMarkup(delta, orgPlan), c.campaign_name as string);
       } catch (e) {
         if (e instanceof InsufficientCreditsError) {
           return NextResponse.json({
@@ -158,8 +161,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
       }
     } else if (delta < 0) {
-      // Release some back to balance
-      await releaseReserve(sql, orgId, -delta, campaignId, `Lower cap for ${c.campaign_name}`);
+      // Release some back to balance (markup of the Google-side reduction)
+      await releaseReserve(sql, orgId, applyPlatformMarkup(-delta, orgPlan), campaignId, `Lower cap for ${c.campaign_name}`);
     }
     const newReserved = Math.max(newCapCents - spentCents, 0);
     await sql`
@@ -167,14 +170,45 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       SET total_budget_cents = ${newCapCents}, reserved_cents = ${newReserved}, updated_at = NOW()
       WHERE id = ${campaignId}
     `;
+
+    // Hard limit safeguard: ensure Google's daily budget can't possibly exceed the new total cap.
+    // implied_daily = remaining_cap / remaining_days. If current daily > implied, push it down on Google.
+    let dailyAdjusted: { from: number; to: number } | null = null;
+    try {
+      type EndRow = { campaign: { endDate?: string } };
+      const endRows = await adsSearchStream(
+        process.env.GOOGLE_ADS_CUSTOMER_ID || "",
+        `SELECT campaign.end_date FROM campaign WHERE campaign.id = ${(c.platform_campaign_id as string).split("/").pop()}`
+      ) as EndRow[];
+      const endDateStr = endRows[0]?.campaign?.endDate;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const endDate = endDateStr ? new Date(endDateStr) : new Date(today.getTime() + 30 * 86_400_000);
+      const remainingDays = Math.max(Math.ceil((endDate.getTime() - today.getTime()) / 86_400_000), 1);
+      const remainingCapCents = Math.max(newCapCents - spentCents, 0);
+      const impliedDaily = remainingCapCents / 100 / remainingDays;
+      const currentDaily = Number(c.daily_budget || 0);
+      // Floor at 1¢ — Google rejects 0; tiny budget signals "all but stopped" without violating API constraints.
+      const newDaily = Math.max(Math.round(impliedDaily * 100) / 100, 0.01);
+      if (currentDaily > impliedDaily && newDaily < currentDaily) {
+        const result = await setCampaignDailyBudget(c.platform_campaign_id as string, newDaily);
+        if (result.success) {
+          await sql`UPDATE campaigns SET daily_budget = ${newDaily}, updated_at = NOW() WHERE id = ${campaignId}`;
+          dailyAdjusted = { from: currentDaily, to: newDaily };
+        }
+      }
+    } catch {
+      // Safeguard is best-effort — surface but don't fail the cap update.
+    }
+
     logAudit({
       userId, userEmail,
       action: "google_ads.create_campaign",
       resourceType: "campaign", resourceId: campaignId,
-      details: { sub_action: "set_total_budget", oldCap: currentCapCents, newCap: newCapCents, delta },
+      details: { sub_action: "set_total_budget", oldCap: currentCapCents, newCap: newCapCents, delta, dailyAdjusted },
       ipAddress: ip,
     });
-    return NextResponse.json({ success: true, totalBudgetCents: newCapCents, reservedCents: newReserved });
+    return NextResponse.json({ success: true, totalBudgetCents: newCapCents, reservedCents: newReserved, dailyAdjusted });
   }
 
   if (action === "set_daily_budget") {
@@ -245,7 +279,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const reserved = Number(c.reserved_cents || 0);
   if (reserved > 0) {
-    await releaseReserve(sql, orgId, reserved, campaignId, `Closed: ${c.campaign_name}`);
+    await releaseReserve(sql, orgId, applyPlatformMarkup(reserved, orgPlan), campaignId, `Closed: ${c.campaign_name}`);
   }
   await sql`
     UPDATE campaigns SET status = 'PAUSED', closed = true, reserved_cents = 0, updated_at = NOW()

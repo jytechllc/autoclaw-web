@@ -46,21 +46,17 @@ function DashboardShellInner({ children, user, plan: planProp, fullHeight }: Pro
       ? "增长运营"
       : locale === "zh-TW"
         ? "增長營運"
-        : locale === "fr"
-          ? "Growth Ops"
-          : locale === "ko"
-            ? "성장 운영"
-            : "Growth Ops";
+        : locale === "ko"
+          ? "성장 운영"
+          : "Growth Ops";
   const analyticsLabel =
     locale === "zh"
       ? "数据分析"
       : locale === "zh-TW"
         ? "數據分析"
-        : locale === "fr"
-          ? "Analytics"
-          : locale === "ko"
-            ? "분석"
-            : "Analytics";
+        : locale === "ko"
+          ? "분석"
+          : "Analytics";
 
   const [fetchedPlan, setFetchedPlan] = useState<string | undefined>(planProp);
   useEffect(() => {
@@ -364,7 +360,7 @@ function DashboardShellInner({ children, user, plan: planProp, fullHeight }: Pro
                       <button
                         onClick={() => {
                           setOrgDropdownOpen(false);
-                          const name = window.prompt(locale === "zh" ? "新公司名称" : locale === "zh-TW" ? "新公司名稱" : locale === "fr" ? "Nom de la société" : locale === "ko" ? "새 회사 이름" : "New company name");
+                          const name = window.prompt(locale === "zh" ? "新公司名称" : locale === "zh-TW" ? "新公司名稱" : locale === "ko" ? "새 회사 이름" : "New company name");
                           if (!name?.trim()) return;
                           fetch("/api/organizations", {
                             method: "POST",
@@ -388,7 +384,7 @@ function DashboardShellInner({ children, user, plan: planProp, fullHeight }: Pro
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                         </svg>
                         <span className="font-medium">
-                          {locale === "zh" ? "添加新公司" : locale === "zh-TW" ? "新增公司" : locale === "fr" ? "Ajouter une société" : locale === "ko" ? "새 회사 추가" : "Add New Company"}
+                          {locale === "zh" ? "添加新公司" : locale === "zh-TW" ? "新增公司" : locale === "ko" ? "새 회사 추가" : "Add New Company"}
                         </span>
                       </button>
                     </div>

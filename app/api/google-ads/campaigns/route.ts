@@ -8,6 +8,7 @@ import {
   ensureAdCreditsTables,
   reserveForCampaign,
   attachReserveReference,
+  applyPlatformMarkup,
   releaseReserve,
   InsufficientCreditsError,
   resolveOrgId,
@@ -161,10 +162,14 @@ export async function POST(req: NextRequest) {
   const orgId = await resolveOrgId(sql, userId, requestedOrgId);
   if (!orgId) return NextResponse.json({ error: requestedOrgId ? "Forbidden — not a member of that org" : "No organization found" }, { status: 400 });
 
-  // Reserve credits BEFORE calling Google Ads — protect platform funds
+  // Reserve credits BEFORE calling Google Ads — protect platform funds.
+  // totalBudgetCents is the Google-side cap; pool reserves the marked-up amount.
+  const orgPlanRow = await sql`SELECT plan FROM organizations WHERE id = ${orgId}`;
+  const orgPlan = (orgPlanRow[0]?.plan as string | null | undefined) ?? null;
   const totalBudgetCents = Math.round(totalBudget * 100);
+  const reservedPlatformCents = applyPlatformMarkup(totalBudgetCents, orgPlan);
   try {
-    await reserveForCampaign(sql, orgId, totalBudgetCents, name);
+    await reserveForCampaign(sql, orgId, reservedPlatformCents, name);
   } catch (e) {
     if (e instanceof InsufficientCreditsError) {
       return NextResponse.json({
@@ -186,13 +191,13 @@ export async function POST(req: NextRequest) {
     });
   } catch (e) {
     // Google Ads call threw — release reservation
-    await releaseReserve(sql, orgId, totalBudgetCents, 0, `Reverted: Google Ads error for ${name}`);
+    await releaseReserve(sql, orgId, reservedPlatformCents, 0, `Reverted: Google Ads error for ${name}`);
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
 
   if (!result.campaign) {
     // Google Ads returned no resource — release reservation
-    await releaseReserve(sql, orgId, totalBudgetCents, 0, `Reverted: Failed to create ${name}`);
+    await releaseReserve(sql, orgId, reservedPlatformCents, 0, `Reverted: Failed to create ${name}`);
     return NextResponse.json({ error: "Failed to create campaign", result }, { status: 502 });
   }
 
@@ -212,7 +217,7 @@ export async function POST(req: NextRequest) {
   const campaignId = inserted[0].id as number;
 
   // Tie reservation transaction to the campaign id
-  await attachReserveReference(sql, orgId, campaignId, totalBudgetCents);
+  await attachReserveReference(sql, orgId, campaignId, reservedPlatformCents);
 
   logAudit({
     userId,

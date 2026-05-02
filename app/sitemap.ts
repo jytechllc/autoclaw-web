@@ -8,7 +8,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     PUBLIC_MARKETING_PATHS.map((path) => ({
       url: `${SITE_URL}${localizedPath(locale as Locale, path)}`,
       lastModified: now,
-      changeFrequency: path === "" ? "weekly" : "monthly",
+      changeFrequency: (path === "" ? "weekly" : "monthly") as "weekly" | "monthly",
       priority: path === "" ? 1 : path === "/use-cases" || path === "/docs" ? 0.8 : 0.6,
       images: path === "" ? [`${SITE_URL}${DEFAULT_OG_IMAGE}`] : undefined,
     }))

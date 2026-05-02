@@ -68,7 +68,7 @@ function CRMPageInner() {
   const params = useParams();
   const locale = (params.locale as Locale) || "en";
   const isZh = locale === "zh" || locale === "zh-TW";
-  const isFr = locale === "fr";
+  const isFr = false;
   const { user } = useUser();
 
   const searchParams = useSearchParams();

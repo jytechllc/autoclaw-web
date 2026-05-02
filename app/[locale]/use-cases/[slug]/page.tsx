@@ -14,7 +14,7 @@ export default function UseCaseArticlePage() {
   const slug = params.slug as string;
   const dict = getDictionary(locale);
   const tc = dict.common;
-  const lang = locale === "zh" || locale === "zh-TW" ? "zh" : locale === "fr" ? "fr" : "en";
+  const lang = locale === "zh" || locale === "zh-TW" ? "zh" : "en";
 
   // Find the use case across all categories
   const allCases = [...(USE_CASES.existing || []), ...(USE_CASES.featured || [])];

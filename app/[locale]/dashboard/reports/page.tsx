@@ -782,7 +782,7 @@ export default function ReportsPage() {
             {brevoStats.emailsSent > 0 && (
               <section className="mb-8">
                 <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-lg font-semibold">{locale === "zh" ? "邮件记录" : locale === "zh-TW" ? "郵件記錄" : locale === "fr" ? "Historique des e-mails" : "Email History"}</h2>
+                  <h2 className="text-lg font-semibold">{locale === "zh" ? "邮件记录" : locale === "zh-TW" ? "郵件記錄" : "Email History"}</h2>
                   <button
                     onClick={() => {
                       if (!emailHistoryOpen) fetchEmailHistory();
@@ -1232,7 +1232,7 @@ export default function ReportsPage() {
                               <td className="px-3 py-3 text-right tabular-nums">{c.clicked.toLocaleString()}</td>
                               <td className="px-3 py-3 text-right tabular-nums text-blue-600 font-medium">{clickRate}%</td>
                               <td className="px-4 py-3 text-right text-gray-500 text-xs">
-                                {c.sentDate ? new Date(c.sentDate).toLocaleDateString(locale === "zh" ? "zh-CN" : locale === "zh-TW" ? "zh-TW" : locale === "fr" ? "fr-FR" : "en-US") : "-"}
+                                {c.sentDate ? new Date(c.sentDate).toLocaleDateString(locale === "zh" ? "zh-CN" : locale === "zh-TW" ? "zh-TW" : "en-US") : "-"}
                               </td>
                             </tr>
                           );
@@ -1274,7 +1274,7 @@ export default function ReportsPage() {
                         ))}
                       </div>
                       <p className="text-gray-400 text-xs">
-                        {CATEGORY_LABELS[locale]?.[report.period] || CATEGORY_LABELS.en[report.period] || report.period} &middot; {tr.lastRun} {new Date(report.last_run).toLocaleString(locale === "zh" ? "zh-CN" : locale === "zh-TW" ? "zh-TW" : locale === "fr" ? "fr-FR" : "en-US")}
+                        {CATEGORY_LABELS[locale]?.[report.period] || CATEGORY_LABELS.en[report.period] || report.period} &middot; {tr.lastRun} {new Date(report.last_run).toLocaleString(locale === "zh" ? "zh-CN" : locale === "zh-TW" ? "zh-TW" : "en-US")}
                       </p>
                     </div>
                   ))}
@@ -1314,7 +1314,7 @@ export default function ReportsPage() {
                             </td>
                             <td className="px-3 py-2.5 text-gray-500 truncate max-w-40">{log.user_email}</td>
                             <td className="px-4 py-2.5 text-right text-gray-400 whitespace-nowrap text-xs">
-                              {new Date(log.created_at).toLocaleString(locale === "zh" ? "zh-CN" : locale === "zh-TW" ? "zh-TW" : locale === "fr" ? "fr-FR" : "en-US", {
+                              {new Date(log.created_at).toLocaleString(locale === "zh" ? "zh-CN" : locale === "zh-TW" ? "zh-TW" : "en-US", {
                                 month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
                               })}
                             </td>

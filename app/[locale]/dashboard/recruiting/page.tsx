@@ -1,7 +1,7 @@
 "use client";
 
 import { useUser } from "@auth0/nextjs-auth0/client";
-import { Suspense, useState, useEffect, useCallback } from "react";
+import { Fragment, Suspense, useState, useEffect, useCallback } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { getDictionary, type Locale } from "@/lib/i18n";
 import DashboardShell from "@/components/DashboardShell";
@@ -573,9 +573,8 @@ function RecruitingContent() {
                       </thead>
                       <tbody>
                         {candidates.map((c) => (
-                          <>
+                          <Fragment key={c.id}>
                             <tr
-                              key={c.id}
                               className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer"
                               onClick={() => setExpandedCandidate(expandedCandidate === c.id ? null : c.id)}
                             >
@@ -601,13 +600,13 @@ function RecruitingContent() {
                               </td>
                             </tr>
                             {expandedCandidate === c.id && (
-                              <tr key={`${c.id}-detail`}>
+                              <tr>
                                 <td colSpan={7} className="px-4 py-4 bg-gray-50 border-b">
                                   <CandidateDetail candidate={c} interviews={interviews} t={t} onSaveInterview={saveInterview} onDeleteInterview={deleteInterview} saving={saving} />
                                 </td>
                               </tr>
                             )}
-                          </>
+                          </Fragment>
                         ))}
                       </tbody>
                     </table>
