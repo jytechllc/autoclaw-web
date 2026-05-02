@@ -35,7 +35,7 @@ interface Detail {
   optimizationScore?: number;
   metrics: { impressions: number; clicks: number; costMicros: number; conversions: number; ctr: number; avgCpcMicros: number };
   locations: Array<{ id: string; name: string }>;
-  audiences: Array<{ category: string; label: string; negative: boolean; adGroupName: string }>;
+  audiences: Array<{ category: string; label: string; negative: boolean; adGroupName: string; apiType: string; value: string }>;
   adGroups: Array<{ resourceName: string; name: string; status: string; cpcBidMicros: number }>;
   keywords: Array<{ text: string; matchType: string }>;
   ads: Array<{
@@ -52,6 +52,58 @@ interface Detail {
     finalUrls: string[];
   }>;
 }
+
+type DemoApiType = "AGE_RANGE" | "GENDER" | "PARENTAL_STATUS" | "INCOME_RANGE";
+type DemoCriterion = { apiType: DemoApiType; value: string; negative: boolean };
+
+const DEMO_OPTIONS: { apiType: DemoApiType; title: string; options: Array<{ value: string; label: string }> }[] = [
+  {
+    apiType: "AGE_RANGE",
+    title: "Age",
+    options: [
+      { value: "AGE_RANGE_18_24", label: "18-24" },
+      { value: "AGE_RANGE_25_34", label: "25-34" },
+      { value: "AGE_RANGE_35_44", label: "35-44" },
+      { value: "AGE_RANGE_45_54", label: "45-54" },
+      { value: "AGE_RANGE_55_64", label: "55-64" },
+      { value: "AGE_RANGE_65_UP", label: "65+" },
+      { value: "AGE_RANGE_UNDETERMINED", label: "Unknown" },
+    ],
+  },
+  {
+    apiType: "GENDER",
+    title: "Gender",
+    options: [
+      { value: "MALE", label: "Male" },
+      { value: "FEMALE", label: "Female" },
+      { value: "UNDETERMINED", label: "Unknown" },
+    ],
+  },
+  {
+    apiType: "PARENTAL_STATUS",
+    title: "Parental status",
+    options: [
+      { value: "PARENT", label: "Parent" },
+      { value: "NOT_A_PARENT", label: "Not a parent" },
+      { value: "UNDETERMINED", label: "Unknown" },
+    ],
+  },
+  {
+    apiType: "INCOME_RANGE",
+    title: "Household income",
+    options: [
+      { value: "INCOME_RANGE_90_UP", label: "Top 10%" },
+      { value: "INCOME_RANGE_80_90", label: "11-20%" },
+      { value: "INCOME_RANGE_70_80", label: "21-30%" },
+      { value: "INCOME_RANGE_60_70", label: "31-40%" },
+      { value: "INCOME_RANGE_50_60", label: "41-50%" },
+      { value: "INCOME_RANGE_0_50", label: "Lower 50%" },
+      { value: "INCOME_RANGE_UNDETERMINED", label: "Unknown" },
+    ],
+  },
+];
+
+const DEMO_API_TYPES: DemoApiType[] = DEMO_OPTIONS.map((d) => d.apiType);
 
 function formatUsd(cents: number | string | null | undefined): string {
   return `$${(Number(cents || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -191,6 +243,57 @@ export default function CampaignDetailPage() {
       setTimeout(() => setToast(""), 3000);
     }
     setSavingLocations(false);
+  }
+
+  // Audiences edit (Phase 1: demographics only — AGE_RANGE / GENDER / PARENTAL_STATUS / INCOME_RANGE)
+  const [editingAudiences, setEditingAudiences] = useState(false);
+  const [editAudiences, setEditAudiences] = useState<DemoCriterion[]>([]);
+  const [savingAudiences, setSavingAudiences] = useState(false);
+
+  function openAudienceEdit() {
+    const demos = (detail?.audiences || [])
+      .filter((a) => DEMO_API_TYPES.includes(a.apiType as DemoApiType))
+      .map((a) => ({ apiType: a.apiType as DemoApiType, value: a.value, negative: a.negative }));
+    // Dedupe — same audience gets one row per ad group, collapse to single chip
+    const dedup = new Map<string, DemoCriterion>();
+    for (const c of demos) dedup.set(`${c.apiType}|${c.value}`, c);
+    setEditAudiences([...dedup.values()]);
+    setEditingAudiences(true);
+  }
+
+  function toggleAudience(apiType: DemoApiType, value: string) {
+    const key = `${apiType}|${value}`;
+    const idx = editAudiences.findIndex((a) => `${a.apiType}|${a.value}` === key);
+    if (idx >= 0) {
+      setEditAudiences(editAudiences.filter((_, i) => i !== idx));
+    } else {
+      setEditAudiences([...editAudiences, { apiType, value, negative: false }]);
+    }
+  }
+
+  async function handleSaveAudiences() {
+    setSavingAudiences(true);
+    try {
+      const res = await fetch(`/api/google-ads/campaigns/${campaignId}/audiences`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ audiences: editAudiences, orgId: activeOrg?.id }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setToast("Audiences updated");
+        setEditingAudiences(false);
+        fetchData();
+        setTimeout(() => setToast(""), 3000);
+      } else {
+        setToast(data.error || "Update failed");
+        setTimeout(() => setToast(""), 4000);
+      }
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Update failed");
+      setTimeout(() => setToast(""), 3000);
+    }
+    setSavingAudiences(false);
   }
 
   // Ad group create
@@ -491,6 +594,17 @@ export default function CampaignDetailPage() {
                 </div>
               )}
               <div className="flex flex-wrap gap-2 mt-2 text-xs">
+                <span
+                  className="px-2 py-0.5 rounded-full bg-gray-50 text-gray-500 font-mono border border-gray-200 cursor-pointer hover:bg-gray-100"
+                  title={`${campaign.platform_campaign_id}\nClick to copy`}
+                  onClick={() => {
+                    if (campaign.platform_campaign_id) {
+                      navigator.clipboard.writeText(campaign.platform_campaign_id.split("/").pop() || campaign.platform_campaign_id);
+                    }
+                  }}
+                >
+                  ID: {campaign.platform_campaign_id?.split("/").pop() || campaign.platform_campaign_id}
+                </span>
                 <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{campaign.channel}</span>
                 <span className={`px-2 py-0.5 rounded-full ${
                   campaign.closed ? "bg-gray-200 text-gray-600" :
@@ -665,35 +779,104 @@ export default function CampaignDetailPage() {
 
               {/* Audiences */}
               <div className="text-sm pt-2 border-t border-gray-100">
-                <span className="text-xs text-gray-500">{t.audiences || "Audiences"}: </span>
-                {detail?.audiences?.length ? (
-                  <div className="space-y-1.5 mt-1">
-                    {Object.entries(
-                      detail.audiences.reduce<Record<string, typeof detail.audiences>>((acc, a) => {
-                        (acc[a.category] = acc[a.category] || []).push(a);
-                        return acc;
-                      }, {})
-                    ).map(([cat, items]) => (
-                      <div key={cat}>
-                        <span className="text-xs text-gray-400">{cat}:</span>
-                        <span className="inline-flex flex-wrap gap-1 ml-1.5">
-                          {items.map((a, i) => (
-                            <span
-                              key={i}
-                              className={`px-2 py-0.5 text-xs rounded-full ${
-                                a.negative ? "bg-red-50 text-red-700 line-through" : "bg-purple-50 text-purple-700"
-                              }`}
-                              title={a.adGroupName ? `Ad group: ${a.adGroupName}` : undefined}
-                            >
-                              {a.label}
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-500">{t.audiences || "Audiences"}:</span>
+                  {!campaign.closed && !editingAudiences && (
+                    <button
+                      onClick={openAudienceEdit}
+                      className="text-xs text-gray-400 hover:text-gray-700 cursor-pointer"
+                      title="Edit demographic audiences"
+                    >
+                      ✏️ Edit
+                    </button>
+                  )}
+                </div>
+                {!editingAudiences ? (
+                  detail?.audiences?.length ? (
+                    <div className="space-y-1.5 mt-1">
+                      {Object.entries(
+                        detail.audiences.reduce<Record<string, typeof detail.audiences>>((acc, a) => {
+                          (acc[a.category] = acc[a.category] || []).push(a);
+                          return acc;
+                        }, {})
+                      ).map(([cat, items]) => {
+                        const dedup = Array.from(new Map(items.map((a) => [`${a.apiType}|${a.value}|${a.negative}`, a])).values());
+                        return (
+                          <div key={cat}>
+                            <span className="text-xs text-gray-400">{cat}:</span>
+                            <span className="inline-flex flex-wrap gap-1 ml-1.5">
+                              {dedup.map((a, i) => (
+                                <span
+                                  key={i}
+                                  className={`px-2 py-0.5 text-xs rounded-full ${
+                                    a.negative ? "bg-red-50 text-red-700 line-through" : "bg-purple-50 text-purple-700"
+                                  }`}
+                                  title={a.adGroupName ? `Ad group: ${a.adGroupName}` : undefined}
+                                >
+                                  {a.label}
+                                </span>
+                              ))}
                             </span>
-                          ))}
-                        </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <span className="text-amber-700">⚠️ {t.audiencesEmpty || "No audience signals set — recommended for Demand Gen / Display / Video"}</span>
+                  )
+                ) : (
+                  <div className="space-y-3 mt-2">
+                    <p className="text-[11px] text-gray-500">
+                      Phase 1 supports demographic targeting. Selections apply to all {detail?.adGroups?.length || 0} ad group{(detail?.adGroups?.length || 0) === 1 ? "" : "s"} in this campaign.
+                    </p>
+                    {DEMO_OPTIONS.map((group) => (
+                      <div key={group.apiType}>
+                        <div className="text-xs text-gray-500 mb-1">{group.title}</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {group.options.map((opt) => {
+                            const selected = editAudiences.some((a) => a.apiType === group.apiType && a.value === opt.value);
+                            const existing = editAudiences.find((a) => a.apiType === group.apiType && a.value === opt.value);
+                            const isNeg = existing?.negative === true;
+                            return (
+                              <button
+                                type="button"
+                                key={opt.value}
+                                onClick={() => toggleAudience(group.apiType, opt.value)}
+                                className={`text-xs px-2.5 py-1 rounded-full border transition-colors cursor-pointer ${
+                                  selected
+                                    ? isNeg
+                                      ? "bg-red-50 text-red-700 border-red-200 line-through"
+                                      : "bg-purple-50 text-purple-700 border-purple-200"
+                                    : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+                                }`}
+                                title={isNeg ? "Currently excluded — click to remove" : undefined}
+                              >
+                                {opt.label}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
                     ))}
+                    <p className="text-[11px] text-gray-400">
+                      Note: User Lists / Custom Audiences / Interests / Topics on this campaign (if any) are preserved — only demographics are replaced by saving here.
+                    </p>
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        onClick={handleSaveAudiences}
+                        disabled={savingAudiences}
+                        className="bg-red-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-900 disabled:opacity-50 cursor-pointer"
+                      >
+                        {savingAudiences ? "..." : (t.save || "Save")}
+                      </button>
+                      <button
+                        onClick={() => setEditingAudiences(false)}
+                        className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 cursor-pointer"
+                      >
+                        {t.cancel || "Cancel"}
+                      </button>
+                    </div>
                   </div>
-                ) : (
-                  <span className="text-amber-700">⚠️ {t.audiencesEmpty || "No audience signals set — recommended for Demand Gen / Display / Video"}</span>
                 )}
               </div>
             </div>

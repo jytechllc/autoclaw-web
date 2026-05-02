@@ -94,6 +94,25 @@ export async function extractUrl(url: string): Promise<string> {
 }
 
 /**
+ * Walk back from the end of `text` and return up to `maxChars` of trailing
+ * content that begins at a sentence boundary. Falls back to a raw char slice
+ * if no boundary is found within the window.
+ */
+function sentenceOverlap(text: string, maxChars: number): string {
+  const slice = text.length > maxChars ? text.slice(-maxChars) : text;
+  const m = slice.match(/[.!?。！？]["')\]]?\s*/);
+  if (m && m.index !== undefined) {
+    return slice.slice(m.index + m[0].length);
+  }
+  return slice;
+}
+
+/** Split into sentences. Chinese punctuation splits without requiring whitespace. */
+function splitSentences(text: string): string[] {
+  return text.split(/(?<=[。！？])|(?<=[.!?])\s+/).filter((s) => s.trim().length > 0);
+}
+
+/**
  * Split text into overlapping chunks suitable for embedding.
  */
 export function chunkText(text: string): string[] {
@@ -102,7 +121,6 @@ export function chunkText(text: string): string[] {
   const chunkChars = CHUNK_SIZE * CHARS_PER_TOKEN;
   const overlapChars = CHUNK_OVERLAP * CHARS_PER_TOKEN;
 
-  // Split by paragraphs first, then sentences
   const paragraphs = text.split(/\n\s*\n/).filter((p) => p.trim().length > 0);
   const chunks: string[] = [];
   let current = "";
@@ -110,9 +128,8 @@ export function chunkText(text: string): string[] {
   for (const para of paragraphs) {
     if (current.length + para.length > chunkChars && current.length > 0) {
       chunks.push(current.trim());
-      // Keep overlap from end of current chunk
-      const overlap = current.slice(-overlapChars);
-      current = overlap + " " + para;
+      const overlap = sentenceOverlap(current, overlapChars);
+      current = overlap ? overlap + "\n\n" + para : para;
     } else {
       current += (current ? "\n\n" : "") + para;
     }
@@ -122,17 +139,17 @@ export function chunkText(text: string): string[] {
     chunks.push(current.trim());
   }
 
-  // If any chunk is still too large, split by sentences
+  // Sentence-level fallback for any chunk over budget
   const finalChunks: string[] = [];
   for (const chunk of chunks) {
-    if (chunk.length > chunkChars * 1.5) {
-      const sentences = chunk.split(/(?<=[.!?。！？])\s+/);
+    if (chunk.length > chunkChars) {
+      const sentences = splitSentences(chunk);
       let part = "";
       for (const sentence of sentences) {
         if (part.length + sentence.length > chunkChars && part.length > 0) {
           finalChunks.push(part.trim());
-          const overlap = part.slice(-overlapChars);
-          part = overlap + " " + sentence;
+          const overlap = sentenceOverlap(part, overlapChars);
+          part = overlap ? overlap + " " + sentence : sentence;
         } else {
           part += (part ? " " : "") + sentence;
         }

@@ -282,6 +282,22 @@ export interface CreateCampaignResult {
   errors: Array<{ step: string; details: unknown }>;
 }
 
+export type AudienceApiType =
+  | "AGE_RANGE"
+  | "GENDER"
+  | "PARENTAL_STATUS"
+  | "INCOME_RANGE"
+  | "USER_INTEREST"
+  | "TOPIC"
+  | "USER_LIST"
+  | "CUSTOM_AUDIENCE";
+
+export interface AudienceCriterionInput {
+  apiType: AudienceApiType;
+  value: string;
+  negative?: boolean;
+}
+
 export interface CampaignDetail {
   resourceName: string;
   name: string;
@@ -299,7 +315,14 @@ export interface CampaignDetail {
     avgCpcMicros: number;
   };
   locations: Array<{ id: string; name: string }>;
-  audiences: Array<{ category: string; label: string; negative: boolean; adGroupName: string }>;
+  audiences: Array<{
+    category: string;
+    label: string;
+    negative: boolean;
+    adGroupName: string;
+    apiType: AudienceApiType | "";
+    value: string;
+  }>;
   adGroups: Array<{ resourceName: string; name: string; status: string; cpcBidMicros: number }>;
   keywords: Array<{ text: string; matchType: string }>;
   ads: Array<{
@@ -503,40 +526,56 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
     const c = r.adGroupCriterion;
     let label = "";
     let category = c.type || "";
+    let apiType: AudienceApiType | "" = "";
+    let value = "";
     if (c.userInterest?.userInterestCategory) {
-      const ref = c.userInterest.userInterestCategory;
-      label = labelMap.get(ref) || ref;
+      value = c.userInterest.userInterestCategory;
+      label = labelMap.get(value) || value;
       category = "User Interest";
+      apiType = "USER_INTEREST";
     } else if (c.userList?.userList) {
-      const ref = c.userList.userList;
-      label = labelMap.get(ref) || ref;
+      value = c.userList.userList;
+      label = labelMap.get(value) || value;
       category = "User List";
+      apiType = "USER_LIST";
     } else if (c.customAudience?.customAudience) {
-      const ref = c.customAudience.customAudience;
-      label = labelMap.get(ref) || ref;
+      value = c.customAudience.customAudience;
+      label = labelMap.get(value) || value;
       category = "Custom Audience";
+      apiType = "CUSTOM_AUDIENCE";
     } else if (c.topic?.topic) {
-      const ref = c.topic.topic;
-      label = labelMap.get(ref) || ref;
+      value = c.topic.topic;
+      label = labelMap.get(value) || value;
       category = "Topic";
+      apiType = "TOPIC";
     } else if (c.ageRange?.type) {
-      label = c.ageRange.type.replace(/^AGE_RANGE_/, "").replace(/_/g, "-");
+      value = c.ageRange.type;
+      label = value.replace(/^AGE_RANGE_/, "").replace(/_/g, "-");
       category = "Age Range";
+      apiType = "AGE_RANGE";
     } else if (c.gender?.type) {
-      label = c.gender.type;
+      value = c.gender.type;
+      label = value;
       category = "Gender";
+      apiType = "GENDER";
     } else if (c.parentalStatus?.type) {
-      label = c.parentalStatus.type.replace(/^/, "");
+      value = c.parentalStatus.type;
+      label = value;
       category = "Parental Status";
+      apiType = "PARENTAL_STATUS";
     } else if (c.incomeRange?.type) {
-      label = c.incomeRange.type.replace(/^INCOME_RANGE_/, "");
+      value = c.incomeRange.type;
+      label = value.replace(/^INCOME_RANGE_/, "");
       category = "Income";
+      apiType = "INCOME_RANGE";
     }
     return {
       category,
       label,
       negative: !!c.negative,
       adGroupName: r.adGroup?.name || "",
+      apiType,
+      value,
     };
   }).filter((a) => a.label);
 
@@ -747,6 +786,75 @@ export async function setCampaignLocations(campaignResourceName: string, locatio
   ];
   if (operations.length === 0) return { success: true };
   const res = await adsMutate(customerId, "campaignCriteria:mutate", { operations });
+  if (res.status !== 200) return { success: false, error: res.data };
+  return { success: true };
+}
+
+/** Replace all audience criteria of the given types on a campaign with the new list.
+ *  Applies to ALL ad groups in the campaign (consistent with setCampaignLocations).
+ *  Phase 1: supports demographic enums (AGE_RANGE/GENDER/PARENTAL_STATUS/INCOME_RANGE).
+ *  Other types are rejected — extend in Phase 2/3. */
+const PHASE_1_AUDIENCE_TYPES: AudienceApiType[] = ["AGE_RANGE", "GENDER", "PARENTAL_STATUS", "INCOME_RANGE"];
+
+export async function setCampaignAudiences(
+  campaignResourceName: string,
+  criteria: AudienceCriterionInput[]
+): Promise<{ success: boolean; error?: unknown }> {
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
+  if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
+
+  const supportedTypes = new Set<AudienceApiType>(PHASE_1_AUDIENCE_TYPES);
+  for (const c of criteria) {
+    if (!supportedTypes.has(c.apiType)) {
+      return { success: false, error: `Audience type ${c.apiType} not yet supported (Phase 1 = demographics only)` };
+    }
+  }
+
+  const numericCampaignId = campaignResourceName.split("/").pop() || "";
+
+  type AGRow = { adGroup: { resourceName: string } };
+  const adGroups = await adsSearchStream(customerId, `
+    SELECT ad_group.resource_name FROM ad_group WHERE campaign.id = ${numericCampaignId}
+  `) as AGRow[];
+  if (adGroups.length === 0) {
+    return { success: false, error: "No ad groups in campaign — cannot set audiences" };
+  }
+
+  const managedTypeList = [...supportedTypes].join(", ");
+  type AGCRow = { adGroupCriterion: { resourceName: string } };
+  const existing = await adsSearchStream(customerId, `
+    SELECT ad_group_criterion.resource_name
+    FROM ad_group_criterion
+    WHERE campaign.id = ${numericCampaignId}
+      AND ad_group_criterion.type IN (${managedTypeList})
+  `) as AGCRow[];
+
+  const buildCriterion = (c: AudienceCriterionInput): Record<string, unknown> => {
+    switch (c.apiType) {
+      case "AGE_RANGE":        return { ageRange: { type: c.value } };
+      case "GENDER":           return { gender: { type: c.value } };
+      case "PARENTAL_STATUS":  return { parentalStatus: { type: c.value } };
+      case "INCOME_RANGE":     return { incomeRange: { type: c.value } };
+      default:                 return {};
+    }
+  };
+
+  const operations: Record<string, unknown>[] = [
+    ...existing.map((r) => ({ remove: r.adGroupCriterion.resourceName })),
+    ...adGroups.flatMap((ag) =>
+      criteria.map((c) => ({
+        create: {
+          adGroup: ag.adGroup.resourceName,
+          negative: c.negative ?? false,
+          ...buildCriterion(c),
+        },
+      }))
+    ),
+  ];
+
+  if (operations.length === 0) return { success: true };
+
+  const res = await adsMutate(customerId, "adGroupCriteria:mutate", { operations });
   if (res.status !== 200) return { success: false, error: res.data };
   return { success: true };
 }

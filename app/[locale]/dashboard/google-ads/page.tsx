@@ -710,7 +710,12 @@ export default function GoogleAdsPage() {
                     const pct = cap > 0 ? Math.min(100, (spent / cap) * 100) : 0;
                     return (
                       <tr key={c.id} className="border-t border-gray-100 hover:bg-gray-50 cursor-pointer" onClick={() => router.push(`/${locale}/dashboard/google-ads/${c.id}`)}>
-                        <td className="px-4 py-3 text-blue-700 font-medium hover:underline">{c.campaign_name}</td>
+                        <td className="px-4 py-3">
+                          <div className="text-blue-700 font-medium hover:underline">{c.campaign_name}</div>
+                          <div className="text-[11px] font-mono text-gray-400 mt-0.5" title={c.platform_campaign_id}>
+                            ID: {c.platform_campaign_id?.split("/").pop() || c.platform_campaign_id}
+                          </div>
+                        </td>
                         <td className="px-4 py-3 text-gray-600">{c.channel}</td>
                         <td className="px-4 py-3 text-gray-600">${Number(c.daily_budget).toFixed(2)}</td>
                         <td className="px-4 py-3 text-gray-600">{formatUsd(c.total_budget_cents)}</td>
