@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
     }
 
     const userId = users[0].id;
-    const plan = checkout.metadata?.plan || (checkout.amount_total && checkout.amount_total >= 9900 ? "scale" : "growth");
+    const plan = checkout.metadata?.plan || (checkout.amount_total && checkout.amount_total >= 20000 ? "scale" : "growth");
     const orderNo = `stripe_${checkout.id}`;
 
     // Upsert payment record

@@ -218,12 +218,12 @@ export function getWechatPayPlans(): Record<
   return {
     growth: {
       name: "Growth",
-      amount: 69900, // 699.00 CNY in cents
+      amount: 58800, // 588.00 CNY in cents
       description: "Growth Plan - Monthly Subscription",
     },
     scale: {
       name: "Scale",
-      amount: 278800, // 2788.00 CNY in cents
+      amount: 208800, // 2088.00 CNY in cents
       description: "Scale Plan - Monthly Subscription",
     },
   };
