@@ -38,6 +38,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -71,6 +72,17 @@ BRANCH_PREFIX = os.environ.get("WORKER_BRANCH_PREFIX", "bot/jira")
 
 BOT_MARKER = "<!-- bot:jira-overnight -->"
 DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
+
+# GitHub Models free tier limits we've actually hit in prod:
+#   - 10 req/min per model (UserByModelByMinute)
+#   - 24 req/min per user (UserByUser)
+# Stay well below by sleeping ~8s between calls (≈7.5/min) and capping the
+# number of triages per run. Triage uses gpt-4o-mini (separate model quota)
+# so it doesn't fight the COMPLETE call (gpt-4o) for the same budget.
+TRIAGE_MODEL = "gpt-4o-mini"
+COMPLETE_MODEL = "gpt-4o"
+MODEL_CALL_DELAY_SEC = 8
+MAX_TRIAGE_PER_RUN = int(os.environ.get("MAX_TRIAGE_PER_RUN", "8"))
 
 # Files the worker is permitted to create or modify. Anything outside this
 # allowlist makes the COMPLETE step bail. Defensive — the LLM may suggest
@@ -122,7 +134,13 @@ def _jira(method: str, path: str, body: dict | None = None) -> tuple[int, dict]:
         return status, {"raw": raw.decode("utf-8", "replace")}
 
 
-def _models_call(messages: list[dict], model: str = "gpt-4o", max_tokens: int = 1500) -> str:
+class RateLimitError(RuntimeError):
+    """Raised when GitHub Models returns 429. Caller should bail, not retry —
+    free-tier windows are 60s and we don't want the worker burning CI minutes
+    in a sleep loop."""
+
+
+def _models_call(messages: list[dict], model: str = COMPLETE_MODEL, max_tokens: int = 1500) -> str:
     body = json.dumps({
         "model": model,
         "temperature": 0.2,
@@ -138,6 +156,8 @@ def _models_call(messages: list[dict], model: str = "gpt-4o", max_tokens: int = 
         },
         data=body,
     )
+    if status == 429:
+        raise RateLimitError(raw.decode("utf-8", "replace")[:500])
     if status != 200:
         raise RuntimeError(f"GitHub Models call failed: {status} {raw.decode('utf-8', 'replace')[:500]}")
     obj = json.loads(raw)
@@ -264,28 +284,48 @@ def mode_triage_and_complete() -> int:
     triage_prompt = load_prompt("TRIAGE")
     features_md = (ARCH_ROOT / "features.md").read_text(errors="replace")[:8000]
 
+    # Pre-filter: skip Epics and tickets the bot has already commented on
+    # BEFORE counting against our per-run budget. The 429 in dry-run came from
+    # triaging 38 tickets back-to-back, including some bot-touched ones.
+    triageable = [
+        i for i in tickets
+        if i["fields"]["issuetype"]["name"] != "Epic" and not has_bot_comment(i)
+    ]
+    skipped = len(tickets) - len(triageable)
+    if skipped:
+        print(f"  pre-filtered {skipped} (Epics / already-attempted)")
+
     candidates: list[tuple[dict, dict]] = []  # (issue, triage_decision)
+    triaged = 0
 
-    for issue in tickets:
+    for issue in triageable:
+        if triaged >= MAX_TRIAGE_PER_RUN:
+            print(f"::notice::Hit MAX_TRIAGE_PER_RUN={MAX_TRIAGE_PER_RUN}; remaining tickets deferred to next run")
+            break
+
         key = issue["key"]
-        if has_bot_comment(issue):
-            print(f"  skip {key}: already attempted by bot")
-            continue
-        # Don't touch Epics; only stories/tasks
-        if issue["fields"]["issuetype"]["name"] == "Epic":
-            continue
-
         summary = issue["fields"].get("summary", "")
         desc = adf_to_text(issue["fields"].get("description"))
         user_msg = f"TICKET {key}: {summary}\n\nDescription:\n{desc}\n\n---\n\nfeatures.md (excerpt):\n{features_md[:5000]}"
+
+        # Throttle between calls (skip on first to avoid wasted delay)
+        if triaged > 0:
+            time.sleep(MODEL_CALL_DELAY_SEC)
+
         try:
             raw = _models_call([
                 {"role": "system", "content": triage_prompt},
                 {"role": "user", "content": user_msg},
-            ], max_tokens=600)
+            ], model=TRIAGE_MODEL, max_tokens=600)
+        except RateLimitError as e:
+            print(f"::warning::Hit GitHub Models rate limit during triage of {key}. Bailing — remaining tickets deferred. ({str(e)[:200]})")
+            break
         except Exception as e:
             print(f"  triage failed for {key}: {e}")
+            triaged += 1
             continue
+        triaged += 1
+
         m = re.search(r"\{.*\}", raw, re.S)
         if not m:
             print(f"  triage non-JSON for {key}: {raw[:200]}")
@@ -298,9 +338,19 @@ def mode_triage_and_complete() -> int:
         print(f"  {key}: {decision.get('decision')} — {decision.get('reason')}")
         if decision.get("decision") == "SCRIPTABLE":
             candidates.append((issue, decision))
+            # Stop early: we only complete one ticket per run anyway. No point
+            # burning the remaining triage budget on more candidates.
+            print(f"  found a SCRIPTABLE candidate; stopping triage to save budget for COMPLETE")
+            break
 
     if not candidates:
-        print("::notice::No SCRIPTABLE tickets after triage. Replenishing backlog.")
+        # If we burned the budget without finding a SCRIPTABLE one, don't
+        # replenish — there may still be SCRIPTABLE work, we just didn't see
+        # it. Replenish only when we actually triaged everything.
+        if triaged >= MAX_TRIAGE_PER_RUN or triaged < len(triageable):
+            print("::notice::No SCRIPTABLE found in this batch. Will retry rest tomorrow.")
+            return 0
+        print("::notice::No SCRIPTABLE tickets after full triage. Replenishing backlog.")
         return mode_replenish()
 
     # Take the first SCRIPTABLE (Jira returns by recency; you can re-rank here)
@@ -335,11 +385,17 @@ def mode_complete(issue: dict, decision: dict) -> int:
         f"Triage scope:\n{json.dumps(scope, indent=2)}\n\n"
         f"Existing files (you may rewrite these):\n{files_block}"
     )
+    # Small breather before COMPLETE — triage may have just used a slot on
+    # the per-user quota even though gpt-4o is a different model bucket.
+    time.sleep(MODEL_CALL_DELAY_SEC)
     try:
         raw = _models_call([
             {"role": "system", "content": complete_prompt},
             {"role": "user", "content": user_msg},
-        ], max_tokens=2500)
+        ], model=COMPLETE_MODEL, max_tokens=2500)
+    except RateLimitError as e:
+        print(f"::warning::Rate limit hit when calling COMPLETE for {key}; will retry tomorrow. ({str(e)[:200]})")
+        return 0
     except Exception as e:
         post_jira_comment(key, f"Tried to complete but the model call failed: {e}")
         return 1
