@@ -1,0 +1,224 @@
+# Daily audit: does the autoclaw-web codebase still match what
+# autoclaw-technical-architecture-design says it does?
+#
+# Pulls both repos, summarizes the code side, dumps the design side, and asks
+# a GitHub-hosted model (gpt-4o-mini via GitHub Models) to call out drift in
+# four categories. The report is appended as a comment to a single tracking
+# issue labeled `architecture-drift` (or that issue is opened on first run).
+#
+# Required setup (one-time):
+#   1. Settings → Secrets and variables → Actions → New repository secret:
+#        Name:  ARCH_REPO_TOKEN
+#        Value: A fine-grained PAT scoped to `jytechllc/autoclaw-technical-architecture-design`
+#               with `Contents: Read` permission. (Generated under
+#               github.com/settings/personal-access-tokens/new while logged in
+#               as jytech2023.)
+#   2. Ensure the repo has access to GitHub Models — true by default for any
+#      repo on github.com; no extra config.
+
+name: architecture-drift-check
+
+on:
+  schedule:
+    - cron: "0 9 * * *"  # 09:00 UTC daily — after google-ads sync/reconcile at 05:00 so spend data is fresh
+  workflow_dispatch: {}   # also manually triggerable from the Actions tab
+
+permissions:
+  contents: read
+  issues: write
+  models: read           # required for the GitHub Models inference call
+
+concurrency:
+  group: architecture-drift-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout autoclaw-web
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Checkout autoclaw-technical-architecture-design (sibling repo)
+        uses: actions/checkout@v4
+        with:
+          repository: jytechllc/autoclaw-technical-architecture-design
+          token: ${{ secrets.ARCH_REPO_TOKEN }}
+          path: arch-design
+          fetch-depth: 1
+
+      - name: Snapshot codebase (file tree + key exports + config)
+        id: codebase
+        run: |
+          set -euo pipefail
+          OUT=/tmp/codebase.md
+          {
+            echo "# autoclaw-web codebase snapshot"
+            echo "_Generated $(date -u +%Y-%m-%dT%H:%M:%SZ) from commit ${GITHUB_SHA}._"
+            echo
+
+            echo "## Top-level layout"
+            ls -1 | grep -v -E '^(node_modules|\.next|\.git|arch-design)$' | head -40
+            echo
+
+            echo "## Routes (Next.js App Router)"
+            find app -type f \( -name 'page.tsx' -o -name 'route.ts' -o -name 'layout.tsx' \) \
+              | grep -v node_modules | sort | head -150
+            echo
+
+            echo "## Python serverless (api/*.py)"
+            find api -type f -name '*.py' 2>/dev/null | sort
+            echo
+
+            echo "## lib/ modules"
+            ls -1 lib/ 2>/dev/null | head -40
+            echo
+
+            echo "## Key exports from lib/google-ads.ts"
+            grep -E "^export (async )?function|^export (interface|type|const)" lib/google-ads.ts 2>/dev/null | head -60
+            echo
+
+            echo "## Key exports from lib/credits.ts"
+            grep -E "^export (async )?function|^export (interface|type|const)" lib/credits.ts 2>/dev/null
+            echo
+
+            echo "## Key exports from lib/billing.ts"
+            grep -E "^export (async )?function|^export (interface|type|const)" lib/billing.ts 2>/dev/null
+            echo
+
+            echo "## vercel.json"
+            cat vercel.json 2>/dev/null || echo "(missing)"
+            echo
+
+            echo "## next.config.ts"
+            head -40 next.config.ts 2>/dev/null || echo "(missing)"
+            echo
+
+            echo "## package.json scripts + key deps"
+            jq '{scripts, dependencies: (.dependencies | to_entries | map(select(.key | test("^(@?next|@?auth0|@neondatabase|stripe|fastapi|react)"))) | from_entries)}' \
+              package.json 2>/dev/null || cat package.json
+            echo
+
+            echo "## pyproject.toml"
+            cat pyproject.toml 2>/dev/null || echo "(missing)"
+            echo
+
+            echo "## Locales present in lib/i18n/"
+            ls -1 lib/i18n/*.ts 2>/dev/null | sed 's|lib/i18n/||;s|\.ts$||' | sort
+            echo
+
+            echo "## Cron route handlers (these should match autoclaw-worker's dispatcher)"
+            find app/api/cron -type f -name 'route.ts' 2>/dev/null | sort
+          } > "$OUT"
+          echo "path=$OUT" >> "$GITHUB_OUTPUT"
+          wc -l "$OUT"
+
+      - name: Concatenate architecture docs
+        id: arch
+        run: |
+          set -euo pipefail
+          OUT=/tmp/arch.md
+          {
+            for f in arch-design/README.md arch-design/overview.md arch-design/glossary.md; do
+              if [ -f "$f" ]; then echo "=== $f ==="; cat "$f"; echo; fi
+            done
+            for f in arch-design/system/*.md; do
+              if [ -f "$f" ]; then echo "=== $f ==="; cat "$f"; echo; fi
+            done
+            for f in arch-design/adrs/*.md; do
+              if [ -f "$f" ]; then echo "=== $f ==="; cat "$f"; echo; fi
+            done
+          } > "$OUT"
+          echo "path=$OUT" >> "$GITHUB_OUTPUT"
+          wc -l "$OUT"
+
+      - name: Build prompt JSON
+        id: prompt
+        run: |
+          set -euo pipefail
+          SYSTEM='You audit the autoclaw-web codebase against its technical architecture design docs. Both will be provided.
+
+Output a concise GitHub-flavored markdown report with these exact section headings (keep order, omit none):
+
+## ⚠️ Code drift
+The code does X but the design says Y. List with file paths and the contradicting design clause.
+
+## 📝 Doc drift
+The design says X but the code does not have it (or has it differently). List with the design doc path and what the code actually does.
+
+## 🆕 In code, not in design
+New things in the codebase (routes, lib modules, tables, env vars, cron jobs) the design has not been updated to mention.
+
+## ✅ Aligned wins
+2-4 short bullets calling out where code and design genuinely match. This is the morale section — keep it grounded, not flattering.
+
+## 🎯 Suggested actions
+Concrete next steps: which file to edit, which ADR to write, which doc to update. 1-2 lines each.
+
+Rules:
+- Cite specific file paths from both sides.
+- Skip nits and style. Only flag drift that would mislead a new engineer.
+- If a section has nothing real, write "_(none worth flagging today)_".
+- Total report under 600 words.'
+
+          jq -n \
+            --arg system "$SYSTEM" \
+            --rawfile arch /tmp/arch.md \
+            --rawfile code /tmp/codebase.md \
+            '{
+              model: "gpt-4o-mini",
+              temperature: 0.2,
+              messages: [
+                { role: "system", content: $system },
+                { role: "user", content: ("ARCHITECTURE DESIGN DOCS:\n\n" + $arch + "\n\n---\n\nCODEBASE SNAPSHOT:\n\n" + $code) }
+              ]
+            }' > /tmp/payload.json
+          wc -c /tmp/payload.json
+
+      - name: Call GitHub Models (gpt-4o-mini)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          RAW=$(curl -sS --fail-with-body -X POST \
+            https://models.inference.ai.azure.com/chat/completions \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d @/tmp/payload.json) || {
+              echo "::error::GitHub Models call failed"
+              echo "$RAW"
+              exit 1
+            }
+          echo "$RAW" > /tmp/raw-response.json
+          jq -r '.choices[0].message.content // .error // "(empty response)"' /tmp/raw-response.json > /tmp/drift.md
+          echo "---preview---"
+          head -40 /tmp/drift.md
+
+      - name: Update or open tracking issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          DATE=$(date -u +%Y-%m-%d)
+          # Ensure the label exists (no-op if it does).
+          gh label create architecture-drift --color "fbca04" --description "Daily drift report vs autoclaw-technical-architecture-design" 2>/dev/null || true
+
+          # Find the open tracking issue (or create one).
+          ISSUE=$(gh issue list --label architecture-drift --state open --json number -q '.[0].number' || echo "")
+
+          BODY="### Architecture drift report — ${DATE}\n\nCompared \`${GITHUB_SHA:0:7}\` (autoclaw-web) against the latest commit of \`jytechllc/autoclaw-technical-architecture-design\`.\n\n$(cat /tmp/drift.md)"
+
+          if [ -z "$ISSUE" ]; then
+            gh issue create \
+              --title "🏗️ Architecture drift tracker" \
+              --label architecture-drift \
+              --body "This issue is auto-updated daily by \`.github/workflows/architecture-drift-check.yml\`. Each run appends a comment with the latest drift report.
+
+Close this issue only after triaging all four sections of the most recent comment. The workflow will open a new tracker on the next run if no open issue with this label exists.
+
+$(printf "%b" "$BODY")"
+          else
+            printf "%b" "$BODY" | gh issue comment "$ISSUE" --body-file -
+          fi
