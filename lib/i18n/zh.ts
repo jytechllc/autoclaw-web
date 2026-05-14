@@ -1560,6 +1560,7 @@ const zh: typeof en = {
     rename: "重命名",
     renameTooltip: "重命名广告系列",
     renameDone: "已重命名",
+    ownerProject: "归属",
     save: "保存",
     youtubeUrlLabel: "YouTube 视频 URL 或 ID",
     longHeadlineLabel: "长标题（最多 90 字符）",

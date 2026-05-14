@@ -1581,6 +1581,7 @@ const en = {
     rename: "Rename",
     renameTooltip: "Rename campaign",
     renameDone: "Campaign renamed",
+    ownerProject: "Owner",
     save: "Save",
     youtubeUrlLabel: "YouTube video URL or ID",
     longHeadlineLabel: "Long headline (max 90 chars)",

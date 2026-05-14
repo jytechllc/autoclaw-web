@@ -24,6 +24,9 @@ interface CampaignRow {
   closed: boolean;
   created_at: string;
   updated_at: string;
+  project_id: number | null;
+  project_name: string | null;
+  project_website: string | null;
 }
 
 interface Detail {
@@ -788,6 +791,11 @@ export default function CampaignDetailPage() {
                 </div>
               )}
               <div className="flex flex-wrap gap-2 mt-2 text-xs">
+                {campaign.project_name && (
+                  <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200" title={campaign.project_website ? `Owner project — ${campaign.project_website}` : "Owner project"}>
+                    {t.ownerProject || "Owner"}: {campaign.project_name}
+                  </span>
+                )}
                 <span
                   className="px-2 py-0.5 rounded-full bg-gray-50 text-gray-500 font-mono border border-gray-200 cursor-pointer hover:bg-gray-100"
                   title={`${campaign.platform_campaign_id}\nClick to copy`}

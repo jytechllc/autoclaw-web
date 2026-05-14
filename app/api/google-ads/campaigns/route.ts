@@ -60,6 +60,11 @@ async function ensureAdsTables() {
   await sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS reserved_cents BIGINT DEFAULT 0`;
   await sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS spent_cents BIGINT DEFAULT 0`;
   await sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS closed BOOLEAN DEFAULT false`;
+  // Owner project — per Epic 2 in autoclaw-business-architecture-design.
+  // Nullable + ON DELETE SET NULL so deleting a project doesn't orphan campaigns;
+  // they fall back to "no project" status until reassigned.
+  await sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_campaigns_project_id ON campaigns(project_id) WHERE project_id IS NOT NULL`;
   await ensureAdCreditsTables(sql);
 }
 
@@ -105,11 +110,13 @@ export async function GET(req: NextRequest) {
   if (!orgId) return NextResponse.json({ campaigns: [] });
 
   const rows = await sql`
-    SELECT id, platform_campaign_id, campaign_name, channel, daily_budget, currency, status,
-           total_budget_cents, reserved_cents, spent_cents, closed, created_at
-    FROM campaigns
-    WHERE org_id = ${orgId} AND platform = 'google'
-    ORDER BY created_at DESC
+    SELECT c.id, c.platform_campaign_id, c.campaign_name, c.channel, c.daily_budget, c.currency, c.status,
+           c.total_budget_cents, c.reserved_cents, c.spent_cents, c.closed, c.created_at,
+           c.project_id, p.name AS project_name, p.website AS project_website
+    FROM campaigns c
+    LEFT JOIN projects p ON p.id = c.project_id
+    WHERE c.org_id = ${orgId} AND c.platform = 'google'
+    ORDER BY c.created_at DESC
   `;
   return NextResponse.json({ campaigns: rows, orgId });
 }
@@ -131,6 +138,9 @@ export async function POST(req: NextRequest) {
   const dailyBudget = Number(body.dailyBudget);
   const totalBudget = Number(body.totalBudget);
   const channel = String(body.channel || "SEARCH").toUpperCase();
+  const projectIdInput = body.projectId !== undefined && body.projectId !== null
+    ? Number(body.projectId)
+    : null;
 
   if (!name) return NextResponse.json({ error: "name is required" }, { status: 400 });
   if (!Number.isFinite(dailyBudget) || dailyBudget <= 0) {
@@ -161,6 +171,17 @@ export async function POST(req: NextRequest) {
   const requestedOrgId = body.orgId ? Number(body.orgId) : undefined;
   const orgId = await resolveOrgId(sql, userId, requestedOrgId);
   if (!orgId) return NextResponse.json({ error: requestedOrgId ? "Forbidden — not a member of that org" : "No organization found" }, { status: 400 });
+
+  // Owner project — must belong to the same org if supplied. Nullable: callers
+  // without a project picker yet (legacy UI) keep working.
+  let projectId: number | null = null;
+  if (projectIdInput !== null && Number.isFinite(projectIdInput) && projectIdInput > 0) {
+    const projectRows = await sql`SELECT id FROM projects WHERE id = ${projectIdInput} AND org_id = ${orgId}`;
+    if (projectRows.length === 0) {
+      return NextResponse.json({ error: "projectId does not belong to this organization" }, { status: 400 });
+    }
+    projectId = Number(projectRows[0].id);
+  }
 
   // Reserve credits BEFORE calling Google Ads — protect platform funds.
   // totalBudgetCents is the Google-side cap; pool reserves the marked-up amount.
@@ -205,13 +226,13 @@ export async function POST(req: NextRequest) {
   const adAccountId = await ensureGoogleAdAccount(sql, orgId, userId, customerId);
   const inserted = await sql`
     INSERT INTO campaigns
-      (org_id, ad_account_id, platform, platform_campaign_id, campaign_name, channel,
+      (org_id, project_id, ad_account_id, platform, platform_campaign_id, campaign_name, channel,
        daily_budget, status, created_by, total_budget_cents, reserved_cents, spent_cents, closed)
     VALUES
-      (${orgId}, ${adAccountId}, 'google', ${result.campaign}, ${name}, ${channel},
+      (${orgId}, ${projectId}, ${adAccountId}, 'google', ${result.campaign}, ${name}, ${channel},
        ${dailyBudget}, 'PAUSED', ${userId}, ${totalBudgetCents}, ${totalBudgetCents}, 0, false)
     ON CONFLICT (platform, platform_campaign_id)
-    DO UPDATE SET campaign_name = EXCLUDED.campaign_name, updated_at = NOW()
+    DO UPDATE SET campaign_name = EXCLUDED.campaign_name, project_id = EXCLUDED.project_id, updated_at = NOW()
     RETURNING id
   `;
   const campaignId = inserted[0].id as number;

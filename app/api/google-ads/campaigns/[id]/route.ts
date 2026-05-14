@@ -37,10 +37,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   if (!orgId) return NextResponse.json({ error: "No organization found" }, { status: 400 });
 
   const rows = await sql`
-    SELECT id, platform_campaign_id, campaign_name, channel, daily_budget, currency, status,
-           total_budget_cents, reserved_cents, spent_cents, closed, created_at, updated_at
-    FROM campaigns
-    WHERE id = ${campaignId} AND org_id = ${orgId} AND platform = 'google'
+    SELECT c.id, c.platform_campaign_id, c.campaign_name, c.channel, c.daily_budget, c.currency, c.status,
+           c.total_budget_cents, c.reserved_cents, c.spent_cents, c.closed, c.created_at, c.updated_at,
+           c.project_id, p.name AS project_name, p.website AS project_website
+    FROM campaigns c
+    LEFT JOIN projects p ON p.id = c.project_id
+    WHERE c.id = ${campaignId} AND c.org_id = ${orgId} AND c.platform = 'google'
   `;
   if (rows.length === 0) return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
 
@@ -80,7 +82,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const body = await req.json().catch(() => ({}));
   const action = String(body.action || "");
-  const validActions = ["pause", "enable", "close", "rename", "set_total_budget", "set_daily_budget", "set_schedule"];
+  const validActions = ["pause", "enable", "close", "rename", "set_total_budget", "set_daily_budget", "set_schedule", "set_project"];
   if (!validActions.includes(action)) {
     return NextResponse.json({ error: `action must be one of: ${validActions.join(", ")}` }, { status: 400 });
   }
@@ -253,6 +255,28 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       ipAddress: ip,
     });
     return NextResponse.json({ success: true, startDate, endDate });
+  }
+
+  if (action === "set_project") {
+    // Reassign the campaign's owner project. null clears the assignment.
+    const requestedProjectId = body.projectId === null ? null : Number(body.projectId);
+    if (requestedProjectId !== null && (!Number.isFinite(requestedProjectId) || requestedProjectId <= 0)) {
+      return NextResponse.json({ error: "projectId must be a positive integer or null" }, { status: 400 });
+    }
+    if (requestedProjectId !== null) {
+      const projectRows = await sql`SELECT id FROM projects WHERE id = ${requestedProjectId} AND org_id = ${orgId}`;
+      if (projectRows.length === 0) {
+        return NextResponse.json({ error: "projectId does not belong to this organization" }, { status: 400 });
+      }
+    }
+    await sql`UPDATE campaigns SET project_id = ${requestedProjectId}, updated_at = NOW() WHERE id = ${campaignId}`;
+    logAudit({
+      userId, userEmail,
+      action: "google_ads.create_campaign",
+      resourceType: "campaign", resourceId: campaignId,
+      details: { sub_action: "set_project", projectId: requestedProjectId }, ipAddress: ip,
+    });
+    return NextResponse.json({ success: true, projectId: requestedProjectId });
   }
 
   if (action === "pause" || action === "enable") {

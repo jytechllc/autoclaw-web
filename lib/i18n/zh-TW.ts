@@ -1556,6 +1556,7 @@ const zhTW: typeof en = {
     rename: "重新命名",
     renameTooltip: "重新命名廣告活動",
     renameDone: "已重新命名",
+    ownerProject: "歸屬",
     save: "儲存",
     youtubeUrlLabel: "YouTube 影片 URL 或 ID",
     longHeadlineLabel: "長標題（最多 90 字元）",

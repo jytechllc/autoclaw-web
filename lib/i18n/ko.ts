@@ -1550,6 +1550,7 @@ const ko = {
     rename: "이름 변경",
     renameTooltip: "캠페인 이름 변경",
     renameDone: "이름 변경됨",
+    ownerProject: "소유 프로젝트",
     save: "저장",
     youtubeUrlLabel: "YouTube 동영상 URL 또는 ID",
     longHeadlineLabel: "긴 헤드라인 (최대 90자)",
