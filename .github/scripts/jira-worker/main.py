@@ -341,6 +341,7 @@ def mode_triage_and_complete() -> int:
             # Stop early: we only complete one ticket per run anyway. No point
             # burning the remaining triage budget on more candidates.
             print(f"  found a SCRIPTABLE candidate; stopping triage to save budget for COMPLETE")
+            print(f"  scope: {json.dumps(decision.get('scope', {}))}")
             break
 
     if not candidates:
@@ -365,9 +366,22 @@ def mode_complete(issue: dict, decision: dict) -> int:
     scope = decision.get("scope", {})
     file_paths = list(scope.get("files_to_create", [])) + list(scope.get("files_to_modify", []))
 
+    print(f"COMPLETE: {key} — {summary}")
+    print(f"  triage scope paths: {file_paths or '(none)'}")
+
+    if not file_paths:
+        # Triage said SCRIPTABLE but didn't give us a scope. The COMPLETE
+        # call can still work (the LLM will propose paths in its output)
+        # but we won't know what to read in for context. Bail with a Jira
+        # note so a human can re-triage.
+        post_jira_comment(key, "Bot stopped: triage marked this SCRIPTABLE but didn't propose any file paths in `scope`. Needs a human pass.")
+        print(f"  no scope paths; skipping {key}")
+        return 0
+
     for p in file_paths:
         if not is_path_allowed(p):
             post_jira_comment(key, f"Triage suggested writing `{p}`, which is outside the bot's allowlist. Refusing to auto-complete; needs human review.")
+            print(f"  disallowed path {p}; skipping {key}")
             return 0
 
     # Read current content of files-to-modify

@@ -100,9 +100,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           DRY_RUN: ${{ inputs.dry_run }}
+          PYTHONUNBUFFERED: "1"
         run: |
           if [ "${{ inputs.mode }}" = "replenish" ]; then
-            python .github/scripts/jira-worker/main.py replenish
+            python -u .github/scripts/jira-worker/main.py replenish
           else
-            python .github/scripts/jira-worker/main.py
+            python -u .github/scripts/jira-worker/main.py
           fi
