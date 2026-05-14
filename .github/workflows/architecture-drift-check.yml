@@ -15,23 +15,24 @@
 #      github.com/settings/personal-access-tokens/new (as jytech2023);
 #      under "Resource owner" pick `jytechllc`.
 #
-#   2. MODELS_TOKEN
-#      GitHub Models inference token. The `Models: read` permission is
-#      ONLY available on personal-scope PATs — org-scoped fine-grained
-#      PATs don't expose it. Generate one of:
-#        (a) Classic PAT at github.com/settings/tokens/new with the
-#            `models:read` scope checked, OR
-#        (b) Fine-grained PAT at /settings/personal-access-tokens/new
-#            with "Resource owner" = your **personal** account (jytech2023,
-#            not jytechllc) and "Account permissions → Models: Read-only".
-#      Either token works; the workflow only uses it to call the GitHub
-#      Models inference endpoint.
+#   2. MODELS_TOKEN  (optional if the org enables Models for the repo)
+#      GitHub Models inference token. The `Models: Read-only` permission
+#      is ONLY available on **fine-grained personal-scope** PATs —
+#      classic PATs do not expose a `models:read` scope, and org-scoped
+#      fine-grained PATs do not expose the Models permission. Generate at
+#        github.com/settings/personal-access-tokens/new
+#      with:
+#        - Resource owner: your **personal** account (jytech2023, not jytechllc)
+#        - Repository access: Public repositories (none required for
+#          Models calls; Models is an account-level resource)
+#        - Account permissions → Models: Read-only
 #
 # Alternative to MODELS_TOKEN: have a jytechllc org admin enable GitHub
-# Models for this repo at the org level. Then the workflow's auto
-# GITHUB_TOKEN (with `permissions: models: read`) can call Models directly
-# and MODELS_TOKEN becomes unnecessary. As of 2026-05 the workflow falls
-# back to GITHUB_TOKEN when MODELS_TOKEN is empty.
+# Models access for autoclaw-web at the org level (org Settings → Models →
+# select repos / "All repositories"). Then the workflow's auto
+# GITHUB_TOKEN with `permissions: models: read` can call Models directly
+# and MODELS_TOKEN is unnecessary. The workflow falls back to
+# GITHUB_TOKEN when MODELS_TOKEN is empty.
 
 name: architecture-drift-check
 
