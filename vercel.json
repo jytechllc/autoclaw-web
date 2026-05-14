@@ -28,5 +28,11 @@
       "path": "/api/cron/google-ads-reconcile",
       "schedule": "0 5 * * *"
     }
+  ],
+  "rewrites": [
+    {
+      "source": "/api/py/:path*",
+      "destination": "/api/index"
+    }
   ]
 }

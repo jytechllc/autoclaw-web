@@ -1,0 +1,5 @@
+# Python deps for the Vercel-hosted FastAPI app in api/index.py.
+# Vercel auto-installs these when it detects api/*.py files at the project root.
+# Keep tight version pins out — Vercel resolves transitive deps and we want
+# security patches in.
+fastapi
