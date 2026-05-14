@@ -1,0 +1,191 @@
+# Daily progress journal: every evening (UTC), summarize what shipped across
+# autoclaw-web, autoclaw-worker, and the architecture-design repo, and rate
+# how each pillar of the SMB scorecard moved.
+#
+# Output goes to a fresh GitHub issue per day, labeled `accomplishment-review`,
+# titled like "📅 Daily review — 2026-05-14".
+#
+# Required setup (one-time):
+#
+#   1. ARCH_REPO_TOKEN  — fine-grained PAT scoped to
+#      `jytechllc/autoclaw-technical-architecture-design` with
+#      `Contents: Read`. Generated at
+#        github.com/settings/personal-access-tokens/new (Resource owner = jytechllc).
+#
+#   2. WORKER_REPO_TOKEN — fine-grained PAT scoped to
+#      `dotku/autoclaw-worker` with `Contents: Read`. Needed because the
+#      worker is in a different account (dotku, not jytechllc) and the auto
+#      GITHUB_TOKEN can't reach it. Generated under the personal account
+#      that owns dotku.
+#      OPTIONAL — if absent, the worker commit log is skipped and the
+#      review only covers autoclaw-web + architecture docs.
+#
+#   3. MODELS_TOKEN — optional fine-grained personal PAT with
+#      `Models: Read-only`. If absent the workflow uses the auto
+#      GITHUB_TOKEN with `permissions: models: read`, which works whenever
+#      a jytechllc org admin has enabled Models access for this repo at
+#      the org level (confirmed working as of 2026-05-14).
+
+name: daily-accomplishment-review
+
+on:
+  schedule:
+    - cron: "0 23 * * *"  # 23:00 UTC daily ≈ end of US-west business day
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+  models: read
+
+concurrency:
+  group: daily-accomplishment-review
+  cancel-in-progress: false
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout autoclaw-web (last 7 days of history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+
+      - name: Checkout autoclaw-technical-architecture-design
+        uses: actions/checkout@v4
+        with:
+          repository: jytechllc/autoclaw-technical-architecture-design
+          token: ${{ secrets.ARCH_REPO_TOKEN }}
+          path: arch-design
+          fetch-depth: 50
+
+      - name: Checkout autoclaw-worker (optional — siblings in different account)
+        uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          repository: dotku/autoclaw-worker
+          token: ${{ secrets.WORKER_REPO_TOKEN }}
+          path: worker
+          fetch-depth: 50
+
+      - name: Collect commit logs from the last 24h
+        run: |
+          set -euo pipefail
+          SINCE="24 hours ago"
+          {
+            echo "## autoclaw-web (jytechllc/autoclaw-web)"
+            git log --since="$SINCE" --pretty=format:"- \`%h\` %ad %s%n%b" --date=short --no-merges
+            echo
+            echo
+            echo "### Files changed in autoclaw-web (last 24h)"
+            git log --since="$SINCE" --name-only --pretty=format: --no-merges | grep -v '^$' | sort -u | head -100
+            echo
+          } > /tmp/commits.md
+
+          if [ -d arch-design/.git ]; then
+            {
+              echo
+              echo "## autoclaw-technical-architecture-design"
+              cd arch-design
+              git log --since="$SINCE" --pretty=format:"- \`%h\` %ad %s%n%b" --date=short --no-merges
+              echo
+              echo "### Files changed (last 24h)"
+              git log --since="$SINCE" --name-only --pretty=format: --no-merges | grep -v '^$' | sort -u | head -50
+            } >> /tmp/commits.md
+          fi
+
+          if [ -d worker/.git ]; then
+            {
+              echo
+              echo "## autoclaw-worker (dotku/autoclaw-worker)"
+              cd worker
+              git log --since="$SINCE" --pretty=format:"- \`%h\` %ad %s%n%b" --date=short --no-merges
+              echo
+              echo "### Files changed (last 24h)"
+              git log --since="$SINCE" --name-only --pretty=format: --no-merges | grep -v '^$' | sort -u | head -50
+            } >> /tmp/commits.md
+          fi
+
+          echo "---commit-log summary---"
+          wc -l /tmp/commits.md
+          head -40 /tmp/commits.md
+
+      - name: Build prompt JSON
+        run: |
+          set -euo pipefail
+          # GitHub Models free tier caps requests at ~8k tokens (~28k chars).
+          # Trim each input so input + system + envelope < 7k tokens, leaving
+          # room for ~1k tokens of output.
+          head -c 14000 arch-design/accomplishment.md > /tmp/scorecard-trim.md
+          head -c 11000 /tmp/commits.md > /tmp/commits-trim.md
+          if [ "$(wc -c < arch-design/accomplishment.md)" -gt 14000 ]; then
+            echo "(scorecard truncated — see https://github.com/jytechllc/autoclaw-technical-architecture-design/blob/main/accomplishment.md)" >> /tmp/scorecard-trim.md
+          fi
+          if [ "$(wc -c < /tmp/commits.md)" -gt 11000 ]; then
+            echo "(commit log truncated)" >> /tmp/commits-trim.md
+          fi
+
+          jq -n \
+            --rawfile system .github/scripts/accomplishment-system-prompt.md \
+            --rawfile scorecard /tmp/scorecard-trim.md \
+            --rawfile commits /tmp/commits-trim.md \
+            --arg date "$(date -u +%Y-%m-%d)" \
+            '{
+              model: "gpt-4o",
+              temperature: 0.2,
+              max_tokens: 1200,
+              messages: [
+                { role: "system", content: $system },
+                { role: "user",   content: ("REVIEW DATE: " + $date + "\n\nCURRENT SCORECARD (autoclaw-technical-architecture-design/accomplishment.md):\n\n" + $scorecard + "\n\n---\n\nCOMMITS IN THE LAST 24 HOURS:\n\n" + $commits) }
+              ]
+            }' > /tmp/payload.json
+          echo "payload bytes: $(wc -c < /tmp/payload.json)"
+
+      - name: Call GitHub Models (gpt-4o)
+        env:
+          MODELS_TOKEN: ${{ secrets.MODELS_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TOKEN="${MODELS_TOKEN:-$GITHUB_TOKEN}"
+          RAW=$(curl -sS --fail-with-body -X POST \
+            https://models.inference.ai.azure.com/chat/completions \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d @/tmp/payload.json) || {
+              echo "::error::GitHub Models call failed"
+              echo "$RAW"
+              exit 1
+            }
+          echo "$RAW" > /tmp/raw-response.json
+          jq -r '.choices[0].message.content // .error // "(empty response)"' /tmp/raw-response.json > /tmp/review.md
+          echo "---preview---"
+          head -40 /tmp/review.md
+
+      - name: Open daily review issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          DATE=$(date -u +%Y-%m-%d)
+          gh label create accomplishment-review --color "0e8a16" --description "Daily progress review (autogenerated by .github/workflows/daily-accomplishment-review.yml)" 2>/dev/null || true
+
+          # If an issue with today's date already exists, append a comment
+          # instead of opening a duplicate (handles manual re-runs).
+          TITLE="📅 Daily review — ${DATE}"
+          EXISTING=$(gh issue list --label accomplishment-review --search "$TITLE in:title" --json number -q '.[0].number' || echo "")
+
+          {
+            printf '_Generated %s UTC from commit `%s`._\n\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${GITHUB_SHA:0:7}"
+            cat /tmp/review.md
+            printf '\n\n---\n_Want to change cadence or output? Edit `.github/workflows/daily-accomplishment-review.yml` and `.github/scripts/accomplishment-system-prompt.md`._\n'
+          } > /tmp/issue-body.md
+
+          if [ -z "$EXISTING" ]; then
+            gh issue create \
+              --title "$TITLE" \
+              --label accomplishment-review \
+              --body-file /tmp/issue-body.md
+          else
+            gh issue comment "$EXISTING" --body-file /tmp/issue-body.md
+          fi
