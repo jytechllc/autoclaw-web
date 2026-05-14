@@ -6,15 +6,32 @@
 # four categories. The report is appended as a comment to a single tracking
 # issue labeled `architecture-drift` (or that issue is opened on first run).
 #
-# Required setup (one-time):
-#   1. Settings → Secrets and variables → Actions → New repository secret:
-#        Name:  ARCH_REPO_TOKEN
-#        Value: A fine-grained PAT scoped to `jytechllc/autoclaw-technical-architecture-design`
-#               with `Contents: Read` permission. (Generated under
-#               github.com/settings/personal-access-tokens/new while logged in
-#               as jytech2023.)
-#   2. Ensure the repo has access to GitHub Models — true by default for any
-#      repo on github.com; no extra config.
+# Required setup (one-time) — TWO secrets:
+#
+#   1. ARCH_REPO_TOKEN
+#      Cross-repo checkout token. A fine-grained PAT scoped to
+#      `jytechllc/autoclaw-technical-architecture-design` with
+#      `Contents: Read` permission. Generated under
+#      github.com/settings/personal-access-tokens/new (as jytech2023);
+#      under "Resource owner" pick `jytechllc`.
+#
+#   2. MODELS_TOKEN
+#      GitHub Models inference token. The `Models: read` permission is
+#      ONLY available on personal-scope PATs — org-scoped fine-grained
+#      PATs don't expose it. Generate one of:
+#        (a) Classic PAT at github.com/settings/tokens/new with the
+#            `models:read` scope checked, OR
+#        (b) Fine-grained PAT at /settings/personal-access-tokens/new
+#            with "Resource owner" = your **personal** account (jytech2023,
+#            not jytechllc) and "Account permissions → Models: Read-only".
+#      Either token works; the workflow only uses it to call the GitHub
+#      Models inference endpoint.
+#
+# Alternative to MODELS_TOKEN: have a jytechllc org admin enable GitHub
+# Models for this repo at the org level. Then the workflow's auto
+# GITHUB_TOKEN (with `permissions: models: read`) can call Models directly
+# and MODELS_TOKEN becomes unnecessary. As of 2026-05 the workflow falls
+# back to GITHUB_TOKEN when MODELS_TOKEN is empty.
 
 name: architecture-drift-check
 
@@ -138,33 +155,11 @@ jobs:
         id: prompt
         run: |
           set -euo pipefail
-          SYSTEM='You audit the autoclaw-web codebase against its technical architecture design docs. Both will be provided.
-
-Output a concise GitHub-flavored markdown report with these exact section headings (keep order, omit none):
-
-## ⚠️ Code drift
-The code does X but the design says Y. List with file paths and the contradicting design clause.
-
-## 📝 Doc drift
-The design says X but the code does not have it (or has it differently). List with the design doc path and what the code actually does.
-
-## 🆕 In code, not in design
-New things in the codebase (routes, lib modules, tables, env vars, cron jobs) the design has not been updated to mention.
-
-## ✅ Aligned wins
-2-4 short bullets calling out where code and design genuinely match. This is the morale section — keep it grounded, not flattering.
-
-## 🎯 Suggested actions
-Concrete next steps: which file to edit, which ADR to write, which doc to update. 1-2 lines each.
-
-Rules:
-- Cite specific file paths from both sides.
-- Skip nits and style. Only flag drift that would mislead a new engineer.
-- If a section has nothing real, write "_(none worth flagging today)_".
-- Total report under 600 words.'
-
+          # System prompt lives in its own file (.github/scripts/drift-system-prompt.md)
+          # to keep this YAML clean — multi-line strings with markdown headers
+          # and # characters confuse YAML block-scalar parsing.
           jq -n \
-            --arg system "$SYSTEM" \
+            --rawfile system .github/scripts/drift-system-prompt.md \
             --rawfile arch /tmp/arch.md \
             --rawfile code /tmp/codebase.md \
             '{
@@ -179,12 +174,18 @@ Rules:
 
       - name: Call GitHub Models (gpt-4o-mini)
         env:
+          # MODELS_TOKEN is a personal-scope PAT with `models:read` (org-scoped
+          # PATs cannot grant that permission today). Falls back to the auto
+          # GITHUB_TOKEN if the secret is unset — that works only if a
+          # jytechllc org admin has enabled GitHub Models for this repo.
+          MODELS_TOKEN: ${{ secrets.MODELS_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          TOKEN="${MODELS_TOKEN:-$GITHUB_TOKEN}"
           RAW=$(curl -sS --fail-with-body -X POST \
             https://models.inference.ai.azure.com/chat/completions \
-            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Authorization: Bearer $TOKEN" \
             -H "Content-Type: application/json" \
             -d @/tmp/payload.json) || {
               echo "::error::GitHub Models call failed"
@@ -205,20 +206,24 @@ Rules:
           # Ensure the label exists (no-op if it does).
           gh label create architecture-drift --color "fbca04" --description "Daily drift report vs autoclaw-technical-architecture-design" 2>/dev/null || true
 
-          # Find the open tracking issue (or create one).
+          # Compose the comment body in a temp file to keep this YAML free of multi-line shell strings.
+          {
+            printf '### Architecture drift report — %s\n\n' "$DATE"
+            printf 'Compared `%s` (autoclaw-web) against the latest commit of `jytechllc/autoclaw-technical-architecture-design`.\n\n' "${GITHUB_SHA:0:7}"
+            cat /tmp/drift.md
+          } > /tmp/comment.md
+
           ISSUE=$(gh issue list --label architecture-drift --state open --json number -q '.[0].number' || echo "")
-
-          BODY="### Architecture drift report — ${DATE}\n\nCompared \`${GITHUB_SHA:0:7}\` (autoclaw-web) against the latest commit of \`jytechllc/autoclaw-technical-architecture-design\`.\n\n$(cat /tmp/drift.md)"
-
           if [ -z "$ISSUE" ]; then
+            {
+              printf 'This issue is auto-updated daily by `.github/workflows/architecture-drift-check.yml`. Each run appends a comment with the latest drift report.\n\n'
+              printf 'Close this issue only after triaging all sections of the most recent comment. The workflow opens a new tracker on the next run if no open issue with this label exists.\n\n'
+              cat /tmp/comment.md
+            } > /tmp/issue-body.md
             gh issue create \
               --title "🏗️ Architecture drift tracker" \
               --label architecture-drift \
-              --body "This issue is auto-updated daily by \`.github/workflows/architecture-drift-check.yml\`. Each run appends a comment with the latest drift report.
-
-Close this issue only after triaging all four sections of the most recent comment. The workflow will open a new tracker on the next run if no open issue with this label exists.
-
-$(printf "%b" "$BODY")"
+              --body-file /tmp/issue-body.md
           else
-            printf "%b" "$BODY" | gh issue comment "$ISSUE" --body-file -
+            gh issue comment "$ISSUE" --body-file /tmp/comment.md
           fi
