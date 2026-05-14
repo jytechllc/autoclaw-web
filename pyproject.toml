@@ -1,0 +1,21 @@
+[project]
+name = "autoclaw-web-py"
+version = "0.1.0"
+description = "Python serverless functions hosted alongside the Next.js autoclaw-web app on Vercel."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+]
+
+# Managed by `uv`. Workflow:
+#   uv add <pkg>          # add a dep (updates pyproject.toml + uv.lock)
+#   uv lock               # refresh uv.lock without changing deps
+#   uv export --format requirements-txt --no-hashes -o requirements.txt
+#                         # regenerate the pinned requirements.txt that Vercel installs
+#
+# Source of truth: pyproject.toml + uv.lock
+# Vercel-facing:    requirements.txt (committed, regenerated on dep changes)
+
+[tool.uv]
+package = false
