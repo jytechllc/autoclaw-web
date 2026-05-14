@@ -156,22 +156,36 @@ jobs:
         id: prompt
         run: |
           set -euo pipefail
+          # GitHub Models free tier caps request size at ~8k tokens
+          # (~28k chars). Truncate each input to ~11k chars to leave headroom
+          # for system prompt + JSON envelope + output. If the audit ever feels
+          # shallow, move to a model with a bigger free quota (see
+          # https://docs.github.com/en/github-models/use-github-models/prototyping-with-ai-models)
+          # rather than raising these caps.
+          head -c 11000 /tmp/arch.md > /tmp/arch-trim.md
+          head -c 11000 /tmp/codebase.md > /tmp/codebase-trim.md
+          if [ "$(wc -c < /tmp/arch.md)" -gt 11000 ]; then
+            echo "(arch docs truncated to first 11k chars — full set in jytechllc/autoclaw-technical-architecture-design)" >> /tmp/arch-trim.md
+          fi
+          if [ "$(wc -c < /tmp/codebase.md)" -gt 11000 ]; then
+            echo "(codebase snapshot truncated to first 11k chars)" >> /tmp/codebase-trim.md
+          fi
           # System prompt lives in its own file (.github/scripts/drift-system-prompt.md)
-          # to keep this YAML clean — multi-line strings with markdown headers
-          # and # characters confuse YAML block-scalar parsing.
+          # to keep this YAML clean.
           jq -n \
             --rawfile system .github/scripts/drift-system-prompt.md \
-            --rawfile arch /tmp/arch.md \
-            --rawfile code /tmp/codebase.md \
+            --rawfile arch /tmp/arch-trim.md \
+            --rawfile code /tmp/codebase-trim.md \
             '{
-              model: "gpt-4o-mini",
+              model: "gpt-4o",
               temperature: 0.2,
+              max_tokens: 1200,
               messages: [
                 { role: "system", content: $system },
                 { role: "user", content: ("ARCHITECTURE DESIGN DOCS:\n\n" + $arch + "\n\n---\n\nCODEBASE SNAPSHOT:\n\n" + $code) }
               ]
             }' > /tmp/payload.json
-          wc -c /tmp/payload.json
+          echo "payload bytes: $(wc -c < /tmp/payload.json)"
 
       - name: Call GitHub Models (gpt-4o-mini)
         env:
