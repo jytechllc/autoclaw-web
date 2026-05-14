@@ -1,0 +1,108 @@
+# Overnight Jira worker.
+#
+# Daily at 08:00 UTC, run .github/scripts/jira-worker/main.py to:
+#   1. Triage open TODO tickets in the KAN project via GitHub Models.
+#   2. Complete one SCRIPTABLE ticket: write files inside a safe allowlist,
+#      run `tsc --noEmit`, commit to a feature branch, open a *draft* PR
+#      labelled `ai-generated`, comment on Jira, transition to In Review.
+#   3. If no SCRIPTABLE tickets exist, switch to REPLENISH mode and propose
+#      3–5 new tickets based on features.md + roadmap.md.
+#
+# Required secrets (Settings → Secrets and variables → Actions):
+#   JIRA_API_TOKEN     — Atlassian API token (classic, ATATT… prefix; include the `=NNNNNNN` checksum suffix)
+#   JIRA_EMAIL         — Atlassian account email (e.g. jytech202307@gmail.com)
+#   JIRA_SITE_URL      — https://jytech2023.atlassian.net
+#   JIRA_PROJECT_KEY   — KAN
+#   ARCH_REPO_TOKEN    — already exists; lets the bot read features.md
+#   MODELS_TOKEN       — optional; falls back to GITHUB_TOKEN. Personal PAT with models:read.
+
+name: overnight-jira-worker
+
+on:
+  schedule:
+    - cron: "0 8 * * *"   # 08:00 UTC daily ≈ midnight US-west
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Don't actually open PR / create tickets (logs only)"
+        type: boolean
+        default: false
+      mode:
+        description: "main pipeline or replenish-only"
+        type: choice
+        options: [pipeline, replenish]
+        default: pipeline
+
+permissions:
+  contents: write    # create branches + commits
+  pull-requests: write
+  issues: write
+  models: read       # GitHub Models inference
+
+concurrency:
+  group: overnight-jira-worker
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout autoclaw-web
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # need full history so feature branches push cleanly
+
+      - name: Checkout autoclaw-technical-architecture-design (into ./arch-design)
+        uses: actions/checkout@v4
+        with:
+          repository: jytechllc/autoclaw-technical-architecture-design
+          token: ${{ secrets.ARCH_REPO_TOKEN }}
+          path: arch-design
+          fetch-depth: 1
+
+      - name: Checkout autoclaw-business-architecture-design (into ./biz-design)
+        uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          repository: jytechllc/autoclaw-business-architecture-design
+          token: ${{ secrets.ARCH_REPO_TOKEN }}
+          path: biz-design
+          fetch-depth: 1
+
+      - name: Ignore sibling checkouts in the bot's working tree
+        run: |
+          # Keep these subdirs out of any branch the bot creates.
+          # Per-run only; the file is regenerated on every run.
+          echo "arch-design/" >> .git/info/exclude
+          echo "biz-design/"  >> .git/info/exclude
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install deps (for tsc validation)
+        run: npm ci
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run worker
+        env:
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_SITE_URL: ${{ secrets.JIRA_SITE_URL }}
+          JIRA_PROJECT_KEY: ${{ secrets.JIRA_PROJECT_KEY }}
+          MODELS_TOKEN: ${{ secrets.MODELS_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ "${{ inputs.mode }}" = "replenish" ]; then
+            python .github/scripts/jira-worker/main.py replenish
+          else
+            python .github/scripts/jira-worker/main.py
+          fi
