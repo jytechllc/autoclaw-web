@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth0 } from "@/lib/auth0";
 import { getDb } from "@/lib/db";
 import { chatWithAI, type ByokKeys } from "@/lib/ai";
+import { generateEmailImage } from "@/lib/xpilot-image";
 import { decrypt } from "@/lib/crypto";
 
 export const dynamic = "force-dynamic";
@@ -331,6 +332,74 @@ Reply with ONLY a JSON object (no markdown): {"template_id": <number>, "reason":
       } catch {
         return NextResponse.json({ success: false, error: "AI returned invalid format", raw: aiResp.content });
       }
+    }
+
+    // AI Image: generate a hero image for an email via xPilot.
+    // Pass `prompt` directly, or `id` to auto-write a prompt from the template.
+    // With `attach: true`, the image is embedded at the top of the template body.
+    if (action === "ai_image") {
+      const { id, prompt, model, aspect_ratio, attach } = body;
+
+      // Resolve the image prompt — explicit, or AI-written from template content.
+      let imagePrompt = (prompt as string)?.trim() || "";
+      let tpl: Record<string, unknown> | null = null;
+
+      if (id) {
+        const rows = await sql`SELECT * FROM email_templates WHERE id = ${id} AND user_id = ${userId}`;
+        if (rows.length === 0) return NextResponse.json({ error: "Template not found" }, { status: 404 });
+        tpl = rows[0];
+      }
+
+      if (!imagePrompt) {
+        if (!tpl) return NextResponse.json({ error: "prompt or id is required" }, { status: 400 });
+
+        // Resolve BYOK for the prompt-writing step
+        const byok: ByokKeys = {};
+        try {
+          const byokRows = await sql`
+            SELECT service, api_key FROM user_api_keys
+            WHERE user_id = ${userId} AND service IN ('openai', 'anthropic', 'google', 'alibaba', 'cerebras')
+          `;
+          for (const row of byokRows) {
+            try { byok[row.service as keyof ByokKeys] = decrypt(row.api_key as string); } catch { /* skip */ }
+          }
+        } catch { /* continue */ }
+
+        const bodyText = (tpl.body_html as string).replace(/<[^>]+>/g, " ").slice(0, 600);
+        const promptResp = await chatWithAI([{
+          role: "user",
+          content: `Write a concise image-generation prompt for a marketing email hero image. The email:
+Subject: ${tpl.subject}
+Body: ${bodyText}
+
+Reply with ONLY the image prompt (one sentence, vivid, no people's faces, no text in the image, professional marketing style).`,
+        }], 120, byok);
+        imagePrompt = promptResp.content.trim().replace(/^["']|["']$/g, "");
+      }
+
+      // Generate the image via xPilot
+      let image;
+      try {
+        image = await generateEmailImage({
+          prompt: imagePrompt,
+          model: model || undefined,
+          aspectRatio: aspect_ratio || "16:9",
+        });
+      } catch (e) {
+        return NextResponse.json({ success: false, error: e instanceof Error ? e.message : "Image generation failed" }, { status: 502 });
+      }
+
+      // Optionally embed the image at the top of the template body
+      if (attach && tpl) {
+        const imgTag = `<img src="${image.url}" alt="" style="width:100%;max-width:600px;height:auto;display:block;margin:0 auto 16px" />`;
+        await sql`
+          UPDATE email_templates
+          SET body_html = ${imgTag + "\n" + (tpl.body_html as string)}, updated_at = NOW()
+          WHERE id = ${id} AND user_id = ${userId}
+        `;
+      }
+
+      return NextResponse.json({ success: true, url: image.url, prompt: imagePrompt, model: image.model, attached: !!(attach && tpl) });
     }
 
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });

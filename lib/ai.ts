@@ -3,6 +3,8 @@ const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
 const GOOGLE_AI_API = process.env.GOOGLE_AI_API;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const ALIBABA_AI_BASE_URL = process.env.ALIBABA_AI_BASE_URL || "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
+const XPILOT_API_KEY = process.env.XPILOT_API_KEY;
+const XPILOT_BASE_URL = process.env.XPILOT_BASE_URL || "https://xpilot.jytech.us/api/v1";
 
 interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -57,6 +59,9 @@ export const AVAILABLE_MODELS: ModelInfo[] = [
   { id: "cerebras/qwen-3-235b", name: "Alibaba Qwen 3 235B", provider: "cerebras", costPer1MInput: 0, costPer1MOutput: 0, requiresByok: "cerebras" },
   { id: "cerebras/qwen-3-coder-480b", name: "Alibaba Qwen 3 Coder 480B", provider: "cerebras", costPer1MInput: 0, costPer1MOutput: 0, requiresByok: "cerebras" },
   { id: "cerebras/llama3.1-8b", name: "Meta Llama 3.1 8B", provider: "cerebras", costPer1MInput: 0, costPer1MOutput: 0, requiresByok: "cerebras" },
+  // xPilot gateway (JYTech — platform key, billed per call via xPilot credits)
+  { id: "xpilot/gpt-4o", name: "GPT-4o (xPilot)", provider: "xpilot", costPer1MInput: 250, costPer1MOutput: 1000 },
+  { id: "xpilot/claude-sonnet", name: "Claude Sonnet (xPilot)", provider: "xpilot", costPer1MInput: 300, costPer1MOutput: 1500 },
 ];
 
 export const DEFAULT_MODEL = "cerebras/gpt-oss-120b";
@@ -214,6 +219,43 @@ async function callOpenRouter(model: string, messages: ChatMessage[], maxTokens:
   };
 }
 
+// --- xPilot (JYTech gateway — flat prompt+system, NOT OpenAI messages) ---
+async function callXPilot(apiKey: string, model: string, messages: ChatMessage[], maxTokens: number): Promise<AIResponse> {
+  // xPilot's /text/generate takes a single `prompt` + optional `system`, so flatten the message list.
+  const sys = messages.filter((m) => m.role === "system").map((m) => m.content);
+  const rest = messages.filter((m) => m.role !== "system");
+  const system = sys.length ? sys.join("\n\n") : undefined;
+  const prompt = rest.length === 1
+    ? rest[0].content
+    : rest.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join("\n\n");
+
+  const res = await fetch(`${XPILOT_BASE_URL}/text/generate`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({ model, prompt, system, max_tokens: maxTokens }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`xpilot error ${res.status}: ${err}`);
+  }
+
+  const data = await res.json();
+  return {
+    content: data.content || "",
+    provider: "xpilot",
+    model: data.model || model,
+    usage: data.usage ? {
+      prompt_tokens: data.usage.prompt_tokens || 0,
+      completion_tokens: data.usage.completion_tokens || 0,
+      total_tokens: data.usage.total_tokens || 0,
+    } : undefined,
+  };
+}
+
 // ── Benchmark-based auto model cache ──
 // In-memory cache of the best model from benchmarks (refreshed on cold start or every 1h)
 let _cachedBestModel: { modelId: string; provider: string; fetchedAt: number } | null = null;
@@ -260,6 +302,8 @@ const MODEL_API_MAP: Record<string, string> = {
   "cerebras/qwen-3-235b": "qwen-3-235b-a22b-instruct-2507",
   "cerebras/qwen-3-coder-480b": "qwen-3-coder-480b",
   "cerebras/llama3.1-8b": "llama3.1-8b",
+  "xpilot/gpt-4o": "openai/gpt-4o",
+  "xpilot/claude-sonnet": "anthropic/claude-sonnet-4",
 };
 
 export async function chatWithAI(messages: ChatMessage[], maxTokens = 500, byok?: ByokKeys, selectedModel?: string): Promise<AIResponse> {
@@ -289,6 +333,9 @@ export async function chatWithAI(messages: ChatMessage[], maxTokens = 500, byok?
       }
       if (provider === "alibaba" && byok?.alibaba) {
         return await callOpenAICompatible(`${ALIBABA_AI_BASE_URL}/chat/completions`, byok.alibaba, apiModel, provider, messages, maxTokens);
+      }
+      if (provider === "xpilot" && XPILOT_API_KEY) {
+        return await callXPilot(XPILOT_API_KEY, apiModel, messages, maxTokens);
       }
       // If the selected model can't be used, fall through to auto
     }
@@ -346,6 +393,9 @@ export async function chatWithAI(messages: ChatMessage[], maxTokens = 500, byok?
     providers.push({ name: "Cerebras qwen-3-235b", call: () => callOpenAICompatible("https://api.cerebras.ai/v1/chat/completions", CEREBRAS_API_KEY, "qwen-3-235b-a22b-instruct-2507", "cerebras", messages, maxTokens) });
   }
   if (GOOGLE_AI_API) providers.push({ name: "Google", call: () => callGoogle(GOOGLE_AI_API, "gemini-2.0-flash", messages, maxTokens) });
+
+  // 3. xPilot paid gateway — after free platform keys, before BYOK
+  if (XPILOT_API_KEY) providers.push({ name: "xPilot", call: () => callXPilot(XPILOT_API_KEY, "openai/gpt-4o", messages, maxTokens) });
 
   // BYOK keys as fallback
   if (byok?.openai) providers.push({ name: "BYOK OpenAI", call: () => callOpenAICompatible("https://api.openai.com/v1/chat/completions", byok.openai!, "gpt-4o-mini", "openai", messages, maxTokens) });
