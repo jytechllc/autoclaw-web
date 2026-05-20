@@ -5,7 +5,6 @@ import { logAudit } from "@/lib/audit";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { createCampaign } from "@/lib/google-ads";
 import {
-  ensureAdCreditsTables,
   reserveForCampaign,
   attachReserveReference,
   applyPlatformMarkup,
@@ -20,53 +19,9 @@ function getIp(req: NextRequest): string {
   return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
 }
 
-async function ensureAdsTables() {
-  const sql = getDb();
-  await sql`
-    CREATE TABLE IF NOT EXISTS ad_accounts (
-      id SERIAL PRIMARY KEY,
-      org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
-      platform VARCHAR(20) NOT NULL,
-      account_id VARCHAR(100) NOT NULL,
-      account_name VARCHAR(255),
-      credentials JSONB,
-      is_active BOOLEAN DEFAULT true,
-      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
-      created_at TIMESTAMP DEFAULT NOW(),
-      UNIQUE(org_id, platform, account_id)
-    )
-  `;
-  await sql`
-    CREATE TABLE IF NOT EXISTS campaigns (
-      id SERIAL PRIMARY KEY,
-      org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
-      ad_account_id INTEGER REFERENCES ad_accounts(id) ON DELETE SET NULL,
-      platform VARCHAR(20) NOT NULL,
-      platform_campaign_id VARCHAR(255),
-      campaign_name VARCHAR(255) NOT NULL,
-      channel VARCHAR(50),
-      daily_budget NUMERIC(12, 2),
-      currency VARCHAR(10) DEFAULT 'USD',
-      status VARCHAR(20),
-      metadata JSONB,
-      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
-      created_at TIMESTAMP DEFAULT NOW(),
-      updated_at TIMESTAMP DEFAULT NOW(),
-      UNIQUE(platform, platform_campaign_id)
-    )
-  `;
-  // Budget cap columns for credit reservation
-  await sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS total_budget_cents BIGINT DEFAULT 0`;
-  await sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS reserved_cents BIGINT DEFAULT 0`;
-  await sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS spent_cents BIGINT DEFAULT 0`;
-  await sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS closed BOOLEAN DEFAULT false`;
-  // Owner project — per Epic 2 in autoclaw-business-architecture-design.
-  // Nullable + ON DELETE SET NULL so deleting a project doesn't orphan campaigns;
-  // they fall back to "no project" status until reassigned.
-  await sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_campaigns_project_id ON campaigns(project_id) WHERE project_id IS NOT NULL`;
-  await ensureAdCreditsTables(sql);
-}
+// Schema for ad_accounts, campaigns, ad_credits, ad_credit_transactions
+// is declared in lib/schema.sql. Previously created at runtime by
+// ensureAdsTables() / ensureAdCreditsTables(); see docs/google-ads-audit.md D-2.
 
 async function getUserId(sql: ReturnType<typeof getDb>, email: string): Promise<number | null> {
   const rows = await sql`SELECT id FROM users WHERE email = ${email}`;
@@ -100,7 +55,6 @@ export async function GET(req: NextRequest) {
   }
 
   const sql = getDb();
-  await ensureAdsTables();
 
   const userId = await getUserId(sql, session.user.email as string);
   if (!userId) return NextResponse.json({ campaigns: [] });
@@ -162,7 +116,6 @@ export async function POST(req: NextRequest) {
   }
 
   const sql = getDb();
-  await ensureAdsTables();
 
   const userEmail = session.user.email as string;
   const userId = await getUserId(sql, userEmail);

@@ -577,3 +577,74 @@ CREATE TABLE IF NOT EXISTS youtube_uploads (
 CREATE INDEX IF NOT EXISTS idx_youtube_uploads_user ON youtube_uploads(user_id);
 CREATE INDEX IF NOT EXISTS idx_youtube_uploads_status ON youtube_uploads(status);
 CREATE INDEX IF NOT EXISTS idx_youtube_uploads_publish_at ON youtube_uploads(publish_at);
+
+-- ============================================================
+-- Google Ads / Ad Credits
+-- Previously created at runtime by ensureAdsTables() and
+-- ensureAdCreditsTables(). Lifted here so the schema has a single
+-- source of truth. See docs/google-ads-audit.md D-2.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS ad_accounts (
+  id SERIAL PRIMARY KEY,
+  org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
+  platform VARCHAR(20) NOT NULL,
+  account_id VARCHAR(100) NOT NULL,
+  account_name VARCHAR(255),
+  credentials JSONB,
+  is_active BOOLEAN DEFAULT true,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(org_id, platform, account_id)
+);
+
+CREATE TABLE IF NOT EXISTS campaigns (
+  id SERIAL PRIMARY KEY,
+  org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
+  ad_account_id INTEGER REFERENCES ad_accounts(id) ON DELETE SET NULL,
+  platform VARCHAR(20) NOT NULL,
+  platform_campaign_id VARCHAR(255),
+  campaign_name VARCHAR(255) NOT NULL,
+  channel VARCHAR(50),
+  daily_budget NUMERIC(12, 2),
+  currency VARCHAR(10) DEFAULT 'USD',
+  status VARCHAR(20),
+  metadata JSONB,
+  -- Budget cap columns for credit reservation
+  total_budget_cents BIGINT DEFAULT 0,
+  reserved_cents BIGINT DEFAULT 0,
+  spent_cents BIGINT DEFAULT 0,
+  closed BOOLEAN DEFAULT false,
+  -- Owner project — per Epic 2 in autoclaw-business-architecture-design.
+  -- Nullable + ON DELETE SET NULL so deleting a project doesn't orphan campaigns;
+  -- they fall back to "no project" status until reassigned.
+  project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(platform, platform_campaign_id)
+);
+CREATE INDEX IF NOT EXISTS idx_campaigns_project_id ON campaigns(project_id) WHERE project_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS ad_credits (
+  org_id INTEGER PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+  balance_cents BIGINT NOT NULL DEFAULT 0,
+  reserved_cents BIGINT NOT NULL DEFAULT 0,
+  currency VARCHAR(10) NOT NULL DEFAULT 'USD',
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS ad_credit_transactions (
+  id SERIAL PRIMARY KEY,
+  org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  type VARCHAR(20) NOT NULL,
+  amount_cents BIGINT NOT NULL,
+  balance_after_cents BIGINT NOT NULL,
+  reserved_after_cents BIGINT NOT NULL,
+  reference_type VARCHAR(50),
+  reference_id VARCHAR(255),
+  note TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_ad_credit_tx_org ON ad_credit_transactions(org_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ad_credit_tx_ref ON ad_credit_transactions(reference_type, reference_id);

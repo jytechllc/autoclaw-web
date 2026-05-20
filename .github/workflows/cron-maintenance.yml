@@ -11,6 +11,8 @@ on:
     - cron: "0 4 * * *"
     - cron: "30 3 * * *"
     - cron: "30 4 * * *"
+    - cron: "40 * * * *"      # hourly :40  - google-ads-sync
+    - cron: "45 3 * * *"      # daily 03:45 - google-ads-reconcile
   workflow_dispatch:
     inputs:
       task:
@@ -27,6 +29,8 @@ on:
           - post-scheduler
           - enrich-contacts
           - sync-billing
+          - google-ads-sync
+          - google-ads-reconcile
 
 jobs:
   cron:
@@ -131,3 +135,23 @@ jobs:
           curl --fail --show-error --silent \
             -H "Authorization: Bearer ${CRON_SECRET}" \
             "${AUTOCLAW_BASE_URL}/api/cron/enrich-contacts"
+
+      - name: Run google-ads-sync
+        if: (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'google-ads-sync') || (github.event_name == 'schedule' && github.event.schedule == '40 * * * *')
+        env:
+          AUTOCLAW_BASE_URL: ${{ vars.AUTOCLAW_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl --fail --show-error --silent \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${AUTOCLAW_BASE_URL}/api/cron/google-ads-sync"
+
+      - name: Run google-ads-reconcile
+        if: (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'google-ads-reconcile') || (github.event_name == 'schedule' && github.event.schedule == '45 3 * * *')
+        env:
+          AUTOCLAW_BASE_URL: ${{ vars.AUTOCLAW_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl --fail --show-error --silent \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${AUTOCLAW_BASE_URL}/api/cron/google-ads-reconcile"

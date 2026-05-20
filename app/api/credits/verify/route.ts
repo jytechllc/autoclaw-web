@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { auth0 } from "@/lib/auth0";
 import { getDb } from "@/lib/db";
-import { ensureAdCreditsTables, addTopup } from "@/lib/credits";
+import { addTopup } from "@/lib/credits";
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +48,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  await ensureAdCreditsTables(sql);
   const amountCents = checkout.amount_total || 0;
   const credits = await addTopup(sql, orgId, amountCents, sessionId);
 

@@ -38,6 +38,13 @@ export interface AdCreditTransaction {
   created_at: string;
 }
 
+/**
+ * @deprecated Schema now lives in `lib/schema.sql`. Function body is
+ * kept (idempotent CREATE IF NOT EXISTS) as a one-release safety net
+ * for any production DB that might predate the schema lift. Remove
+ * after one release confirms no call sites remain.
+ * See docs/google-ads-audit.md D-2.
+ */
 export async function ensureAdCreditsTables(sql: Sql) {
   await sql`
     CREATE TABLE IF NOT EXISTS ad_credits (
