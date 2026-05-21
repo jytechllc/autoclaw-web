@@ -106,8 +106,8 @@ export async function POST(req: NextRequest) {
   if (totalBudget < dailyBudget) {
     return NextResponse.json({ error: "totalBudget must be >= dailyBudget" }, { status: 400 });
   }
-  if (!["SEARCH", "DISPLAY", "SHOPPING", "VIDEO"].includes(channel)) {
-    return NextResponse.json({ error: "channel must be SEARCH, DISPLAY, SHOPPING, or VIDEO" }, { status: 400 });
+  if (!["SEARCH", "DISPLAY", "SHOPPING", "VIDEO", "PERFORMANCE_MAX"].includes(channel)) {
+    return NextResponse.json({ error: "channel must be SEARCH, DISPLAY, SHOPPING, VIDEO, or PERFORMANCE_MAX" }, { status: 400 });
   }
 
   const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
@@ -160,7 +160,7 @@ export async function POST(req: NextRequest) {
     result = await createCampaign({
       name,
       dailyBudget,
-      channel: channel as "SEARCH" | "DISPLAY" | "SHOPPING" | "VIDEO",
+      channel: channel as "SEARCH" | "DISPLAY" | "SHOPPING" | "VIDEO" | "PERFORMANCE_MAX",
       locationIds: Array.isArray(body.locationIds) ? body.locationIds.map(String) : undefined,
     });
   } catch (e) {
