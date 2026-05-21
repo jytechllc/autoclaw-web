@@ -272,7 +272,7 @@ export const COUNTRIES: Array<{ id: string; code: string; name: string }> = [
 export interface CreateCampaignInput {
   name: string;
   dailyBudget: number;
-  channel?: "SEARCH" | "DISPLAY" | "SHOPPING" | "VIDEO";
+  channel?: "SEARCH" | "DISPLAY" | "SHOPPING" | "VIDEO" | "PERFORMANCE_MAX";
   /** Geo target constant IDs (e.g. ['2840','2124'] for US+CA). Empty = worldwide. */
   locationIds?: string[];
 }
@@ -1115,7 +1115,7 @@ export async function createCampaign(input: CreateCampaignInput): Promise<Create
   const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
   if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
 
-  const channel = (input.channel || "SEARCH").toUpperCase() as "SEARCH" | "DISPLAY" | "SHOPPING" | "VIDEO";
+  const channel = (input.channel || "SEARCH").toUpperCase() as "SEARCH" | "DISPLAY" | "SHOPPING" | "VIDEO" | "PERFORMANCE_MAX";
   const out: CreateCampaignResult = { budget: null, campaign: null, errors: [] };
 
   // 1. Budget
@@ -1138,7 +1138,10 @@ export async function createCampaign(input: CreateCampaignInput): Promise<Create
   // Channel-appropriate bidding:
   //   SEARCH/DISPLAY/SHOPPING → manualCpc
   //   VIDEO → maximizeConversions (manualCpc not allowed for VIDEO)
+  //   PERFORMANCE_MAX → maximizeConversions (Smart Bidding required; manualCpc not allowed for PMAX)
   // We also set explicit start/end dates to avoid Google's default end-date bug.
+  // PMAX note: this creates the campaign shell only. Asset groups, audience signals,
+  // and conversion goals are added via separate endpoints (see docs/google-ads-audit.md PR #2c-d).
   const today = new Date();
   const startDate = today.toISOString().slice(0, 10); // YYYY-MM-DD
   const endDateObj = new Date(today.getTime() + 365 * 24 * 60 * 60 * 1000);
@@ -1153,7 +1156,7 @@ export async function createCampaign(input: CreateCampaignInput): Promise<Create
     endDate,
     contains_eu_political_advertising: 2,
   };
-  if (channel === "VIDEO") {
+  if (channel === "VIDEO" || channel === "PERFORMANCE_MAX") {
     campaignCreate.maximizeConversions = {};
   } else {
     campaignCreate.manualCpc = {};
