@@ -1572,6 +1572,7 @@ const ko = {
     importExisting: "기존 가져오기",
     videoDisabledLabel: "Import 사용",
     videoCreateBlocked: "API Video / Demand Gen 캠페인 생성이 비활성화됨 (개발자 토큰 등급 제한). Google Ads UI에서 만든 후 \"Import existing\"으로 가져오세요. Docs 참조.",
+    pmaxShellOnly: "PMAX 쉘만 생성됩니다(PAUSED). 게재 전에 asset groups, audience signals, conversion goals이 필요하며, 후속 PR에서 제공됩니다.",
     editLocations: "수정",
     locationsUpdated: "지역 업데이트됨",
     updated: "업데이트됨",

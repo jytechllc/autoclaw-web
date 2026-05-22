@@ -29,8 +29,11 @@ interface Credits {
   currency: string;
 }
 
-const CHANNELS = ["SEARCH", "DISPLAY", "SHOPPING", "VIDEO", "DEMAND_GEN"] as const;
+const CHANNELS = ["SEARCH", "DISPLAY", "SHOPPING", "VIDEO", "DEMAND_GEN", "PERFORMANCE_MAX"] as const;
 const CHANNELS_DISABLED_FOR_API_CREATE: ReadonlyArray<typeof CHANNELS[number]> = ["VIDEO", "DEMAND_GEN"];
+// PMAX is creatable via API (PR #16 KAN-51), but the shell-only — asset groups,
+// audience signals, and conversion goals are required before it serves. See PR #18.
+const CHANNELS_REQUIRING_FOLLOWUP: ReadonlyArray<typeof CHANNELS[number]> = ["PERFORMANCE_MAX"];
 
 function fromCents(cents: number | string | null | undefined): number {
   return Number(cents || 0) / 100;
@@ -547,6 +550,11 @@ export default function GoogleAdsPage() {
                 {CHANNELS_DISABLED_FOR_API_CREATE.includes(channel) && (
                   <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1.5 rounded mt-1">
                     ⚠️ {t.videoCreateBlocked || "Video / Demand Gen campaign creation via API is currently disabled. Please create it in Google Ads UI, then use \"Import existing\" to bring it under AutoClaw budget management. See Docs for steps."}
+                  </p>
+                )}
+                {CHANNELS_REQUIRING_FOLLOWUP.includes(channel) && (
+                  <p className="text-xs text-blue-700 bg-blue-50 border border-blue-200 px-2 py-1.5 rounded mt-1">
+                    ℹ️ {t.pmaxShellOnly || "PMAX shell will be created PAUSED. Asset groups, audience signals, and conversion goals are required before it can serve — coming in follow-up PRs."}
                   </p>
                 )}
               </div>

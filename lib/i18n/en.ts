@@ -1603,6 +1603,7 @@ const en = {
     importExisting: "Import existing",
     videoDisabledLabel: "use Import",
     videoCreateBlocked: "Video and Demand Gen campaign creation via API is disabled (developer-token tier limitation). Create it in Google Ads UI, then use \"Import existing\" to bring it under AutoClaw budget management. See Docs for steps.",
+    pmaxShellOnly: "PMAX shell will be created PAUSED. Asset groups, audience signals, and conversion goals are required before it can serve — coming in follow-up PRs.",
     editLocations: "Edit",
     locationsUpdated: "Locations updated",
     updated: "Updated",

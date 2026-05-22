@@ -1578,6 +1578,7 @@ const zhTW: typeof en = {
     importExisting: "匯入既有",
     videoDisabledLabel: "走 Import",
     videoCreateBlocked: "API 建立 Video / Demand Gen campaign 已停用（developer-token 等級限制）。請先在 Google Ads UI 建立，再用 \"Import existing\" 匯入 AutoClaw 接管預算。詳見 Docs。",
+    pmaxShellOnly: "PMAX 僅建立空 campaign（PAUSED）。投放前需補上 asset groups、audience signals、conversion goals — 將於後續 PR 提供。",
     editLocations: "修改",
     locationsUpdated: "投放地區已更新",
     updated: "已更新",
