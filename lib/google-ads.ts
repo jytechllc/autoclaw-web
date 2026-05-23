@@ -1540,3 +1540,78 @@ export async function createAdGroup(input: CreateAdGroupInput): Promise<{ resour
   const resourceName = (res.data as { results?: Array<{ resourceName?: string }> }).results?.[0]?.resourceName || null;
   return { resourceName };
 }
+
+// ============================================================
+// PMAX Asset Groups (KAN-53) — scaffold
+// ============================================================
+// PMAX campaigns have no ad groups. Instead, asset groups bundle
+// headlines, descriptions, images, logos, and (optional) videos under
+// one PMAX campaign. A PMAX campaign needs at least one asset group
+// meeting Google-Ads-required minimums before it can serve.
+//
+// This is the contract scaffold. Backend API wiring lands in PR #18b;
+// UI lands in PR #18c. See docs/google-ads-audit.md PR #2c and KAN-53.
+
+/** Creative payload for a single PMAX asset group. */
+export interface AssetGroupAssetSpec {
+  /** 3-15 short headlines, ≤30 chars each */
+  headlines: string[];
+  /** 1-5 long headlines, ≤90 chars each */
+  longHeadlines: string[];
+  /** 2-5 descriptions, ≤90 chars each (Google requires ≥1 ≤60 chars too) */
+  descriptions: string[];
+  /** Business name, ≤25 chars, required */
+  businessName: string;
+  /** Landing page URL, required, must start with http(s) */
+  finalUrl: string;
+  /** ≥1 landscape image URL (1.91:1, 1200×628 recommended) */
+  marketingImageUrls: string[];
+  /** ≥1 square image URL (1:1, 1200×1200 recommended) */
+  squareMarketingImageUrls: string[];
+  /** Optional 1:1 logo image URL */
+  logoImageUrl?: string;
+  /** Optional 4:1 landscape logo image URL */
+  landscapeLogoImageUrl?: string;
+  /** Optional YouTube video IDs to attach as video assets */
+  youtubeVideoIds?: string[];
+}
+
+export interface CreateAssetGroupInput {
+  /** Parent PMAX campaign resourceName (e.g. "customers/123/campaigns/456") */
+  campaignResourceName: string;
+  /** Display name shown in Google Ads UI */
+  name: string;
+  /** Creative payload */
+  assets: AssetGroupAssetSpec;
+}
+
+export interface CreateAssetGroupResult {
+  /** Asset group resourceName, e.g. "customers/123/assetGroups/789" */
+  assetGroup: string | null;
+  /** Resource names of every created asset (for follow-up linking / DB persistence) */
+  assetResourceNames: Array<{ field: string; resourceName: string }>;
+  /** Step-by-step errors — asset group can be partially created */
+  errors: Array<{ step: string; details: unknown }>;
+}
+
+/**
+ * Create a Performance Max asset group with required-minimum assets.
+ *
+ * **NOT YET IMPLEMENTED** — scaffold only. Lands in PR #18b (KAN-53).
+ *
+ * When implemented, this will:
+ *   1. Upload all image URLs as Google Ads IMAGE assets via
+ *      `createImageAssetFromUrl()` (reused).
+ *   2. Create text assets (`assets:mutate`) for headlines, long
+ *      headlines, descriptions, business name.
+ *   3. Create the asset group itself (`assetGroups:mutate`).
+ *   4. Link each asset to the asset group via `assetGroupAssets:mutate`
+ *      with the correct `field_type` (HEADLINE, MARKETING_IMAGE, etc.).
+ *
+ * Throws on call so any accidental wiring is caught immediately, not
+ * silently no-op'd.
+ */
+export async function createAssetGroup(input: CreateAssetGroupInput): Promise<CreateAssetGroupResult> {
+  void input;
+  throw new Error("createAssetGroup not implemented yet — lands in PR #18b (KAN-53)");
+}

@@ -648,3 +648,54 @@ CREATE TABLE IF NOT EXISTS ad_credit_transactions (
 );
 CREATE INDEX IF NOT EXISTS idx_ad_credit_tx_org ON ad_credit_transactions(org_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ad_credit_tx_ref ON ad_credit_transactions(reference_type, reference_id);
+
+-- ============================================================
+-- PMAX Asset Groups (KAN-53)
+-- ============================================================
+-- Performance Max has no ad groups — instead, asset groups bundle
+-- headlines, long headlines, descriptions, images, logos, and (optional)
+-- videos under one PMAX campaign. A PMAX campaign needs at least one
+-- asset group meeting Google-Ads-required minimums before it becomes
+-- eligible to serve.
+--
+-- See docs/google-ads-audit.md PR #2c. Full backend implementation
+-- lands in PR #18b; this PR (KAN-53 scaffold) defines the data layer
+-- and TypeScript contracts only.
+
+CREATE TABLE IF NOT EXISTS asset_groups (
+  id SERIAL PRIMARY KEY,
+  campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  platform_asset_group_id VARCHAR(255),    -- Google Ads resourceName tail
+  name VARCHAR(255) NOT NULL,
+  final_url TEXT NOT NULL,
+  status VARCHAR(20) DEFAULT 'PAUSED',     -- ENABLED / PAUSED / REMOVED
+  primary_status VARCHAR(50),              -- OPERATING / LIMITED / NOT_ELIGIBLE / etc.
+  primary_status_reasons JSONB,            -- e.g. ["ASSET_GROUP_DISAPPROVED"]
+  ad_strength VARCHAR(20),                 -- POOR / AVERAGE / GOOD / EXCELLENT
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(campaign_id, platform_asset_group_id)
+);
+CREATE INDEX IF NOT EXISTS idx_asset_groups_campaign ON asset_groups(campaign_id);
+
+CREATE TABLE IF NOT EXISTS assets (
+  id SERIAL PRIMARY KEY,
+  asset_group_id INTEGER NOT NULL REFERENCES asset_groups(id) ON DELETE CASCADE,
+  platform_asset_id VARCHAR(255),          -- Google Ads asset resourceName
+  -- Google Ads PMAX field_type for this asset slot:
+  -- HEADLINE / LONG_HEADLINE / DESCRIPTION / MARKETING_IMAGE /
+  -- SQUARE_MARKETING_IMAGE / LOGO / LANDSCAPE_LOGO / BUSINESS_NAME /
+  -- YOUTUBE_VIDEO / CALL_TO_ACTION_SELECTION
+  field_type VARCHAR(40) NOT NULL,
+  -- Exactly one of text_value / image_url / youtube_video_id is set,
+  -- depending on field_type. Kept flat (vs. polymorphic table) for
+  -- query simplicity at this scale.
+  text_value TEXT,
+  image_url TEXT,
+  youtube_video_id VARCHAR(20),
+  uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_assets_group ON assets(asset_group_id);
+CREATE INDEX IF NOT EXISTS idx_assets_field_type ON assets(asset_group_id, field_type);
