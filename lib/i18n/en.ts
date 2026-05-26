@@ -2090,6 +2090,8 @@ const en = {
     tmplWebinarFunnelDesc: "Registration → confirmation email → reminder (1 day before) → reminder (1 hour before) → follow-up with recording.",
     tmplReviewRequest: "Review & Referral Request",
     tmplReviewRequestDesc: "Purchase complete → wait 7 days → satisfaction survey → if positive, request review → referral incentive.",
+    tmplLongTailFollowup: "Long-tail Follow-up (3/7/30/90/365 days)",
+    tmplLongTailFollowupDesc: "New lead → enrich → first touch → wait 3d → 2nd → wait 4d → 3rd → wait 23d → monthly → wait 60d → quarterly → wait 9mo → annual. Any reply hands off to human and stops the sequence.",
     // Edit & Test
     edit: "Edit",
     editWorkflow: "Edit Workflow",

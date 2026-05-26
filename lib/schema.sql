@@ -699,3 +699,68 @@ CREATE TABLE IF NOT EXISTS assets (
 );
 CREATE INDEX IF NOT EXISTS idx_assets_group ON assets(asset_group_id);
 CREATE INDEX IF NOT EXISTS idx_assets_field_type ON assets(asset_group_id, field_type);
+
+-- ============================================================================
+-- Workflows (cold outreach + multi-stage follow-up automation)
+-- ============================================================================
+
+-- A workflow is a reusable definition: trigger + ordered steps (email/wait/condition).
+-- definition jsonb shape:
+--   {
+--     "trigger": { "type": "new_lead" | "form_submit" | "schedule" | "webhook" },
+--     "steps": [
+--       { "kind": "send_email", "template_id": 12, "delay_seconds": 0 },
+--       { "kind": "wait", "delay_seconds": 259200 },
+--       { "kind": "send_email", "template_id": 13, "delay_seconds": 0 },
+--       { "kind": "stop_if_replied" }
+--     ]
+--   }
+CREATE TABLE IF NOT EXISTS workflows (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+  name VARCHAR(255) NOT NULL,
+  description TEXT,
+  status VARCHAR(20) DEFAULT 'draft',  -- 'draft' | 'active' | 'paused'
+  definition JSONB NOT NULL DEFAULT '{}'::jsonb,
+  runs INTEGER DEFAULT 0,
+  last_run_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_workflows_user ON workflows(user_id);
+CREATE INDEX IF NOT EXISTS idx_workflows_project ON workflows(project_id);
+CREATE INDEX IF NOT EXISTS idx_workflows_status ON workflows(status);
+
+-- One row per (contact, workflow) — tracks where each lead sits in the funnel.
+CREATE TABLE IF NOT EXISTS workflow_runs (
+  id SERIAL PRIMARY KEY,
+  workflow_id INTEGER REFERENCES workflows(id) ON DELETE CASCADE,
+  contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
+  current_step INTEGER DEFAULT 0,
+  status VARCHAR(20) DEFAULT 'running',  -- 'running' | 'completed' | 'stopped_replied' | 'cancelled'
+  started_at TIMESTAMP DEFAULT NOW(),
+  completed_at TIMESTAMP,
+  UNIQUE(workflow_id, contact_id)
+);
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow ON workflow_runs(workflow_id);
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_contact ON workflow_runs(contact_id);
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_status ON workflow_runs(status);
+
+-- One row per future email to send. dispatch-followups cron flips these to email_logs/email_review.
+CREATE TABLE IF NOT EXISTS scheduled_emails (
+  id SERIAL PRIMARY KEY,
+  workflow_run_id INTEGER REFERENCES workflow_runs(id) ON DELETE CASCADE,
+  workflow_id INTEGER REFERENCES workflows(id) ON DELETE CASCADE,
+  contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
+  template_id INTEGER REFERENCES email_templates(id) ON DELETE SET NULL,
+  step_index INTEGER NOT NULL,
+  run_at TIMESTAMP NOT NULL,
+  status VARCHAR(20) DEFAULT 'pending', -- 'pending' | 'queued_for_review' | 'sent' | 'cancelled'
+  cancelled_reason TEXT,
+  dispatched_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_scheduled_emails_run_at ON scheduled_emails(run_at) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_scheduled_emails_workflow ON scheduled_emails(workflow_id);
+CREATE INDEX IF NOT EXISTS idx_scheduled_emails_contact ON scheduled_emails(contact_id);

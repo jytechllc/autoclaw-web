@@ -1,7 +1,7 @@
 "use client";
 
 import { useUser } from "@auth0/nextjs-auth0/client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { getDictionary, type Locale } from "@/lib/i18n";
 import DashboardShell from "@/components/DashboardShell";
@@ -90,6 +90,27 @@ const TEMPLATES: WorkflowTemplate[] = [
       { type: "action", labelKey: "actionWait" },
       { type: "action", labelKey: "actionSendEmail" },
       { type: "action", labelKey: "actionSendEmail" },
+      { type: "end", labelKey: "endLabel" },
+    ],
+  },
+  {
+    key: "tmplLongTailFollowup",
+    steps: [
+      { type: "trigger", labelKey: "triggerNewLead" },
+      { type: "action", labelKey: "actionEnrichLead" },
+      { type: "action", labelKey: "actionSendEmail" },
+      { type: "action", labelKey: "actionWait" },
+      { type: "action", labelKey: "actionSendEmail" },
+      { type: "action", labelKey: "actionWait" },
+      { type: "action", labelKey: "actionSendEmail" },
+      { type: "action", labelKey: "actionWait" },
+      { type: "action", labelKey: "actionSendEmail" },
+      { type: "action", labelKey: "actionWait" },
+      { type: "action", labelKey: "actionSendEmail" },
+      { type: "action", labelKey: "actionWait" },
+      { type: "action", labelKey: "actionSendEmail" },
+      { type: "condition", labelKey: "ifLabel" },
+      { type: "action", labelKey: "actionNotify" },
       { type: "end", labelKey: "endLabel" },
     ],
   },
@@ -397,61 +418,133 @@ export default function WorkflowsPage() {
   const [tab, setTab] = useState<Tab>("templates");
   const [expandedCard, setExpandedCard] = useState<string | null>(null);
   const [myWorkflows, setMyWorkflows] = useState<Workflow[]>([]);
+  const [hydrated, setHydrated] = useState(false);
   const [expandedWorkflow, setExpandedWorkflow] = useState<string | null>(null);
   const [editingWorkflow, setEditingWorkflow] = useState<Workflow | null>(null);
   const [testingWorkflow, setTestingWorkflow] = useState<Workflow | null>(null);
 
-  function addFromTemplate(tmpl: WorkflowTemplate) {
+  // Long-tail wait durations in seconds (3d, 4d, 23d, 60d, 270d ≈ 9 months)
+  const LONG_TAIL_WAITS = [3, 4, 23, 60, 270].map((d) => d * 86400);
+
+  function compileDefinition(steps: WorkflowStep[], key: string): { trigger: { type: string }; steps: Array<{ kind: string; delay_seconds?: number; template_id?: number | null }> } {
+    const out: Array<{ kind: string; delay_seconds?: number; template_id?: number | null }> = [];
+    let waitIdx = 0;
+    let emailIdx = 0;
+    const isLongTail = key === "tmplLongTailFollowup";
+    for (const s of steps) {
+      if (s.labelKey === "actionEnrichLead") out.push({ kind: "enrich" });
+      else if (s.labelKey === "actionSendEmail") { out.push({ kind: "send_email", template_id: null }); emailIdx++; }
+      else if (s.labelKey === "actionWait") {
+        const sec = isLongTail && waitIdx < LONG_TAIL_WAITS.length ? LONG_TAIL_WAITS[waitIdx] : 3 * 86400;
+        out.push({ kind: "wait", delay_seconds: sec });
+        waitIdx++;
+      }
+      else if (s.labelKey === "actionNotify") out.push({ kind: "notify" });
+    }
+    void emailIdx;
+    return { trigger: { type: "new_lead" }, steps: out };
+  }
+
+  type ApiWorkflow = { id: number; name: string; description: string | null; status: WorkflowStatus; definition: unknown; runs: number; last_run_at: string | null; created_at: string };
+  function fromApi(w: ApiWorkflow): Workflow {
+    return {
+      id: String(w.id),
+      key: "custom",
+      name: w.name,
+      desc: w.description || "",
+      steps: [...BLANK_STEPS],
+      runs: w.runs || 0,
+      status: w.status,
+      createdAt: w.created_at,
+      lastRun: w.last_run_at,
+    };
+  }
+
+  // Hydrate from /api/workflows
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      try {
+        const res = await fetch("/api/workflows");
+        if (res.ok) {
+          const data = await res.json();
+          setMyWorkflows((data.workflows as ApiWorkflow[]).map(fromApi));
+        }
+      } catch {}
+      setHydrated(true);
+    })();
+  }, [user]);
+
+  async function addFromTemplate(tmpl: WorkflowTemplate) {
     const name = tw[tmpl.key] || tmpl.key;
     const desc = tw[`${tmpl.key}Desc`] || "";
-    const workflow: Workflow = {
-      id: `wf_${Date.now()}`,
-      key: tmpl.key,
-      name,
-      desc,
-      steps: [...tmpl.steps],
-      runs: 0,
-      status: "draft",
-      createdAt: new Date().toISOString(),
-      lastRun: null,
-    };
-    setMyWorkflows((prev) => [workflow, ...prev]);
-    setTab("my");
+    const definition = compileDefinition(tmpl.steps, tmpl.key);
+    try {
+      const res = await fetch("/api/workflows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, description: desc, status: "draft", definition }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const wf = fromApi(data.workflow as ApiWorkflow);
+        wf.steps = [...tmpl.steps];
+        wf.key = tmpl.key;
+        setMyWorkflows((prev) => [wf, ...prev]);
+        setTab("my");
+      }
+    } catch {}
   }
 
-  function createBlank() {
-    const workflow: Workflow = {
-      id: `wf_${Date.now()}`,
-      key: "custom",
-      name: tw.createWorkflow,
-      desc: "",
-      steps: [...BLANK_STEPS],
-      runs: 0,
-      status: "draft",
-      createdAt: new Date().toISOString(),
-      lastRun: null,
-    };
-    setMyWorkflows((prev) => [workflow, ...prev]);
-    setTab("my");
+  async function createBlank() {
+    const definition = compileDefinition(BLANK_STEPS, "custom");
+    try {
+      const res = await fetch("/api/workflows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: tw.createWorkflow, description: "", status: "draft", definition }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const wf = fromApi(data.workflow as ApiWorkflow);
+        setMyWorkflows((prev) => [wf, ...prev]);
+        setTab("my");
+      }
+    } catch {}
   }
 
-  function toggleStatus(id: string) {
-    setMyWorkflows((prev) =>
-      prev.map((w) =>
-        w.id === id
-          ? { ...w, status: w.status === "active" ? "paused" : "active" as WorkflowStatus }
-          : w
-      )
-    );
+  async function toggleStatus(id: string) {
+    const current = myWorkflows.find((w) => w.id === id);
+    if (!current) return;
+    const next: WorkflowStatus = current.status === "active" ? "paused" : "active";
+    try {
+      await fetch(`/api/workflows/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: next }),
+      });
+      setMyWorkflows((prev) => prev.map((w) => (w.id === id ? { ...w, status: next } : w)));
+    } catch {}
   }
 
-  function deleteWorkflow(id: string) {
-    setMyWorkflows((prev) => prev.filter((w) => w.id !== id));
+  async function deleteWorkflow(id: string) {
+    try {
+      await fetch(`/api/workflows/${id}`, { method: "DELETE" });
+      setMyWorkflows((prev) => prev.filter((w) => w.id !== id));
+    } catch {}
   }
 
-  function saveWorkflow(updated: Workflow) {
-    setMyWorkflows((prev) => prev.map((w) => (w.id === updated.id ? updated : w)));
-    setEditingWorkflow(null);
+  async function saveWorkflow(updated: Workflow) {
+    const definition = compileDefinition(updated.steps, updated.key);
+    try {
+      await fetch(`/api/workflows/${updated.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: updated.name, description: updated.desc, definition }),
+      });
+      setMyWorkflows((prev) => prev.map((w) => (w.id === updated.id ? updated : w)));
+      setEditingWorkflow(null);
+    } catch {}
   }
 
   if (userLoading) {

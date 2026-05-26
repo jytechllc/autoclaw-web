@@ -2059,6 +2059,8 @@ const ko = {
     tmplWebinarFunnelDesc: "등록 → 확인 이메일 → 알림 (1일 전) → 알림 (1시간 전) → 녹화본 후속 조치.",
     tmplReviewRequest: "리뷰 및 추천 요청",
     tmplReviewRequestDesc: "구매 완료 → 7일 대기 → 만족도 설문 → 긍정적이면 리뷰 요청 → 추천 인센티브.",
+    tmplLongTailFollowup: "장기 후속 시퀀스 (3/7/30/90/365일)",
+    tmplLongTailFollowupDesc: "신규 리드 → 데이터 보강 → 첫 이메일 → 3일 대기 → 2차 → 4일 대기 → 3차 → 23일 대기 → 월간 → 60일 대기 → 분기 → 9개월 대기 → 연간. 어느 단계에서든 답장 시 사람에게 인계하고 시퀀스 중단.",
     // 편집 및 테스트
     edit: "수정",
     editWorkflow: "워크플로우 수정",

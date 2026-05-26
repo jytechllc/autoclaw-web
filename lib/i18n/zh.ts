@@ -2060,6 +2060,8 @@ const zh: typeof en = {
     tmplWebinarFunnelDesc: "注册 → 确认邮件 → 提醒（1天前）→ 提醒（1小时前）→ 跟进录像。",
     tmplReviewRequest: "评价与推荐请求",
     tmplReviewRequestDesc: "购买完成 → 等待7天 → 满意度调查 → 如果正面，请求评价 → 推荐奖励。",
+    tmplLongTailFollowup: "长尾跟进序列 (3/7/30/90/365 天)",
+    tmplLongTailFollowupDesc: "新潜客 → 数据增强 → 首封 → 等3天 → 二跟 → 等4天 → 三跟 → 等23天 → 月跟 → 等60天 → 季跟 → 等9个月 → 年跟。任一阶段收到回复即转人工并停止。",
     edit: "编辑",
     editWorkflow: "编辑工作流",
     workflowName: "名称",
