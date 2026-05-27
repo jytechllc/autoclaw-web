@@ -58,13 +58,19 @@ function buildPgSql(): Sql {
     const fragment: Fragment = { [FRAGMENT]: true, strings, values };
     // Make it thenable — awaiting executes the query
     const thenable = fragment as unknown as Promise<Record<string, unknown>[]> & Fragment;
-    (thenable as unknown as { then: PromiseLike<Record<string, unknown>[]>["then"] }).then = (onFulfilled, onRejected) => {
+    type Rows = Record<string, unknown>[];
+    type Then = <TResult1 = Rows, TResult2 = never>(
+      onFulfilled?: ((value: Rows) => TResult1 | PromiseLike<TResult1>) | null,
+      onRejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
+    ) => PromiseLike<TResult1 | TResult2>;
+    const then = ((onFulfilled, onRejected) => {
       const { text, params } = flatten(strings, values);
       return getPgPool().query(text, params).then(
-        (res) => (onFulfilled ? onFulfilled(res.rows as Record<string, unknown>[]) : (res.rows as Record<string, unknown>[])),
+        (res) => (onFulfilled ? onFulfilled(res.rows as Rows) : (res.rows as Rows)),
         (err) => (onRejected ? onRejected(err) : Promise.reject(err))
       );
-    };
+    }) as Then;
+    (thenable as unknown as { then: Then }).then = then;
     return thenable;
   };
   const fn = tag as unknown as Sql;
