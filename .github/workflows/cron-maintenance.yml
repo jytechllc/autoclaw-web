@@ -13,6 +13,8 @@ on:
     - cron: "30 4 * * *"
     - cron: "40 * * * *"      # hourly :40  - google-ads-sync
     - cron: "45 3 * * *"      # daily 03:45 - google-ads-reconcile
+    - cron: "25 * * * *"      # hourly :25  - dispatch-followups
+    - cron: "0 6 * * *"       # daily 06:00 - sync-email-stats
   workflow_dispatch:
     inputs:
       task:
@@ -31,6 +33,8 @@ on:
           - sync-billing
           - google-ads-sync
           - google-ads-reconcile
+          - dispatch-followups
+          - sync-email-stats
 
 jobs:
   cron:
@@ -155,3 +159,23 @@ jobs:
           curl --fail --show-error --silent \
             -H "Authorization: Bearer ${CRON_SECRET}" \
             "${AUTOCLAW_BASE_URL}/api/cron/google-ads-reconcile"
+
+      - name: Run dispatch-followups
+        if: (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'dispatch-followups') || (github.event_name == 'schedule' && github.event.schedule == '25 * * * *')
+        env:
+          AUTOCLAW_BASE_URL: ${{ vars.AUTOCLAW_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl --fail --show-error --silent \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${AUTOCLAW_BASE_URL}/api/cron/dispatch-followups"
+
+      - name: Run sync-email-stats
+        if: (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'sync-email-stats') || (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *')
+        env:
+          AUTOCLAW_BASE_URL: ${{ vars.AUTOCLAW_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl --fail --show-error --silent \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${AUTOCLAW_BASE_URL}/api/cron/sync-email-stats"
