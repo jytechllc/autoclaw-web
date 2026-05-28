@@ -38,6 +38,7 @@ on:
 
 jobs:
   cron:
+    if: github.repository == 'jytechllc/autoclaw-web'
     runs-on: ubuntu-latest
     permissions:
       contents: read
