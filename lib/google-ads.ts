@@ -1615,3 +1615,86 @@ export async function createAssetGroup(input: CreateAssetGroupInput): Promise<Cr
   void input;
   throw new Error("createAssetGroup not implemented yet — lands in PR #18b (KAN-53)");
 }
+
+/**
+ * Validate a PMAX asset group input against Google Ads hard minimums
+ * BEFORE calling the API — fails fast so we don't burn API quota or
+ * end up with half-created asset groups.
+ *
+ * Google Ads PMAX asset group requirements (codified here):
+ *   - Headlines:               3-15 items, each ≤30 chars
+ *   - Long headlines:          1-5  items, each ≤90 chars
+ *   - Descriptions:            2-5  items, each ≤90 chars,
+ *                              and ≥1 must be ≤60 chars (short description slot)
+ *   - Business name:           required, ≤25 chars
+ *   - Final URL:               required, must start with http(s)
+ *   - Marketing images:        ≥1 landscape URL
+ *   - Square marketing images: ≥1 square URL
+ *   - Logo / landscape logo:   optional
+ *   - YouTube videos:          optional
+ *
+ * Returns { valid, errors }. `errors` is an empty array on success and
+ * a list of human-readable strings on failure (intended for surfacing
+ * to the UI before submission).
+ */
+export function validateAssetGroupInput(input: CreateAssetGroupInput): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  const a = input.assets;
+
+  // Name + campaign
+  if (!input.name || !input.name.trim()) errors.push("Asset group name is required.");
+  if (!input.campaignResourceName || !input.campaignResourceName.startsWith("customers/")) {
+    errors.push("campaignResourceName must be a Google Ads resource name like 'customers/123/campaigns/456'.");
+  }
+
+  // Headlines
+  if (!Array.isArray(a.headlines) || a.headlines.length < 3) {
+    errors.push("Headlines: at least 3 required.");
+  } else if (a.headlines.length > 15) {
+    errors.push("Headlines: at most 15 allowed.");
+  } else if (a.headlines.some((h) => !h || h.length > 30)) {
+    errors.push("Headlines: each must be 1-30 characters.");
+  }
+
+  // Long headlines
+  if (!Array.isArray(a.longHeadlines) || a.longHeadlines.length < 1) {
+    errors.push("Long headlines: at least 1 required.");
+  } else if (a.longHeadlines.length > 5) {
+    errors.push("Long headlines: at most 5 allowed.");
+  } else if (a.longHeadlines.some((h) => !h || h.length > 90)) {
+    errors.push("Long headlines: each must be 1-90 characters.");
+  }
+
+  // Descriptions
+  if (!Array.isArray(a.descriptions) || a.descriptions.length < 2) {
+    errors.push("Descriptions: at least 2 required.");
+  } else if (a.descriptions.length > 5) {
+    errors.push("Descriptions: at most 5 allowed.");
+  } else if (a.descriptions.some((d) => !d || d.length > 90)) {
+    errors.push("Descriptions: each must be 1-90 characters.");
+  } else if (!a.descriptions.some((d) => d.length <= 60)) {
+    errors.push("Descriptions: at least one must be ≤60 characters (short description slot).");
+  }
+
+  // Business name
+  if (!a.businessName || !a.businessName.trim()) {
+    errors.push("Business name is required.");
+  } else if (a.businessName.length > 25) {
+    errors.push("Business name: must be ≤25 characters.");
+  }
+
+  // Final URL
+  if (!a.finalUrl || !/^https?:\/\//i.test(a.finalUrl)) {
+    errors.push("Final URL is required and must start with http:// or https://.");
+  }
+
+  // Images
+  if (!Array.isArray(a.marketingImageUrls) || a.marketingImageUrls.length < 1) {
+    errors.push("Marketing images (landscape 1.91:1): at least 1 required.");
+  }
+  if (!Array.isArray(a.squareMarketingImageUrls) || a.squareMarketingImageUrls.length < 1) {
+    errors.push("Square marketing images (1:1): at least 1 required.");
+  }
+
+  return { valid: errors.length === 0, errors };
+}
