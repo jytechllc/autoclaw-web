@@ -313,6 +313,20 @@ export default function CampaignDetailPage() {
   const [agSubmitting, setAgSubmitting] = useState(false);
   const [agError, setAgError] = useState("");
 
+  // PMAX Asset Group create (KAN-53c)
+  const [showAssetForm, setShowAssetForm] = useState(false);
+  const [assetName, setAssetName] = useState("");
+  const [assetHeadlines, setAssetHeadlines] = useState("");
+  const [assetLongHeadlines, setAssetLongHeadlines] = useState("");
+  const [assetDescriptions, setAssetDescriptions] = useState("");
+  const [assetBusinessName, setAssetBusinessName] = useState("");
+  const [assetFinalUrl, setAssetFinalUrl] = useState("");
+  const [assetMarketingImageUrls, setAssetMarketingImageUrls] = useState("");
+  const [assetSquareImageUrls, setAssetSquareImageUrls] = useState("");
+  const [assetLogoUrl, setAssetLogoUrl] = useState("");
+  const [assetSubmitting, setAssetSubmitting] = useState(false);
+  const [assetError, setAssetError] = useState("");
+
   // Ad create per-ad-group (Search Ad)
   const [adFormFor, setAdFormFor] = useState<string | null>(null); // adGroupResourceName
   const [adHeadlines, setAdHeadlines] = useState("");
@@ -457,6 +471,82 @@ export default function CampaignDetailPage() {
       setAgError(e instanceof Error ? e.message : "Failed");
     }
     setAgSubmitting(false);
+  }
+
+  async function handleCreateAssetGroup() {
+    // Split textareas into arrays (one item per line, trimmed, non-empty)
+    const split = (s: string) => s.split("\n").map((x) => x.trim()).filter(Boolean);
+    const headlines = split(assetHeadlines);
+    const longHeadlines = split(assetLongHeadlines);
+    const descriptions = split(assetDescriptions);
+    const marketingImageUrls = split(assetMarketingImageUrls);
+    const squareMarketingImageUrls = split(assetSquareImageUrls);
+
+    // Light client-side check before hitting the server-side validator.
+    if (!assetName.trim() || headlines.length < 3 || longHeadlines.length < 1 ||
+        descriptions.length < 2 || !assetBusinessName.trim() ||
+        !/^https?:\/\//i.test(assetFinalUrl) ||
+        marketingImageUrls.length < 1 || squareMarketingImageUrls.length < 1) {
+      setAssetError(
+        t.assetGroupValidation ||
+        "Need: name, ≥3 headlines, ≥1 long headline, ≥2 descriptions, business name, http(s) final URL, ≥1 marketing image, ≥1 square image."
+      );
+      return;
+    }
+
+    setAssetSubmitting(true);
+    setAssetError("");
+    try {
+      const res = await fetch(`/api/google-ads/campaigns/${campaignId}/asset-groups`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: assetName.trim(),
+          headlines,
+          longHeadlines,
+          descriptions,
+          businessName: assetBusinessName.trim(),
+          finalUrl: assetFinalUrl.trim(),
+          marketingImageUrls,
+          squareMarketingImageUrls,
+          logoImageUrl: assetLogoUrl.trim() || undefined,
+          orgId: activeOrg?.id,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setToast(t.assetGroupCreated || "Asset group created");
+        setShowAssetForm(false);
+        setAssetName("");
+        setAssetHeadlines("");
+        setAssetLongHeadlines("");
+        setAssetDescriptions("");
+        setAssetBusinessName("");
+        setAssetFinalUrl("");
+        setAssetMarketingImageUrls("");
+        setAssetSquareImageUrls("");
+        setAssetLogoUrl("");
+        fetchData();
+        setTimeout(() => setToast(""), 3500);
+        if (data.warnings) {
+          alert(
+            `${t.assetGroupCreatedWithWarnings || "Asset group created with warnings"}:\n\n` +
+            JSON.stringify(data.warnings, null, 2)
+          );
+        }
+      } else {
+        setAssetError(
+          Array.isArray(data.details)
+            ? data.details.join("\n")
+            : typeof data.details === "object"
+              ? JSON.stringify(data.details, null, 2)
+              : (data.error || "Failed")
+        );
+      }
+    } catch (e) {
+      setAssetError(e instanceof Error ? e.message : "Failed");
+    }
+    setAssetSubmitting(false);
   }
 
   async function handleCreateAd() {
@@ -1245,19 +1335,115 @@ export default function CampaignDetailPage() {
                 {t.assetGroupsSection || "Asset Groups"}
                 {detail?.assetGroups && ` (${detail.assetGroups.length})`}
               </h2>
-              <a
-                href={googleAdsUrl || "#"}
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs text-blue-700 hover:underline"
-                title={t.pmaxEditInGoogleHint || "Performance Max assets can only be edited in Google Ads"}
-              >
-                {t.pmaxEditInGoogle || "Edit in Google Ads ↗"}
-              </a>
+              <div className="flex items-center gap-3">
+                {!campaign.closed && (
+                  <button
+                    onClick={() => { setShowAssetForm(!showAssetForm); setAssetError(""); }}
+                    className="text-xs px-3 py-1.5 bg-red-800 text-white rounded-lg hover:bg-red-900 cursor-pointer"
+                  >
+                    {showAssetForm ? (t.cancel || "Cancel") : `+ ${t.addAssetGroup || "Add Asset Group"}`}
+                  </button>
+                )}
+                <a
+                  href={googleAdsUrl || "#"}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-blue-700 hover:underline"
+                  title={t.pmaxEditInGoogleHint || "Performance Max assets can only be edited in Google Ads"}
+                >
+                  {t.pmaxEditInGoogle || "Edit in Google Ads ↗"}
+                </a>
+              </div>
             </div>
             <p className="text-xs text-gray-500 mb-3">
               {t.pmaxReadOnlyNote || "Performance Max uses asset groups (not ad groups). AutoClaw shows them read-only — to edit assets, audience signals, or pause individual asset groups, use Google Ads directly."}
             </p>
+
+            {showAssetForm && (
+              <div className="border border-gray-200 rounded-lg p-3 mb-3 space-y-3 bg-gray-50">
+                <p className="text-xs text-blue-700 bg-blue-50 border border-blue-200 px-2 py-1.5 rounded">
+                  ℹ️ {t.assetGroupFormHint || "Asset group will be created PAUSED. Required: ≥3 headlines, ≥1 long headline, ≥2 descriptions, business name, final URL, ≥1 landscape image, ≥1 square image."}
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input
+                    value={assetName}
+                    onChange={(e) => setAssetName(e.target.value)}
+                    placeholder={t.assetGroupName || "Asset group name"}
+                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-red-500"
+                  />
+                  <input
+                    value={assetBusinessName}
+                    onChange={(e) => setAssetBusinessName(e.target.value)}
+                    placeholder={`${t.businessName || "Business name"} (≤25 chars)`}
+                    maxLength={25}
+                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-red-500"
+                  />
+                </div>
+                <input
+                  value={assetFinalUrl}
+                  onChange={(e) => setAssetFinalUrl(e.target.value)}
+                  placeholder={t.finalUrlPlaceholder || "https://your-landing-page.com"}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-red-500"
+                />
+                <textarea
+                  value={assetHeadlines}
+                  onChange={(e) => setAssetHeadlines(e.target.value)}
+                  placeholder={t.pmaxHeadlinesPlaceholder || "Headlines (≥3, one per line, ≤30 chars each)"}
+                  rows={4}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-red-500"
+                />
+                <textarea
+                  value={assetLongHeadlines}
+                  onChange={(e) => setAssetLongHeadlines(e.target.value)}
+                  placeholder={t.pmaxLongHeadlinesPlaceholder || "Long headlines (≥1, one per line, ≤90 chars each)"}
+                  rows={2}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-red-500"
+                />
+                <textarea
+                  value={assetDescriptions}
+                  onChange={(e) => setAssetDescriptions(e.target.value)}
+                  placeholder={t.pmaxDescriptionsPlaceholder || "Descriptions (≥2, one per line, ≤90 chars each, ≥1 should be ≤60 chars)"}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-red-500"
+                />
+                <textarea
+                  value={assetMarketingImageUrls}
+                  onChange={(e) => setAssetMarketingImageUrls(e.target.value)}
+                  placeholder={t.marketingImagesPlaceholder || "Landscape image URLs (1.91:1, ≥1, one per line, public PNG/JPEG)"}
+                  rows={2}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-red-500"
+                />
+                <textarea
+                  value={assetSquareImageUrls}
+                  onChange={(e) => setAssetSquareImageUrls(e.target.value)}
+                  placeholder={t.squareImagesPlaceholder || "Square image URLs (1:1, ≥1, one per line, public PNG/JPEG)"}
+                  rows={2}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-red-500"
+                />
+                <input
+                  value={assetLogoUrl}
+                  onChange={(e) => setAssetLogoUrl(e.target.value)}
+                  placeholder={t.logoUrlPlaceholder || "Logo URL (1:1, optional)"}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-red-500"
+                />
+                {assetError && (
+                  <pre className="text-xs text-red-600 bg-red-50 p-2 rounded whitespace-pre-wrap break-all">{assetError}</pre>
+                )}
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleCreateAssetGroup}
+                    disabled={assetSubmitting}
+                    className="bg-red-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-900 disabled:opacity-50 cursor-pointer"
+                  >
+                    {assetSubmitting ? (t.creating || "Creating...") : (t.create || "Create")}
+                  </button>
+                  <button onClick={() => { setShowAssetForm(false); setAssetError(""); }} className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 cursor-pointer">
+                    {t.cancel || "Cancel"}
+                  </button>
+                </div>
+              </div>
+            )}
+
             {!detail?.assetGroups || detail.assetGroups.length === 0 ? (
               <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg">
                 ⚠️ {t.pmaxNoAssetGroups || "No asset groups found yet."}

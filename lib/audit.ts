@@ -40,6 +40,7 @@ export type AuditAction =
   | "recruiting.update_interview"
   | "recruiting.delete_interview"
   | "google_ads.create_campaign"
+  | "google_ads.create_asset_group"
   | "google_ads.topup"
   | "google_ads.reserve"
   | "google_ads.release";
