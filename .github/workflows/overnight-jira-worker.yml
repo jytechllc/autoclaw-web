@@ -45,7 +45,6 @@ concurrency:
 
 jobs:
   run:
-    if: github.repository == 'jytechllc/autoclaw-web'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout autoclaw-web
