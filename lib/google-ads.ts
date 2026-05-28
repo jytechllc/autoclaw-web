@@ -1611,9 +1611,143 @@ export interface CreateAssetGroupResult {
  * Throws on call so any accidental wiring is caught immediately, not
  * silently no-op'd.
  */
+/**
+ * Create a Performance Max asset group with required-minimum assets.
+ *
+ * Choreography (5 stages):
+ *   1. Validate input against Google Ads hard minimums (fail fast).
+ *   2. Upload every image URL as a Google Ads IMAGE asset (parallel).
+ *   3. Create text assets (headlines / long headlines / descriptions /
+ *      business name) in a single batched assets:mutate call.
+ *   4. Create the asset_group itself (PAUSED), pointing at the campaign.
+ *   5. Link every created asset to the asset group with the correct
+ *      Google Ads field_type via assetGroupAssets:mutate.
+ *
+ * Errors are accumulated step-by-step in `result.errors`; the asset
+ * group can be partially created (e.g. group exists but some asset
+ * links failed). Callers should surface warnings instead of treating
+ * any error as total failure.
+ */
 export async function createAssetGroup(input: CreateAssetGroupInput): Promise<CreateAssetGroupResult> {
-  void input;
-  throw new Error("createAssetGroup not implemented yet — lands in PR #18b (KAN-53)");
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
+  if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
+
+  const out: CreateAssetGroupResult = { assetGroup: null, assetResourceNames: [], errors: [] };
+  const a = input.assets;
+
+  // 1. Validate — fail fast before burning any API quota
+  const validation = validateAssetGroupInput(input);
+  if (!validation.valid) {
+    out.errors.push({ step: "validation", details: validation.errors });
+    return out;
+  }
+
+  // 2. Upload images in parallel (each createImageAssetFromUrl makes its own assets:mutate call)
+  type ImageJob = { field: string; url: string };
+  const imageJobs: ImageJob[] = [
+    ...a.marketingImageUrls.map((url) => ({ field: "MARKETING_IMAGE", url })),
+    ...a.squareMarketingImageUrls.map((url) => ({ field: "SQUARE_MARKETING_IMAGE", url })),
+  ];
+  if (a.logoImageUrl) imageJobs.push({ field: "LOGO", url: a.logoImageUrl });
+  if (a.landscapeLogoImageUrl) imageJobs.push({ field: "LANDSCAPE_LOGO", url: a.landscapeLogoImageUrl });
+
+  const imageResults = await Promise.all(
+    imageJobs.map(async (job) => {
+      const r = await createImageAssetFromUrl(job.url);
+      return { ...job, resourceName: r.resourceName, error: r.error };
+    })
+  );
+  for (const r of imageResults) {
+    if (r.resourceName) {
+      out.assetResourceNames.push({ field: r.field, resourceName: r.resourceName });
+    } else {
+      out.errors.push({ step: `image:${r.field}`, details: { url: r.url, error: r.error } });
+    }
+  }
+
+  // Bail if we lost a required image — asset group would be unservable
+  const hasMarketing = out.assetResourceNames.some((x) => x.field === "MARKETING_IMAGE");
+  const hasSquare = out.assetResourceNames.some((x) => x.field === "SQUARE_MARKETING_IMAGE");
+  if (!hasMarketing || !hasSquare) {
+    out.errors.push({ step: "images:insufficient", details: "At least 1 marketing image and 1 square marketing image must upload successfully." });
+    return out;
+  }
+
+  // 3. Create text assets in one batched call
+  type TextSpec = { field: string; text: string };
+  const textSpecs: TextSpec[] = [
+    ...a.headlines.map((text) => ({ field: "HEADLINE", text })),
+    ...a.longHeadlines.map((text) => ({ field: "LONG_HEADLINE", text })),
+    ...a.descriptions.map((text) => ({ field: "DESCRIPTION", text })),
+    { field: "BUSINESS_NAME", text: a.businessName },
+  ];
+  const textRes = await adsMutate(customerId, "assets:mutate", {
+    operations: textSpecs.map((s) => ({
+      create: { type: "TEXT", textAsset: { text: s.text } },
+    })),
+  });
+  if (textRes.status !== 200) {
+    out.errors.push({ step: "text_assets", details: textRes.data });
+    return out;
+  }
+  const textResults = (textRes.data as { results?: Array<{ resourceName?: string }> }).results || [];
+  textSpecs.forEach((spec, i) => {
+    const rn = textResults[i]?.resourceName;
+    if (rn) out.assetResourceNames.push({ field: spec.field, resourceName: rn });
+  });
+
+  // 3b. (Optional) YouTube video assets
+  if (a.youtubeVideoIds && a.youtubeVideoIds.length > 0) {
+    const videoResults = await Promise.all(
+      a.youtubeVideoIds.map((vid) => createYouTubeVideoAsset(vid))
+    );
+    videoResults.forEach((r, i) => {
+      if (r.resourceName) {
+        out.assetResourceNames.push({ field: "YOUTUBE_VIDEO", resourceName: r.resourceName });
+      } else {
+        out.errors.push({ step: `video:${a.youtubeVideoIds![i]}`, details: r.error });
+      }
+    });
+  }
+
+  // 4. Create the asset group itself (PAUSED so it can't accidentally serve)
+  const agRes = await adsMutate(customerId, "assetGroups:mutate", {
+    operations: [{
+      create: {
+        campaign: input.campaignResourceName,
+        name: input.name,
+        finalUrls: [a.finalUrl],
+        status: "PAUSED",
+      },
+    }],
+  });
+  if (agRes.status !== 200) {
+    out.errors.push({ step: "asset_group", details: agRes.data });
+    return out;
+  }
+  out.assetGroup = (agRes.data as { results?: Array<{ resourceName?: string }> }).results?.[0]?.resourceName || null;
+  if (!out.assetGroup) {
+    out.errors.push({ step: "asset_group", details: "No resourceName returned from assetGroups:mutate" });
+    return out;
+  }
+
+  // 5. Link every uploaded asset to the asset group with its field type
+  const linkOps = out.assetResourceNames.map((asset) => ({
+    create: {
+      assetGroup: out.assetGroup,
+      asset: asset.resourceName,
+      fieldType: asset.field,
+    },
+  }));
+  if (linkOps.length > 0) {
+    const linkRes = await adsMutate(customerId, "assetGroupAssets:mutate", { operations: linkOps });
+    if (linkRes.status !== 200) {
+      // Partial failure — asset group exists, just surface as warning
+      out.errors.push({ step: "asset_group_assets", details: linkRes.data });
+    }
+  }
+
+  return out;
 }
 
 /**
