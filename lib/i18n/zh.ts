@@ -1548,6 +1548,8 @@ const zh: typeof en = {
     marketingImagesPlaceholder: "横版图 URL（1.91:1，≥1 张，每行一条，公开 PNG/JPEG）",
     squareImagesPlaceholder: "方图 URL（1:1，≥1 张，每行一条，公开 PNG/JPEG）",
     logoUrlPlaceholder: "Logo URL（1:1，可选）",
+    useDemoContent: "使用示例内容",
+    useDemoContentHint: "一键填入一份可提交的 PMAX 示例，便于演示或预览，无需手动输入",
     dailyTrend: "每日趋势",
     chartNoTrafficYet: "还没有流量 — Google 可能还在审核",
     chartZeroForMetric: "过去 30 天该指标无数据",

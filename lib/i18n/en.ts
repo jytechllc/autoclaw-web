@@ -1569,6 +1569,8 @@ const en = {
     marketingImagesPlaceholder: "Landscape image URLs (1.91:1, ≥1, one per line, public PNG/JPEG)",
     squareImagesPlaceholder: "Square image URLs (1:1, ≥1, one per line, public PNG/JPEG)",
     logoUrlPlaceholder: "Logo URL (1:1, optional)",
+    useDemoContent: "Use demo content",
+    useDemoContentHint: "Fill the form with a working PMAX example so you can review or demo without typing",
     dailyTrend: "Daily trend",
     chartNoTrafficYet: "No traffic yet — Google may still be reviewing the campaign",
     chartZeroForMetric: "No data for this metric in the last 30 days",
