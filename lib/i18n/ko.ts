@@ -1538,6 +1538,8 @@ const ko = {
     marketingImagesPlaceholder: "가로 이미지 URL (1.91:1, ≥1, 한 줄에 하나, 공개 PNG/JPEG)",
     squareImagesPlaceholder: "정사각형 이미지 URL (1:1, ≥1, 한 줄에 하나, 공개 PNG/JPEG)",
     logoUrlPlaceholder: "Logo URL (1:1, 선택사항)",
+    useDemoContent: "데모 콘텐츠 사용",
+    useDemoContentHint: "PMAX 작동 예시를 한 번에 채워 넣어 검토 또는 데모를 입력 없이 진행할 수 있습니다",
     dailyTrend: "일별 추이",
     chartNoTrafficYet: "아직 트래픽 없음 — Google이 검토 중일 수 있습니다",
     chartZeroForMetric: "지난 30일 동안 이 지표 데이터 없음",

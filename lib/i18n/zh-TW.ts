@@ -1544,6 +1544,8 @@ const zhTW: typeof en = {
     marketingImagesPlaceholder: "橫版圖 URL（1.91:1，≥1 張，每行一條，公開 PNG/JPEG）",
     squareImagesPlaceholder: "方圖 URL（1:1，≥1 張，每行一條，公開 PNG/JPEG）",
     logoUrlPlaceholder: "Logo URL（1:1，選填）",
+    useDemoContent: "使用範例內容",
+    useDemoContentHint: "一鍵填入一份可提交的 PMAX 範例，便於演示或預覽，無需手動輸入",
     dailyTrend: "每日趨勢",
     chartNoTrafficYet: "尚未有流量 — Google 可能還在審核",
     chartZeroForMetric: "過去 30 天該指標無資料",

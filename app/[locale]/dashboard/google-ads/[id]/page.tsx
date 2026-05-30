@@ -10,6 +10,41 @@ import { useOrg } from "@/components/OrgContext";
 import { COUNTRIES } from "@/lib/google-ads";
 import { applyPlatformMarkup, paymentGatewayFee, platformFee, isPaidPlan } from "@/lib/billing";
 
+/**
+ * Realistic-looking placeholder content for the PMAX asset group form.
+ * One-click prefill — meets every Google Ads required minimum so the
+ * form is submittable as-is. Useful for first-time UX and for recording
+ * smooth Loom / Vercel-preview demos without typing 9 fields live.
+ *
+ * Images are stable Unsplash photos sized for PMAX aspect ratios. Final
+ * URL points to our public homepage so the click-through is real.
+ */
+const DEMO_ASSET_GROUP_CONTENT = {
+  name: "Demo Asset Group",
+  businessName: "AutoClaw Demo",
+  finalUrl: "https://autoclaw.com",
+  headlines: [
+    "Try AutoClaw Free",
+    "AI Outbound Sales",
+    "Boost Your Pipeline",
+    "Book More Meetings",
+  ].join("\n"),
+  longHeadlines: [
+    "Automate B2B outbound with AI agents that book meetings while you sleep",
+  ].join("\n"),
+  descriptions: [
+    "Find leads, write personalized emails, book meetings. All on autopilot.",
+    "AutoClaw replaces your SDR stack with one AI platform you control.",
+  ].join("\n"),
+  marketingImageUrls: [
+    "https://images.unsplash.com/photo-1551434678-e076c223a692?w=1200&h=628&fit=crop",
+  ].join("\n"),
+  squareImageUrls: [
+    "https://images.unsplash.com/photo-1551434678-e076c223a692?w=1200&h=1200&fit=crop",
+  ].join("\n"),
+  logoUrl: "",
+} as const;
+
 interface CampaignRow {
   id: number;
   platform_campaign_id: string;
@@ -471,6 +506,19 @@ export default function CampaignDetailPage() {
       setAgError(e instanceof Error ? e.message : "Failed");
     }
     setAgSubmitting(false);
+  }
+
+  function handleFillDemoAssetGroup() {
+    setAssetName(DEMO_ASSET_GROUP_CONTENT.name);
+    setAssetBusinessName(DEMO_ASSET_GROUP_CONTENT.businessName);
+    setAssetFinalUrl(DEMO_ASSET_GROUP_CONTENT.finalUrl);
+    setAssetHeadlines(DEMO_ASSET_GROUP_CONTENT.headlines);
+    setAssetLongHeadlines(DEMO_ASSET_GROUP_CONTENT.longHeadlines);
+    setAssetDescriptions(DEMO_ASSET_GROUP_CONTENT.descriptions);
+    setAssetMarketingImageUrls(DEMO_ASSET_GROUP_CONTENT.marketingImageUrls);
+    setAssetSquareImageUrls(DEMO_ASSET_GROUP_CONTENT.squareImageUrls);
+    setAssetLogoUrl(DEMO_ASSET_GROUP_CONTENT.logoUrl);
+    setAssetError("");
   }
 
   async function handleCreateAssetGroup() {
@@ -1361,9 +1409,19 @@ export default function CampaignDetailPage() {
 
             {showAssetForm && (
               <div className="border border-gray-200 rounded-lg p-3 mb-3 space-y-3 bg-gray-50">
-                <p className="text-xs text-blue-700 bg-blue-50 border border-blue-200 px-2 py-1.5 rounded">
-                  ℹ️ {t.assetGroupFormHint || "Asset group will be created PAUSED. Required: ≥3 headlines, ≥1 long headline, ≥2 descriptions, business name, final URL, ≥1 landscape image, ≥1 square image."}
-                </p>
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-xs text-blue-700 bg-blue-50 border border-blue-200 px-2 py-1.5 rounded flex-1">
+                    ℹ️ {t.assetGroupFormHint || "Asset group will be created PAUSED. Required: ≥3 headlines, ≥1 long headline, ≥2 descriptions, business name, final URL, ≥1 landscape image, ≥1 square image."}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleFillDemoAssetGroup}
+                    className="shrink-0 text-xs px-2.5 py-1.5 border border-gray-300 rounded-lg hover:bg-white cursor-pointer"
+                    title={t.useDemoContentHint || "Fill the form with a working PMAX example so you can review or demo without typing"}
+                  >
+                    ✨ {t.useDemoContent || "Use demo content"}
+                  </button>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <input
                     value={assetName}
