@@ -1,3 +1,5 @@
+import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
+
 const CEREBRAS_API_KEY = process.env.CEREBRAS_API_KEY;
 const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
 const GOOGLE_AI_API = process.env.GOOGLE_AI_API;
@@ -5,6 +7,9 @@ const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const ALIBABA_AI_BASE_URL = process.env.ALIBABA_AI_BASE_URL || "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
 const XPILOT_API_KEY = process.env.XPILOT_API_KEY;
 const XPILOT_BASE_URL = process.env.XPILOT_BASE_URL || "https://xpilot.jytech.us/api/v1";
+// AWS Bedrock — cross-project AI infra. Region is us-east-2 (Ohio); newest Claude
+// models there are reached via cross-region inference profiles (model id prefixed "us.").
+const AWS_BEDROCK_REGION = process.env.AWS_BEDROCK_REGION || "us-east-2";
 
 interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -62,6 +67,9 @@ export const AVAILABLE_MODELS: ModelInfo[] = [
   // xPilot gateway (JYTech — platform key, billed per call via xPilot credits)
   { id: "xpilot/gpt-4o", name: "GPT-4o (xPilot)", provider: "xpilot", costPer1MInput: 250, costPer1MOutput: 1000 },
   { id: "xpilot/claude-sonnet", name: "Claude Sonnet (xPilot)", provider: "xpilot", costPer1MInput: 300, costPer1MOutput: 1500 },
+  // AWS Bedrock — Claude on our own AWS account (cross-project AI infra)
+  { id: "bedrock/claude-sonnet", name: "Claude Sonnet 4.6 (Bedrock)", provider: "bedrock", costPer1MInput: 300, costPer1MOutput: 1500 },
+  { id: "bedrock/claude-haiku", name: "Claude Haiku 4.5 (Bedrock)", provider: "bedrock", costPer1MInput: 80, costPer1MOutput: 400 },
 ];
 
 export const DEFAULT_MODEL = "cerebras/gpt-oss-120b";
@@ -256,6 +264,53 @@ async function callXPilot(apiKey: string, model: string, messages: ChatMessage[]
   };
 }
 
+// --- AWS Bedrock (Claude via InvokeModel; body = Anthropic Messages API + bedrock version) ---
+async function callBedrock(modelId: string, messages: ChatMessage[], maxTokens: number): Promise<AIResponse> {
+  const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+  if (!accessKeyId || !secretAccessKey) throw new Error("AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY not set");
+
+  const client = new BedrockRuntimeClient({
+    region: AWS_BEDROCK_REGION,
+    credentials: { accessKeyId, secretAccessKey },
+  });
+
+  const systemMsg = messages.find((m) => m.role === "system")?.content;
+  const conversationMsgs = messages.filter((m) => m.role !== "system").map((m) => ({
+    role: m.role as "user" | "assistant",
+    content: m.content,
+  }));
+
+  const body: Record<string, unknown> = {
+    anthropic_version: "bedrock-2023-05-31",
+    max_tokens: maxTokens,
+    messages: conversationMsgs,
+  };
+  if (systemMsg) body.system = systemMsg;
+
+  const res = await client.send(new InvokeModelCommand({
+    modelId,
+    contentType: "application/json",
+    accept: "application/json",
+    body: JSON.stringify(body),
+  }));
+
+  const data = JSON.parse(new TextDecoder().decode(res.body)) as {
+    content?: { text?: string }[];
+    usage?: { input_tokens?: number; output_tokens?: number };
+  };
+  return {
+    content: data.content?.[0]?.text || "",
+    provider: "bedrock",
+    model: modelId,
+    usage: data.usage ? {
+      prompt_tokens: data.usage.input_tokens || 0,
+      completion_tokens: data.usage.output_tokens || 0,
+      total_tokens: (data.usage.input_tokens || 0) + (data.usage.output_tokens || 0),
+    } : undefined,
+  };
+}
+
 // ── Benchmark-based auto model cache ──
 // In-memory cache of the best model from benchmarks (refreshed on cold start or every 1h)
 let _cachedBestModel: { modelId: string; provider: string; fetchedAt: number } | null = null;
@@ -304,6 +359,10 @@ const MODEL_API_MAP: Record<string, string> = {
   "cerebras/llama3.1-8b": "llama3.1-8b",
   "xpilot/gpt-4o": "openai/gpt-4o",
   "xpilot/claude-sonnet": "anthropic/claude-sonnet-4",
+  // Bedrock model ids — overridable via env once the exact versions are confirmed
+  // in the Bedrock console. us-east-2 needs the "us." cross-region inference prefix.
+  "bedrock/claude-sonnet": process.env.BEDROCK_SONNET_MODEL_ID || "us.anthropic.claude-sonnet-4-6",
+  "bedrock/claude-haiku": process.env.BEDROCK_HAIKU_MODEL_ID || "us.anthropic.claude-haiku-4-5-20251001-v1:0",
 };
 
 export async function chatWithAI(messages: ChatMessage[], maxTokens = 500, byok?: ByokKeys, selectedModel?: string): Promise<AIResponse> {
@@ -337,6 +396,9 @@ export async function chatWithAI(messages: ChatMessage[], maxTokens = 500, byok?
       if (provider === "xpilot" && XPILOT_API_KEY) {
         return await callXPilot(XPILOT_API_KEY, apiModel, messages, maxTokens);
       }
+      if (provider === "bedrock" && process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
+        return await callBedrock(apiModel, messages, maxTokens);
+      }
       // If the selected model can't be used, fall through to auto
     }
   }
@@ -364,10 +426,16 @@ export async function chatWithAI(messages: ChatMessage[], maxTokens = 500, byok?
     return msg.slice(0, 300);
   };
 
-  // Build ordered provider list: benchmark winner first, then fallbacks
+  // Build ordered provider list: Bedrock Claude (our own AWS account) first, then fallbacks
   const providers: { name: string; call: () => Promise<AIResponse> }[] = [];
 
-  // 1. Benchmark-selected best model (auto-adjusted weekly)
+  // 1. AWS Bedrock Claude — preferred provider (cross-project AI infra on our AWS account)
+  if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
+    const bedrockSonnet = MODEL_API_MAP["bedrock/claude-sonnet"];
+    providers.push({ name: "Bedrock Claude Sonnet", call: () => callBedrock(bedrockSonnet, messages, maxTokens) });
+  }
+
+  // 2. Benchmark-selected best model (auto-adjusted weekly)
   const benchBest = await getBenchmarkBestModel();
   if (benchBest) {
     const { modelId, provider: bestProvider } = benchBest;
@@ -388,13 +456,13 @@ export async function chatWithAI(messages: ChatMessage[], maxTokens = 500, byok?
     }
   }
 
-  // 2. Platform keys as fallback
+  // 3. Platform keys as fallback
   if (CEREBRAS_API_KEY) {
     providers.push({ name: "Cerebras qwen-3-235b", call: () => callOpenAICompatible("https://api.cerebras.ai/v1/chat/completions", CEREBRAS_API_KEY, "qwen-3-235b-a22b-instruct-2507", "cerebras", messages, maxTokens) });
   }
   if (GOOGLE_AI_API) providers.push({ name: "Google", call: () => callGoogle(GOOGLE_AI_API, "gemini-2.0-flash", messages, maxTokens) });
 
-  // 3. xPilot paid gateway — after free platform keys, before BYOK
+  // 4. xPilot paid gateway — after free platform keys, before BYOK
   if (XPILOT_API_KEY) providers.push({ name: "xPilot", call: () => callXPilot(XPILOT_API_KEY, "openai/gpt-4o", messages, maxTokens) });
 
   // BYOK keys as fallback
@@ -403,7 +471,7 @@ export async function chatWithAI(messages: ChatMessage[], maxTokens = 500, byok?
   if (byok?.google) providers.push({ name: "BYOK Google", call: () => callGoogle(byok.google!, "gemini-2.0-flash", messages, maxTokens) });
   if (byok?.alibaba) providers.push({ name: "BYOK Alibaba", call: () => callOpenAICompatible(`${ALIBABA_AI_BASE_URL}/chat/completions`, byok.alibaba!, "qwen-turbo", "alibaba", messages, maxTokens) });
 
-  // Try at most 3 providers: benchmark winner → platform key → BYOK fallback
+  // Try at most 3 providers: Bedrock (preferred) → benchmark winner → platform key
   const MAX_FALLBACKS = 3;
   for (const p of providers.slice(0, MAX_FALLBACKS)) {
     try {
