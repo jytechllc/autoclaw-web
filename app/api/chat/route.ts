@@ -3,7 +3,9 @@ export const maxDuration = 300; // Vercel Pro allows up to 300s — needed for A
 import { NextRequest, NextResponse } from "next/server";
 import { auth0 } from "@/lib/auth0";
 import { getDb } from "@/lib/db";
-import { chatWithAI, ByokKeys } from "@/lib/ai";
+import { chatWithTools, ByokKeys, type ToolTurnMessage, type ContentBlock } from "@/lib/ai";
+import { TOOL_SCHEMAS } from "./tool-schemas";
+import { checkInput, checkToolCall, checkOutput, SAFETY_SYSTEM_PROMPT } from "@/lib/guardrails";
 import { decrypt, encrypt } from "@/lib/crypto";
 import { prospectDomain, prospectMultipleDomains, type LeadEnrichKeys } from "@/lib/leads";
 import { searchKnowledgeBase, buildRagContext } from "@/lib/rag";
@@ -87,6 +89,14 @@ export async function POST(req: NextRequest) {
 
     if (!message || typeof message !== "string") {
       return NextResponse.json({ error: "Message required" }, { status: 400 });
+    }
+
+    // Guardrails: block prompt-injection / jailbreak attempts before any processing
+    const inputGuard = checkInput(message);
+    if (inputGuard.blocked) {
+      return NextResponse.json({
+        reply: "I can't help with that request. Let's keep things focused on your marketing work — try rephrasing what you'd like to do.",
+      });
     }
 
     // Find or create user
@@ -678,7 +688,7 @@ export async function POST(req: NextRequest) {
       }
 
       const systemPrompt = buildSystemPrompt({ projects, agents, userPlan, agentLimit, ragContext, locale });
-      const toolSystemPrompt = systemPrompt + TOOL_SYSTEM_PROMPT_EXTENSION;
+      const toolSystemPrompt = systemPrompt + SAFETY_SYSTEM_PROMPT + TOOL_SYSTEM_PROMPT_EXTENSION;
 
       try {
         // Build conversation messages with recent history for context
@@ -694,37 +704,25 @@ export async function POST(req: NextRequest) {
         }
         chatMessages.push({ role: "user", content: message });
 
+        // Build tool-turn messages (text-only history + current user message)
+        const turnMessages: ToolTurnMessage[] = chatMessages
+          .filter((m) => m.role !== "system")
+          .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+
         const pass1Start = Date.now();
-        const pass1Result = await chatWithAI(chatMessages, 800, byok, selectedModel);
-        usedModel = `${pass1Result.provider}/${pass1Result.model}`;
+        const pass1 = await chatWithTools(toolSystemPrompt, turnMessages, TOOL_SCHEMAS, 800, byok, selectedModel);
+        usedModel = `${pass1.provider}/${pass1.model}`;
         const pass1Ms = Date.now() - pass1Start;
 
         // Collect token usage to batch-insert at the end (avoids per-step subrequests)
-        if (pass1Result.usage) {
-          pendingUsage.push({ provider: pass1Result.provider, model: pass1Result.model, prompt: pass1Result.usage.prompt_tokens, completion: pass1Result.usage.completion_tokens, total: pass1Result.usage.total_tokens });
+        if (pass1.usage) {
+          pendingUsage.push({ provider: pass1.provider, model: pass1.model, prompt: pass1.usage.prompt_tokens, completion: pass1.usage.completion_tokens, total: pass1.usage.total_tokens });
         }
 
-        // === ORCHESTRATOR LOOP: AI decides tools, executes, reviews results, continues or finishes ===
-        // Robust tool_call parser: handles all format variants from different AI models
-        function extractToolCall(text: string): string | null {
-          // Find "tool_call" keyword, then extract the JSON object after it
-          const idx = text.indexOf("tool_call");
-          if (idx === -1) return null;
-          const afterKeyword = text.slice(idx + "tool_call".length);
-          const braceStart = afterKeyword.indexOf("{");
-          if (braceStart === -1) return null;
-          // Find matching closing brace (handle nested objects)
-          let depth = 0;
-          for (let i = braceStart; i < afterKeyword.length; i++) {
-            if (afterKeyword[i] === "{") depth++;
-            else if (afterKeyword[i] === "}") { depth--; if (depth === 0) return afterKeyword.slice(braceStart, i + 1); }
-          }
-          return null;
-        }
-        const toolCallJson = extractToolCall(pass1Result.content);
-        const firstToolMatch = toolCallJson ? [pass1Result.content, toolCallJson] : null;
+        // === ORCHESTRATOR LOOP: AI decides tools via native function calling, executes, reviews, continues ===
+        const hasTools = pass1.toolUses.length > 0;
 
-        if (firstToolMatch) {
+        if (hasTools) {
           const tLabels = TOOL_LABELS[locale] || TOOL_LABELS.en;
           const encoder = new TextEncoder();
           const stream = new ReadableStream({
@@ -766,7 +764,8 @@ export async function POST(req: NextRequest) {
                 debugTrace.push({ ts: Date.now() - traceStart, event, detail });
               };
               addTrace("start", `user=${email} plan=${userPlan} model=${selectedModel || "auto"}`);
-              addTrace("pass1_ai", `model=${pass1Result.model} provider=${pass1Result.provider} tokens=${pass1Result.usage?.total_tokens || 0} ms=${pass1Ms} has_tool=${!!firstToolMatch}`);
+              addTrace("pass1_ai", `model=${pass1.model} provider=${pass1.provider} tokens=${pass1.usage?.total_tokens || 0} ms=${pass1Ms} has_tool=${hasTools}`);
+              if (pass1.fallbackWarning) sendWarning("⚠️ Native tools unavailable, using text-protocol fallback");
 
               const sendDone = (finalReply: string, model?: string) => {
                 addTrace("done", `total=${Date.now() - traceStart}ms`);
@@ -795,105 +794,101 @@ export async function POST(req: NextRequest) {
                 byok, selectedModel: selectedModel || "", apifyToken, brevoApiKey, sendgridApiKey, enrichKeys, sendStep,
               };
 
-              // Orchestrator conversation: accumulates tool calls and results
-              const orchMessages: { role: "system" | "user" | "assistant"; content: string }[] = [
-                { role: "system", content: toolSystemPrompt },
-                ...chatMessages.slice(1), // skip system (already added), include history + user message
-              ];
-
-              const MAX_STEPS = 3;
-              let currentAiContent = pass1Result.content;
+              // Structured orchestrator: native tool_use blocks instead of text parsing
+              const MAX_STEPS = 8;
+              let current = pass1;
               let finalReply = "";
               const toolResultParts: string[] = []; // collect all tool outputs for the final reply
+              const executedKeys = new Set<string>(); // de-dupe identical tool calls to prevent loops
 
               try {
                 for (let step = 0; step < MAX_STEPS; step++) {
-                  const innerJson = extractToolCall(currentAiContent);
-                  const toolMatch = innerJson ? [currentAiContent, innerJson] : null;
-                  if (!toolMatch) {
-                    // AI decided no more tools needed — use its text as final summary
-                    const aiText = currentAiContent.trim();
+                  if (current.toolUses.length === 0) {
+                    // AI decided no more tools needed — use its text as the final summary
+                    const aiText = current.text.trim();
                     if (aiText && step > 0) {
-                      // AI provided a summary after executing tools
                       finalReply = toolResultParts.join("\n\n---\n\n") + "\n\n---\n\n" + aiText;
                     } else if (toolResultParts.length > 0) {
                       finalReply = toolResultParts.join("\n\n---\n\n");
                     } else {
-                      finalReply = aiText || "I couldn't execute that search. Please try rephrasing your request.";
+                      finalReply = aiText || "I couldn't execute that request. Please try rephrasing.";
                     }
                     break;
                   }
 
-                  // Parse and execute the tool
-                  const toolCall = JSON.parse(toolMatch[1].trim());
-                  const toolName = toolCall.tool as string;
-                  const toolParams = toolCall.params || {};
-                  const toolSummary = (toolCall.summary as string) || "";
-                  sendStep(toolName);
+                  // Record the assistant turn (text + tool_use blocks) for the next round
+                  const assistantBlocks: ContentBlock[] = [];
+                  if (current.text.trim()) assistantBlocks.push({ type: "text", text: current.text });
+                  for (const tu of current.toolUses) assistantBlocks.push({ type: "tool_use", id: tu.id, name: tu.name, input: tu.input });
+                  turnMessages.push({ role: "assistant", content: assistantBlocks });
 
-                  let toolResult: string;
-                  let toolError: string | null = null;
-                  const toolStart = Date.now();
-                  addTrace("tool_start", `${toolName} params=${JSON.stringify(toolParams).substring(0, 200)}`);
-                  try {
-                    toolResult = await executeTool(toolName, toolParams, toolSummary, toolCtx);
-                    addTrace("tool_done", `${toolName} result_len=${toolResult.length} ms=${Date.now() - toolStart}`);
-                  } catch (toolErr) {
-                    toolError = toolErr instanceof Error ? toolErr.message : "Tool execution failed";
-                    toolResult = "";
-                    addTrace("tool_error", `${toolName} error=${toolError} ms=${Date.now() - toolStart}`);
-                    sendError(tLabels[toolName] || toolName, toolError);
+                  // Execute each requested tool (native tool use can request several at once)
+                  const resultBlocks: ContentBlock[] = [];
+                  for (const tu of current.toolUses) {
+                    let toolResult = "";
+                    let toolError: string | null = null;
+                    const dedupeKey = `${tu.name}:${JSON.stringify(tu.input)}`;
+
+                    if (executedKeys.has(dedupeKey)) {
+                      toolError = "Already executed with identical parameters — skipped to avoid a loop.";
+                    } else {
+                      executedKeys.add(dedupeKey);
+                      const policy = checkToolCall(tu.name, tu.input); // guardrails: allow-list + high-risk checks
+                      if (!policy.allowed) {
+                        toolError = policy.reason || "Blocked by guardrails.";
+                        sendError(tLabels[tu.name] || tu.name, toolError);
+                      } else {
+                        sendStep(tu.name);
+                        const toolStart = Date.now();
+                        addTrace("tool_start", `${tu.name} params=${JSON.stringify(tu.input).substring(0, 200)}`);
+                        try {
+                          toolResult = await executeTool(tu.name, tu.input, "", toolCtx);
+                          addTrace("tool_done", `${tu.name} result_len=${toolResult.length} ms=${Date.now() - toolStart}`);
+                        } catch (toolErr) {
+                          toolError = toolErr instanceof Error ? toolErr.message : "Tool execution failed";
+                          addTrace("tool_error", `${tu.name} error=${toolError} ms=${Date.now() - toolStart}`);
+                          sendError(tLabels[tu.name] || tu.name, toolError);
+                        }
+                      }
+                    }
+
+                    if (toolError) {
+                      toolResultParts.push(`**${tu.name}** — Error: ${toolError}`);
+                    } else if (toolResult && toolResult.length > 10) {
+                      toolResultParts.push(toolResult);
+                    }
+                    resultBlocks.push({ type: "tool_result", tool_use_id: tu.id, content: toolError ? `Error: ${toolError}` : (toolResult || "No results found.").substring(0, 3000) });
                   }
+                  turnMessages.push({ role: "user", content: resultBlocks });
 
-                  // Tool execution logging deferred to after response
-
-                  if (toolError) {
-                    toolResultParts.push(`**${toolSummary || toolName}** — Error: ${toolError}`);
-                  } else if (toolResult && toolResult.length > 10) {
-                    toolResultParts.push(toolResult);
-                  }
-
-                  // Add AI's tool call and the tool result to the conversation
-                  orchMessages.push({ role: "assistant", content: currentAiContent });
-                  orchMessages.push({
-                    role: "user",
-                    content: `[Tool "${toolName}" ${toolError ? "ERROR" : "result"}]:\n${toolError ? `Error: ${toolError}` : (toolResult || "No results found.").substring(0, 3000)}\n\nDecide what to do next. Follow this priority chain:\n1. If a tool failed with an error → try an alternative tool or inform the user about the issue.\n2. If you just researched a business (crawl_website/search_google) but haven't searched for leads yet → call a search tool (search_google_maps, search_lead_finder, or search_leads)\n3. If you just found companies/businesses (search_google_maps) with website domains but haven't found decision-maker contacts yet → call enrich_domains with the top domains to get email patterns and contacts\n4. If you just found leads with contact info AND the user's goal is fulfilled → respond with a helpful summary. Do NOT call another tool.\n5. If the search returned no results → try an alternative search tool with different keywords.\n\nDo NOT repeat a tool that already returned results. Do NOT ask the user for confirmation.`,
-                  });
-
-                  // Ask AI for next step
+                  // Ask the AI for the next step
                   sendStep("orchestrating");
                   const aiStart = Date.now();
-                  const nextResult = await chatWithAI(orchMessages, 800, byok, selectedModel);
-                  addTrace("ai_call", `model=${nextResult.model} provider=${nextResult.provider} tokens=${nextResult.usage?.total_tokens || 0} ms=${Date.now() - aiStart}`);
+                  current = await chatWithTools(toolSystemPrompt, turnMessages, TOOL_SCHEMAS, 800, byok, selectedModel);
+                  addTrace("ai_call", `model=${current.model} provider=${current.provider} tokens=${current.usage?.total_tokens || 0} ms=${Date.now() - aiStart}`);
 
-                  if (nextResult.fallbackWarning) {
-                    sendWarning(nextResult.fallbackWarning.includes("429") ? "⚠️ AI quota exceeded, switched to backup model" : "⚠️ AI service issue, switched to backup model");
+                  if (current.fallbackWarning) {
+                    sendWarning(current.fallbackWarning.includes("429") ? "⚠️ AI quota exceeded, switched to backup model" : "⚠️ AI service issue, switched to backup model");
                   }
-                  if (nextResult.usage) {
-                    pendingUsage.push({ provider: nextResult.provider, model: nextResult.model, prompt: nextResult.usage.prompt_tokens, completion: nextResult.usage.completion_tokens, total: nextResult.usage.total_tokens });
+                  if (current.usage) {
+                    pendingUsage.push({ provider: current.provider, model: current.model, prompt: current.usage.prompt_tokens, completion: current.usage.completion_tokens, total: current.usage.total_tokens });
                   }
-
-                  currentAiContent = nextResult.content;
                 }
 
                 // Safety: if loop exhausted, use what we have
                 if (!finalReply) {
                   finalReply = toolResultParts.length > 0
                     ? toolResultParts.join("\n\n---\n\n")
-                    : currentAiContent.replace(/```tool_call[\s\S]*?```/g, "").replace(/tool_call\s*\n?\{[\s\S]*\}/g, "").trim() || "Search completed.";
+                    : (current.text.trim() || "Search completed.");
                 }
               } catch (err) {
                 console.error("[Orchestrator error]", err instanceof Error ? err.message : err);
-                // Orchestrator error — return whatever results we collected, strip any raw tool_call text
-                const cleanToolCall = (s: string) => s.replace(/```tool_call[\s\S]*?```/g, "").replace(/tool_call\s*\n?\{[\s\S]*\}/g, "").trim();
-                if (toolResultParts.length > 0) {
-                  finalReply = toolResultParts.join("\n\n---\n\n");
-                } else {
-                  finalReply = cleanToolCall(pass1Result.content) || "Search encountered an error. Please try again.";
-                }
+                finalReply = toolResultParts.length > 0
+                  ? toolResultParts.join("\n\n---\n\n")
+                  : (pass1.text.trim() || "Search encountered an error. Please try again.");
               }
 
-              reply = finalReply;
+              reply = checkOutput(finalReply).text;
               sendStep("done");
 
               // Batch: save reply + all pending token usage in 1 transaction
@@ -915,7 +910,7 @@ export async function POST(req: NextRequest) {
           });
         } else {
           // No tool call — use the AI response directly
-          reply = pass1Result.content;
+          reply = checkOutput(pass1.text).text;
         }
       } catch (aiErr) {
         const errDetail = aiErr instanceof Error ? aiErr.message : String(aiErr);
@@ -929,8 +924,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Save agent reply (non-SSE path) — strip any raw tool_call text before saving
-    const cleanReply = reply.replace(/```tool_call[\s\S]*?```/g, "").replace(/tool_call\s*\n?\{[\s\S]*\}/g, "").trim() || reply;
+    // Save agent reply (non-SSE path) — guardrail: strip tool_call text + mask secrets
+    const cleanReply = checkOutput(reply).text || reply;
     await sql`INSERT INTO chat_messages (user_id, project_id, conversation_id, role, content, agent_type) VALUES (${userId}, ${project_id || null}, ${convId}, 'assistant', ${cleanReply}, 'autoclaw')`;
     // Usage summary for non-SSE path
     const totalTokens = pendingUsage.reduce((s, u) => s + u.total, 0);
