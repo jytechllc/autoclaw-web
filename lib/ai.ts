@@ -492,3 +492,174 @@ export async function chatWithAI(messages: ChatMessage[], maxTokens = 500, byok?
   const errorChain = providerErrors.map((e) => `${e.provider}: ${e.error}`).join("\n");
   throw new Error(`All AI providers failed:\n${errorChain}`);
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// Native tool calling (module B)
+//
+// chatWithTools() prefers Bedrock's native "tool use" API. If Bedrock is
+// unavailable it transparently falls back to chatWithAI() with a text protocol,
+// so callers always receive a uniform structured result.
+// ──────────────────────────────────────────────────────────────────────────
+
+export interface ToolDef {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+}
+
+export interface ToolUseRequest {
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+}
+
+export type ContentBlock =
+  | { type: "text"; text: string }
+  | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
+  | { type: "tool_result"; tool_use_id: string; content: string };
+
+export interface ToolTurnMessage {
+  role: "user" | "assistant";
+  content: string | ContentBlock[];
+}
+
+export interface ToolTurnResult {
+  text: string;
+  toolUses: ToolUseRequest[];
+  stopReason: string;
+  provider: string;
+  model: string;
+  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+  fallbackWarning?: string;
+}
+
+/** Parse a legacy ```tool_call {...}``` block from free text. */
+export function parseTextToolCall(text: string): ToolUseRequest | null {
+  const idx = text.indexOf("tool_call");
+  if (idx === -1) return null;
+  const after = text.slice(idx + "tool_call".length);
+  const start = after.indexOf("{");
+  if (start === -1) return null;
+  let depth = 0;
+  for (let i = start; i < after.length; i++) {
+    if (after[i] === "{") depth++;
+    else if (after[i] === "}") {
+      depth--;
+      if (depth === 0) {
+        try {
+          const obj = JSON.parse(after.slice(start, i + 1));
+          if (obj && obj.tool) {
+            return { id: `txt_${Date.now()}`, name: obj.tool as string, input: (obj.params as Record<string, unknown>) || {} };
+          }
+        } catch { /* not valid JSON */ }
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+async function callBedrockWithTools(
+  system: string,
+  messages: ToolTurnMessage[],
+  tools: ToolDef[],
+  maxTokens: number,
+  modelId: string,
+): Promise<ToolTurnResult> {
+  const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+  if (!accessKeyId || !secretAccessKey) throw new Error("AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY not set");
+
+  const client = new BedrockRuntimeClient({ region: AWS_BEDROCK_REGION, credentials: { accessKeyId, secretAccessKey } });
+  const body = {
+    anthropic_version: "bedrock-2023-05-31",
+    max_tokens: maxTokens,
+    system,
+    tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
+    messages: messages.map((m) => ({
+      role: m.role,
+      content: typeof m.content === "string" ? [{ type: "text", text: m.content }] : m.content,
+    })),
+  };
+  const res = await client.send(new InvokeModelCommand({ modelId, contentType: "application/json", accept: "application/json", body: JSON.stringify(body) }));
+  const decoded = JSON.parse(new TextDecoder().decode(res.body));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const blocks: any[] = Array.isArray(decoded.content) ? decoded.content : [];
+  const text = blocks.filter((b) => b.type === "text").map((b) => b.text as string).join("\n").trim();
+  const toolUses: ToolUseRequest[] = blocks
+    .filter((b) => b.type === "tool_use")
+    .map((b) => ({ id: b.id as string, name: b.name as string, input: (b.input as Record<string, unknown>) || {} }));
+  return {
+    text,
+    toolUses,
+    stopReason: (decoded.stop_reason as string) || "end_turn",
+    provider: "bedrock",
+    model: modelId,
+    usage: decoded.usage
+      ? { prompt_tokens: decoded.usage.input_tokens || 0, completion_tokens: decoded.usage.output_tokens || 0, total_tokens: (decoded.usage.input_tokens || 0) + (decoded.usage.output_tokens || 0) }
+      : undefined,
+  };
+}
+
+function flattenToolMessages(system: string, messages: ToolTurnMessage[], tools: ToolDef[]): ChatMessage[] {
+  const toolDesc = tools
+    .map((t) => `- ${t.name}: ${t.description} | params=${JSON.stringify((t.input_schema as { properties?: unknown }).properties || {})}`)
+    .join("\n");
+  const sysWithTools = `${system}\n\n## Available tools\n${toolDesc}\n\nWhen you need to use a tool, respond with ONLY this block and nothing else:\n\`\`\`tool_call\n{"tool":"<name>","params":{...}}\n\`\`\`\nOtherwise, answer the user normally.`;
+  const flat: ChatMessage[] = [{ role: "system", content: sysWithTools }];
+  for (const m of messages) {
+    if (typeof m.content === "string") {
+      flat.push({ role: m.role, content: m.content });
+    } else {
+      const parts = m.content
+        .map((b) =>
+          b.type === "text"
+            ? b.text
+            : b.type === "tool_use"
+              ? `[called tool ${b.name} with ${JSON.stringify(b.input)}]`
+              : `[tool result]\n${b.content}`,
+        )
+        .join("\n");
+      flat.push({ role: m.role, content: parts });
+    }
+  }
+  return flat;
+}
+
+/**
+ * Bedrock-first tool-calling turn. Returns a uniform structured result whether
+ * or not the underlying provider supports native tool use.
+ */
+export async function chatWithTools(
+  system: string,
+  messages: ToolTurnMessage[],
+  tools: ToolDef[],
+  maxTokens = 1024,
+  byok: ByokKeys = {},
+  requestedModel?: string,
+): Promise<ToolTurnResult> {
+  const bedrockModelId = MODEL_API_MAP["bedrock/claude-sonnet"];
+
+  // 1. Native Bedrock tool use (preferred)
+  if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
+    try {
+      return await callBedrockWithTools(system, messages, tools, maxTokens, bedrockModelId);
+    } catch (err) {
+      console.error("[chatWithTools] Bedrock native tools failed, falling back to text protocol:", err instanceof Error ? err.message : err);
+    }
+  }
+
+  // 2. Fallback: text protocol over the generic provider chain
+  const flat = flattenToolMessages(system, messages, tools);
+  const r = await chatWithAI(flat, maxTokens, byok, requestedModel);
+  const parsed = parseTextToolCall(r.content);
+  return {
+    text: parsed ? "" : r.content,
+    toolUses: parsed ? [parsed] : [],
+    stopReason: parsed ? "tool_use" : "end_turn",
+    provider: r.provider,
+    model: r.model,
+    usage: r.usage,
+    fallbackWarning: r.fallbackWarning,
+  };
+}
