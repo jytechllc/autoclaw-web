@@ -8,7 +8,17 @@ import { auth0 } from "@/lib/auth0";
 import { getDb } from "@/lib/db";
 import { isValidLocale } from "@/lib/i18n";
 
-const TRACKER_PATH = resolve("/Users/wlin/dev/autoclaw/autoclaw-web/docs/sales/growth-execution-tracker.csv");
+const TRACKER_PATH = resolve(process.cwd(), "docs/sales/growth-execution-tracker.csv");
+
+// Tracker CSV is an optional local artifact; never let a missing/unreadable file
+// crash the dashboard (e.g. on serverless deploys where the file isn't bundled).
+function readTracker(): TrackerRow[] {
+  try {
+    return parseCsv(readFileSync(TRACKER_PATH, "utf8"));
+  } catch {
+    return [];
+  }
+}
 
 function toNumber(value: string) {
   const num = Number(value);
@@ -450,7 +460,7 @@ export default async function GrowthOpsPage({
   const users = await sql`SELECT id, role FROM users WHERE email = ${session.user.email as string} LIMIT 1`;
   const isAdmin = users.length > 0 && users[0].role === "admin";
   const userId = (users[0]?.id as number) || 0;
-  const tracker = parseCsv(readFileSync(TRACKER_PATH, "utf8"));
+  const tracker = readTracker();
   const realMetricRows = userId ? await fetchRealMetricRows(sql, isAdmin, userId) : [];
   const coverageRows = userId ? await fetchCoverageRows(sql, isAdmin, userId, tracker) : [];
 
