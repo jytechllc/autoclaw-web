@@ -39,5 +39,5 @@ export default async function DashboardPage({ params }: Props) {
     if (e && typeof e === "object" && "digest" in e) throw e;
   }
 
-  redirect(`/${locale}/dashboard/growth-ops`);
+  redirect(`/${locale}/dashboard/reports`);
 }
