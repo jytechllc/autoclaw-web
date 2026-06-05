@@ -238,7 +238,7 @@ export const BYOK_SERVICES: Record<string, string> = {
 };
 
 export const DAILY_LIMIT_CENTS: Record<string, number> = {
-  starter: 100,
+  starter: 500,     // $5.00 free daily credit
   growth: 5000,
   scale: 50000,
   enterprise: 0,

@@ -6,7 +6,7 @@ import { getUsageStats } from "@/lib/embeddings";
 export const dynamic = "force-dynamic";
 
 const DAILY_LIMIT_CENTS: Record<string, number> = {
-  starter: 100,     // $1.00
+  starter: 500,     // $5.00 free daily credit
   growth: 5000,     // $50.00
   scale: 50000,     // $500.00
   enterprise: 0,    // unlimited
