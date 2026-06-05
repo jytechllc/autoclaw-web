@@ -206,7 +206,7 @@ export async function POST(req: NextRequest) {
       }
       if (totalSpendCents >= dailyLimitCents) {
         const reply = userPlan === "starter"
-          ? `You've reached your **$1.00 daily chat limit** on the Starter plan. Upgrade to Growth ($79/mo) for a higher limit, or bring your own AI key (BYOK) in Settings to use your own quota.`
+          ? `You've reached your **$5.00 daily free credit** on the Starter plan. Upgrade to Growth ($79/mo) for a higher limit, or bring your own AI key (BYOK) in Settings to use your own quota.`
           : `You've reached your daily chat limit. Please try again tomorrow or upgrade your plan.`;
         await sql`INSERT INTO chat_messages (user_id, project_id, conversation_id, role, content, agent_type, model) VALUES (${userId}, ${project_id || null}, ${convId}, 'assistant', ${reply}, 'autoclaw', ${usedModel || null})`;
         return NextResponse.json({ reply });
