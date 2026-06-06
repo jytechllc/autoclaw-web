@@ -8,6 +8,7 @@ import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import { getDictionary, type Locale } from "@/lib/i18n";
 import DashboardShell from "@/components/DashboardShell";
+import { useOrg } from "@/components/OrgContext";
 
 interface AgentReport {
   id: string;
@@ -499,6 +500,7 @@ export default function ReportsPage() {
   const ts = dict.settings;
 
   const { user, isLoading: userLoading } = useUser();
+  const { activeOrg } = useOrg();
   const allCompaniesSelected = searchParams.get("scope") === "all";
   const activeOrgIdParam = searchParams.get("org_id");
   const [reports, setReports] = useState<AgentReport[]>([]);
@@ -547,7 +549,8 @@ export default function ReportsPage() {
     if (allCompaniesSelected) {
       url.searchParams.set("scope", "all");
     } else {
-      const activeOrgId = activeOrgIdParam || window.localStorage.getItem("autoclaw_active_org");
+      // Prefer URL param, then OrgContext active org, then localStorage fallback.
+      const activeOrgId = activeOrgIdParam ?? activeOrg?.id ?? window.localStorage.getItem("autoclaw_active_org");
       if (activeOrgId) {
         url.searchParams.set("org_id", String(activeOrgId));
       }
@@ -607,7 +610,7 @@ export default function ReportsPage() {
       .then((r) => r.json())
       .then((data) => setAuditLogs(data.logs || []))
       .finally(() => setAuditLoading(false));
-  }, [activeOrgIdParam, allCompaniesSelected, locale, trafficFilterStorageKey, user]);
+  }, [activeOrgIdParam, activeOrg?.id, allCompaniesSelected, locale, trafficFilterStorageKey, user]);
 
   useEffect(() => {
     if (!trafficFilterStorageKey || gaProjects.length === 0) return;
