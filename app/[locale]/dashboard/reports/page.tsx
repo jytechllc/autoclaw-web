@@ -549,10 +549,13 @@ export default function ReportsPage() {
     if (allCompaniesSelected) {
       url.searchParams.set("scope", "all");
     } else {
-      // Prefer URL param, then OrgContext active org, then localStorage fallback.
-      const activeOrgId = activeOrgIdParam ?? activeOrg?.id ?? window.localStorage.getItem("autoclaw_active_org");
-      if (activeOrgId) {
-        url.searchParams.set("org_id", String(activeOrgId));
+      // Only use org_id from URL param (set by DashboardShell when user switches org).
+      // Do NOT fall back to localStorage — that key is shared across users and would
+      // cause a 403 when a viewer account lands after an admin had a different org selected.
+      if (activeOrgIdParam) {
+        url.searchParams.set("org_id", activeOrgIdParam);
+      } else if (activeOrg?.id) {
+        url.searchParams.set("org_id", String(activeOrg.id));
       }
     }
     fetch(url.toString())
