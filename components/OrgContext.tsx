@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import { isReadOnlyUser } from "@/lib/roles";
 
 export interface Org {
   id: number;
@@ -14,6 +15,8 @@ interface OrgContextValue {
   activeOrg: Org | null;
   setActiveOrgId: (id: number | null) => void;
   loading: boolean;
+  /** True for dedicated sandbox/demo accounts: viewer/domain in every org → read-only UI. */
+  isReadOnly: boolean;
 }
 
 const OrgContext = createContext<OrgContextValue>({
@@ -21,6 +24,7 @@ const OrgContext = createContext<OrgContextValue>({
   activeOrg: null,
   setActiveOrgId: () => {},
   loading: true,
+  isReadOnly: false,
 });
 
 export function useOrg() {
@@ -71,9 +75,10 @@ export function OrgProvider({ children }: { children: ReactNode }) {
   }
 
   const activeOrg = orgs.find((o) => o.id === activeOrgId) || null;
+  const isReadOnly = isReadOnlyUser(orgs.map((o) => o.member_role));
 
   return (
-    <OrgContext.Provider value={{ orgs, activeOrg, setActiveOrgId, loading }}>
+    <OrgContext.Provider value={{ orgs, activeOrg, setActiveOrgId, loading, isReadOnly }}>
       {children}
     </OrgContext.Provider>
   );

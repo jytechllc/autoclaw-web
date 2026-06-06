@@ -6,6 +6,7 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { encrypt, decrypt, maskKey } from "@/lib/crypto";
 import { createHash, randomBytes } from "crypto";
 import { apiKeyActionSchema, parseOrError } from "@/lib/validations";
+import { isReadOnlyUserId } from "@/lib/roles-server";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +54,10 @@ export async function GET(req: NextRequest) {
   }
 
   const userId = users[0].id;
+  // Read-only (sandbox/viewer) accounts have no API-keys view permission.
+  if (await isReadOnlyUserId(sql, userId as number)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   // Existing service keys (user_api_keys table)
   const rawKeys = await sql`
@@ -137,6 +142,10 @@ export async function POST(req: NextRequest) {
   }
 
   const userId = users[0].id;
+  // Read-only (sandbox/viewer) accounts cannot manage API keys.
+  if (await isReadOnlyUserId(sql, userId as number)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   const contentType = req.headers.get("content-type");
   if (!contentType?.includes("application/json")) {
     return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });

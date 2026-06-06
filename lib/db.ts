@@ -1,14 +1,19 @@
 import { neon, NeonQueryFunction } from "@neondatabase/serverless";
-import { Pool } from "pg";
 
-// Local Postgres adapter — mimics neon's tagged-template sql`...` and sql.transaction([...])
-// Used when DATABASE_URL points to a non-Neon host (e.g. localhost docker postgres for dev/demo).
-let pgPool: Pool | null = null;
-function getPgPool(): Pool {
-  if (!pgPool) {
-    pgPool = new Pool({ connectionString: process.env.DATABASE_URL });
+// Local Postgres adapter — mimics neon's tagged-template sql`...` and sql.transaction([...]).
+// Used only when DATABASE_URL points to a non-Neon host (e.g. localhost docker postgres for
+// dev/demo). `pg` is a Node-only lib, so it is loaded via a dynamic import to keep it out of
+// the edge/middleware bundle — production runs on Neon and never reaches this path.
+type PgPool = { query: (text: string, params: unknown[]) => Promise<{ rows: Record<string, unknown>[] }> };
+let pgPoolPromise: Promise<PgPool> | null = null;
+function getPgPool(): Promise<PgPool> {
+  if (!pgPoolPromise) {
+    pgPoolPromise = import("pg").then((m) => {
+      const Pool = (m.Pool ?? (m as unknown as { default: typeof m }).default.Pool);
+      return new Pool({ connectionString: process.env.DATABASE_URL }) as unknown as PgPool;
+    });
   }
-  return pgPool;
+  return pgPoolPromise;
 }
 
 // Fragment marker — returned by sql`...` so it can be either awaited (executes)
@@ -65,10 +70,12 @@ function buildPgSql(): Sql {
     ) => PromiseLike<TResult1 | TResult2>;
     const then = ((onFulfilled, onRejected) => {
       const { text, params } = flatten(strings, values);
-      return getPgPool().query(text, params).then(
-        (res) => (onFulfilled ? onFulfilled(res.rows as Rows) : (res.rows as Rows)),
-        (err) => (onRejected ? onRejected(err) : Promise.reject(err))
-      );
+      return getPgPool()
+        .then((pool) => pool.query(text, params))
+        .then(
+          (res) => (onFulfilled ? onFulfilled(res.rows as Rows) : (res.rows as Rows)),
+          (err) => (onRejected ? onRejected(err) : Promise.reject(err))
+        );
     }) as Then;
     (thenable as unknown as { then: Then }).then = then;
     return thenable;

@@ -25,6 +25,31 @@ function isGroup(item: NavItem): item is NavGroup {
   return "children" in item;
 }
 
+// Sections hidden from read-only (sandbox/viewer) accounts. Paid Ads stays
+// visible (traffic only — spend is redacted elsewhere); Settings hides the
+// API-keys UI that lives inside it.
+const READONLY_HIDDEN_HREF_PATTERNS = [
+  "/dashboard/marketplace/",
+  "/dashboard/billing",
+  "/dashboard/income",
+  "/dashboard/budget",
+  "/dashboard/usage",
+  "/dashboard/settings",
+];
+function filterNavForReadOnly(items: NavItem[]): NavItem[] {
+  const hidden = (href: string) => READONLY_HIDDEN_HREF_PATTERNS.some((p) => href.includes(p));
+  const out: NavItem[] = [];
+  for (const item of items) {
+    if (isGroup(item)) {
+      const children = item.children.filter((c) => !hidden(c.href));
+      if (children.length > 0) out.push({ ...item, children });
+    } else if (!hidden(item.href)) {
+      out.push(item);
+    }
+  }
+  return out;
+}
+
 export default function DashboardShell(props: Props) {
   return (
     <OrgProvider>
@@ -41,6 +66,7 @@ function DashboardShellInner({ children, user, plan: planProp, fullHeight }: Pro
   const locale = (params.locale as Locale) || "en";
   const dict = getDictionary(locale);
   const tc = dict.common;
+  const { isReadOnly, loading: orgLoading } = useOrg();
   const growthOpsLabel =
     locale === "zh"
       ? "增长运营"
@@ -68,7 +94,15 @@ function DashboardShellInner({ children, user, plan: planProp, fullHeight }: Pro
   const plan = fetchedPlan;
   const isPaid = plan && plan !== "starter";
 
-  const navItems: NavItem[] = [
+  // Read-only (sandbox) accounts can't open hidden sections even by direct URL.
+  useEffect(() => {
+    if (orgLoading || !isReadOnly) return;
+    if (READONLY_HIDDEN_HREF_PATTERNS.some((p) => pathname.includes(p))) {
+      router.replace(`/${locale}/dashboard/reports`);
+    }
+  }, [orgLoading, isReadOnly, pathname, router, locale]);
+
+  const allNavItems: NavItem[] = [
     { href: `/${locale}/dashboard/growth-ops`, label: growthOpsLabel },
     { href: `/${locale}/dashboard/reports`, label: analyticsLabel },
     { href: `/${locale}/dashboard/chat`, label: tc.chat },
@@ -155,6 +189,7 @@ function DashboardShellInner({ children, user, plan: planProp, fullHeight }: Pro
     },
     { href: `/${locale}/dashboard/docs`, label: tc.docs },
   ];
+  const navItems = isReadOnly ? filterNavForReadOnly(allNavItems) : allNavItems;
 
   const isActive = (href: string) => pathname === href;
 
