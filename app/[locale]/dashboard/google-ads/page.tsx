@@ -51,7 +51,7 @@ export default function GoogleAdsPage() {
   const locale = (params.locale as Locale) || "en";
   const dict = getDictionary(locale);
   const t = dict.googleAdsPage;
-  const { activeOrg } = useOrg();
+  const { activeOrg, isReadOnly } = useOrg();
   const orgIdParam = activeOrg ? `?org_id=${activeOrg.id}` : "";
 
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -351,20 +351,22 @@ export default function GoogleAdsPage() {
               {activeOrg && <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">{activeOrg.name}</span>}
             </p>
           </div>
-          <div className="flex flex-wrap gap-2 self-start">
-            <button
-              onClick={openImport}
-              className="border border-gray-300 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition cursor-pointer"
-            >
-              ↘️ {t.importExisting || "Import existing"}
-            </button>
-            <button
-              onClick={() => { setShowForm(!showForm); setError(""); }}
-              className="bg-red-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-900 transition cursor-pointer"
-            >
-              {showForm ? t.cancel : `+ ${t.createCampaign}`}
-            </button>
-          </div>
+          {!isReadOnly && (
+            <div className="flex flex-wrap gap-2 self-start">
+              <button
+                onClick={openImport}
+                className="border border-gray-300 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition cursor-pointer"
+              >
+                ↘️ {t.importExisting || "Import existing"}
+              </button>
+              <button
+                onClick={() => { setShowForm(!showForm); setError(""); }}
+                className="bg-red-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-900 transition cursor-pointer"
+              >
+                {showForm ? t.cancel : `+ ${t.createCampaign}`}
+              </button>
+            </div>
+          )}
         </div>
 
         {toast && (
@@ -410,7 +412,7 @@ export default function GoogleAdsPage() {
                           <div className="text-xs text-gray-500 mt-0.5 flex flex-wrap gap-2">
                             <span className="px-1.5 py-0.5 bg-gray-100 rounded">{c.channelType}</span>
                             <span className={`px-1.5 py-0.5 rounded ${c.status === "ENABLED" ? "bg-green-50 text-green-700" : c.status === "PAUSED" ? "bg-yellow-50 text-yellow-700" : "bg-gray-100"}`}>{c.status}</span>
-                            <span>{t.spent || "Spent"}: ${spentUsd}</span>
+                            {!isReadOnly && <span>{t.spent || "Spent"}: ${spentUsd}</span>}
                             <span>{c.metrics.clicks} {t.clicksLabel || "clicks"}</span>
                           </div>
                         </div>
@@ -704,9 +706,9 @@ export default function GoogleAdsPage() {
                   <tr>
                     <th className="text-left px-4 py-2 font-medium">{t.campaignName}</th>
                     <th className="text-left px-4 py-2 font-medium">{t.channel}</th>
-                    <th className="text-left px-4 py-2 font-medium">{t.dailyBudget}</th>
-                    <th className="text-left px-4 py-2 font-medium">{t.totalBudget || "Cap"}</th>
-                    <th className="text-left px-4 py-2 font-medium">{t.spent || "Spent"}</th>
+                    {!isReadOnly && <th className="text-left px-4 py-2 font-medium">{t.dailyBudget}</th>}
+                    {!isReadOnly && <th className="text-left px-4 py-2 font-medium">{t.totalBudget || "Cap"}</th>}
+                    {!isReadOnly && <th className="text-left px-4 py-2 font-medium">{t.spent || "Spent"}</th>}
                     <th className="text-left px-4 py-2 font-medium">{t.status}</th>
                     <th className="text-right px-4 py-2 font-medium">{t.actions || "Actions"}</th>
                   </tr>
@@ -725,16 +727,18 @@ export default function GoogleAdsPage() {
                           </div>
                         </td>
                         <td className="px-4 py-3 text-gray-600">{c.channel}</td>
-                        <td className="px-4 py-3 text-gray-600">${Number(c.daily_budget).toFixed(2)}</td>
-                        <td className="px-4 py-3 text-gray-600">{formatUsd(c.total_budget_cents)}</td>
-                        <td className="px-4 py-3 text-gray-600">
-                          <div>{formatUsd(c.spent_cents)}</div>
-                          {cap > 0 && (
-                            <div className="w-24 h-1.5 bg-gray-100 rounded-full overflow-hidden mt-1">
-                              <div className={`h-full ${pct >= 100 ? "bg-red-500" : pct >= 80 ? "bg-amber-500" : "bg-emerald-500"}`} style={{ width: `${pct}%` }} />
-                            </div>
-                          )}
-                        </td>
+                        {!isReadOnly && <td className="px-4 py-3 text-gray-600">${Number(c.daily_budget).toFixed(2)}</td>}
+                        {!isReadOnly && <td className="px-4 py-3 text-gray-600">{formatUsd(c.total_budget_cents)}</td>}
+                        {!isReadOnly && (
+                          <td className="px-4 py-3 text-gray-600">
+                            <div>{formatUsd(c.spent_cents)}</div>
+                            {cap > 0 && (
+                              <div className="w-24 h-1.5 bg-gray-100 rounded-full overflow-hidden mt-1">
+                                <div className={`h-full ${pct >= 100 ? "bg-red-500" : pct >= 80 ? "bg-amber-500" : "bg-emerald-500"}`} style={{ width: `${pct}%` }} />
+                              </div>
+                            )}
+                          </td>
+                        )}
                         <td className="px-4 py-3">
                           <span className={`px-2 py-0.5 text-xs rounded-full ${
                             c.closed ? "bg-gray-200 text-gray-600" :
