@@ -70,7 +70,7 @@ export async function GET(req: NextRequest) {
     // Queue into email_logs as pending_review
     await sql`
       INSERT INTO email_logs (user_id, contact_id, recipient_email, recipient_name, sender_email, sender_name, subject, body_html, provider, status)
-      VALUES (${row.owner_id}, ${row.contact_id}, ${row.contact_email}, ${first}, ${"hello@autoclaw.dev"}, ${"AutoClaw Sales"}, ${subject}, ${body}, ${"brevo"}, ${"pending_review"})
+      VALUES (${row.owner_id}, ${row.contact_id}, ${row.contact_email}, ${first}, ${"leo.liu@jytech.us"}, ${"Leo Liu @ AutoClaw"}, ${subject}, ${body}, ${"brevo"}, ${"pending_review"})
     `;
     await sql`UPDATE scheduled_emails SET status='queued_for_review', dispatched_at=NOW() WHERE id=${seId}`;
     await sql`UPDATE workflow_runs SET current_step = ${row.step_index} WHERE id = ${row.workflow_run_id}`;
