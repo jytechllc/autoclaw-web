@@ -62,8 +62,8 @@ describe("BYOK_SERVICES", () => {
 });
 
 describe("DAILY_LIMIT_CENTS", () => {
-  it("starter is $1, enterprise is unlimited", () => {
-    expect(DAILY_LIMIT_CENTS.starter).toBe(100);
+  it("starter is $5, enterprise is unlimited", () => {
+    expect(DAILY_LIMIT_CENTS.starter).toBe(500);
     expect(DAILY_LIMIT_CENTS.enterprise).toBe(0);
   });
 });

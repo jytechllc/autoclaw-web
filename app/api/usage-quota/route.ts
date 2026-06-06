@@ -5,7 +5,7 @@ import { getDb, resolveUserPlan } from "@/lib/db";
 export const dynamic = "force-dynamic";
 
 const DAILY_LIMIT_CENTS: Record<string, number> = {
-  starter: 100,
+  starter: 500,     // $5.00 free daily credit
   growth: 5000,
   scale: 50000,
   enterprise: 0,
@@ -31,7 +31,7 @@ export async function GET() {
 
     const users = await sql`SELECT id, plan FROM users WHERE email = ${email}`;
     if (users.length === 0) {
-      return NextResponse.json({ quota: { plan: "starter", dailyLimitCents: 100, todaySpendCents: 0, remaining: 100, percentage: 0 } });
+      return NextResponse.json({ quota: { plan: "starter", dailyLimitCents: 500, todaySpendCents: 0, remaining: 500, percentage: 0 } });
     }
 
     const userId = users[0].id;

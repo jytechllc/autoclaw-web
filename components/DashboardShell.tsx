@@ -9,6 +9,7 @@ import UserPlanBadge from "@/components/UserPlanBadge";
 import ChatWidget from "@/components/ChatWidget";
 import { OrgProvider, useOrg } from "@/components/OrgContext";
 import CreditsBadge from "@/components/CreditsBadge";
+import AiCreditBadge from "@/components/AiCreditBadge";
 
 interface Props {
   children: React.ReactNode;
@@ -315,6 +316,7 @@ function DashboardShellInner({ children, user, plan: planProp, fullHeight }: Pro
             </Link>
           </div>
           <div className="flex items-center gap-3">
+            <AiCreditBadge locale={locale} />
             <CreditsBadge locale={locale} />
             {/* Org selector */}
             {userOrgs.length > 0 && (
