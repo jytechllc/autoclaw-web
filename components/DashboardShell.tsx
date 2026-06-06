@@ -33,7 +33,6 @@ const READONLY_HIDDEN_HREF_PATTERNS = [
   "/dashboard/marketplace/",
   "/dashboard/billing",
   "/dashboard/income",
-  "/dashboard/budget",
   "/dashboard/usage",
   "/dashboard/settings",
 ];

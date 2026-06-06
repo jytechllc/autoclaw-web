@@ -36,5 +36,12 @@ export async function GET(req: NextRequest) {
 
   const credits = await getCredits(sql, orgId);
   const transactions = await getRecentTransactions(sql, orgId, 20);
-  return NextResponse.json({ credits, transactions, orgId });
+
+  // Include the user's org role so the UI can hide write actions for viewers.
+  const [mem] = await sql`
+    SELECT role FROM organization_members WHERE org_id = ${orgId} AND user_id = ${userId}
+  `;
+  const memberRole = (mem?.role as string | null) ?? null;
+
+  return NextResponse.json({ credits, transactions, orgId, memberRole });
 }

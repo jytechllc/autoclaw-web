@@ -59,6 +59,7 @@ export default function AdCreditsPage() {
   const [credits, setCredits] = useState<Credits | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [memberRole, setMemberRole] = useState<string | null>(null);
 
   const [showTopup, setShowTopup] = useState(false);
   const [topupAmount, setTopupAmount] = useState("100");
@@ -71,6 +72,7 @@ export default function AdCreditsPage() {
       const data = await fetch(`/api/credits${orgIdParam}`).then((r) => r.json());
       setCredits(data.credits || { balance_cents: 0, reserved_cents: 0, currency: "USD" });
       setTransactions(data.transactions || []);
+      setMemberRole(data.memberRole ?? null);
     } catch {
       setCredits({ balance_cents: 0, reserved_cents: 0, currency: "USD" });
       setTransactions([]);
@@ -136,6 +138,7 @@ export default function AdCreditsPage() {
   if (!user) return null;
 
   const total = fromCents(credits?.balance_cents) + fromCents(credits?.reserved_cents);
+  const canTopup = memberRole !== "viewer" && memberRole !== "domain";
 
   return (
     <DashboardShell user={user} plan={undefined}>
@@ -169,17 +172,19 @@ export default function AdCreditsPage() {
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <div className="text-xs text-gray-500 mb-1">{t.totalAccount}</div>
             <div className="text-2xl font-semibold text-gray-500">${total.toFixed(2)}</div>
-            <button
-              onClick={() => setShowTopup(!showTopup)}
-              className="mt-2 bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-emerald-700 transition cursor-pointer"
-            >
-              {showTopup ? tg.cancel : `+ ${tg.topup}`}
-            </button>
+            {canTopup && (
+              <button
+                onClick={() => setShowTopup(!showTopup)}
+                className="mt-2 bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-emerald-700 transition cursor-pointer"
+              >
+                {showTopup ? tg.cancel : `+ ${tg.topup}`}
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Top-up form */}
-        {showTopup && (
+        {/* Top-up form — only for non-viewer members */}
+        {canTopup && showTopup && (
           <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6 space-y-3">
             <h2 className="font-semibold text-gray-900">{tg.topup}</h2>
             <p className="text-xs text-gray-500">{tg.topupNote}</p>
