@@ -119,8 +119,8 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const query = (body.query || "").trim();
-    if (!query || query.length < 3 || query.length > 500) {
-      return NextResponse.json({ error: "Query must be 3-500 characters" }, { status: 400 });
+    if (!query || query.length < 1 || query.length > 500) {
+      return NextResponse.json({ error: "Query must be 1-500 characters" }, { status: 400 });
     }
 
     if (!APOLLO_API_KEY) {
