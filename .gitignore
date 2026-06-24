@@ -20,6 +20,9 @@
 # production
 /build
 
+# electron
+/dist-electron
+
 # misc
 .DS_Store
 *.pem
@@ -49,3 +52,9 @@ next-env.d.ts
 *.before-xpilot
 
 local_doc/
+
+# codegraph local index
+.codegraph/
+
+# local Claude instructions (do not upload)
+CLAUDE.md

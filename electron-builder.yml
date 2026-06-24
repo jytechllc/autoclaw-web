@@ -1,0 +1,50 @@
+appId: us.jytech.autoclaw
+productName: AutoClaw
+copyright: Copyright © jytech
+
+# The desktop app is a remote shell — it bundles only electron/ + the icon and
+# uses no native node modules at runtime, so skip rebuilding native deps. This
+# also avoids needing a C toolchain on the build host.
+npmRebuild: false
+
+directories:
+  output: dist-electron
+  buildResources: electron-resources
+
+# Desktop app is a remote shell — only the Electron sources + icon are packed.
+files:
+  - electron/**/*
+  - electron-resources/icon.png
+  - package.json
+
+# Windows first (primary target for the China-market channel).
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    # Portable ("U 盘版") is built ia32 on purpose: a 32-bit exe runs on every
+    # Windows (32- and 64-bit), so one file works on any machine you plug the
+    # drive into. The app is a thin remote shell, so 32-bit costs nothing here.
+    - target: portable
+      arch: [ia32]
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: AutoClaw
+  artifactName: ${productName}-${version}-Setup.${ext}
+
+portable:
+  artifactName: ${productName}-${version}-Portable.${ext}
+
+# Secondary targets (built on their native OS / CI).
+mac:
+  target: dmg
+  category: public.app-category.business
+
+linux:
+  target: AppImage
+  category: Office

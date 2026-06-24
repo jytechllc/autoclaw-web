@@ -1,0 +1,74 @@
+name: Build Windows Desktop
+
+# Builds the AutoClaw Electron desktop installer (.exe) on a Windows runner and
+# publishes it as a downloadable GitHub Release. Trigger manually, or it runs
+# when the desktop-related files change on any branch.
+on:
+  workflow_dispatch:
+  push:
+    branches: ["**"]
+    paths:
+      - "electron/**"
+      - "electron-resources/**"
+      - "electron-builder.yml"
+      - ".github/workflows/build-windows-desktop.yml"
+
+# Needed for the release step to create/update a GitHub Release.
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    env:
+      # Skip electron-builder code signing (no cert configured yet).
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build Windows installer
+        run: npm run electron:build:win
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AutoClaw-Windows
+          path: |
+            dist-electron/*.exe
+            dist-electron/*.blockmap
+          if-no-files-found: error
+          retention-days: 30
+
+      # Read the app version so the release can be tagged with it.
+      - name: Read app version
+        id: pkg
+        shell: bash
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      # Publish the .exe to a GitHub Release so it can be downloaded straight
+      # from the repo's Releases section — no login, no 30-day expiry.
+      - name: Publish to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: desktop-v${{ steps.pkg.outputs.version }}
+          name: AutoClaw Desktop v${{ steps.pkg.outputs.version }} (Windows)
+          body: |
+            AutoClaw Windows desktop build (automated).
+
+            - **AutoClaw-${{ steps.pkg.outputs.version }}-Portable.exe** — portable / no-install, double-click to run (32-bit, runs on any 32/64-bit Windows). Login session and cache live in an `AutoClaw-Data/` folder next to the .exe, so copy it to a USB drive to carry it between machines without re-logging in or leaving traces on the host.
+            - **AutoClaw-${{ steps.pkg.outputs.version }}-Setup.exe** — installer (writes to the local %APPDATA%).
+
+            Not code-signed yet: if SmartScreen blocks the first run, click "More info → Run anyway".
+          files: dist-electron/*.exe
+          make_latest: true
