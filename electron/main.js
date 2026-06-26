@@ -8,6 +8,7 @@ const {
   Tray,
   shell,
   nativeImage,
+  ipcMain,
 } = require("electron");
 const path = require("path");
 const { registerNotificationIpc } = require("./notify");
@@ -27,9 +28,15 @@ const APP_ORIGIN = (() => {
   }
 })();
 
+// How often the offline page retries the hosted app (auto-reconnect).
+const RETRY_INTERVAL_MS = 5000;
+
 const isDev = !app.isPackaged;
 let mainWindow = null;
 let tray = null;
+let retryTimer = null;
+let started = false; // true once the first remote navigation has been kicked off
+let showingError = false; // true while the local offline page is displayed
 
 // USB / portable build: keep all app state (login session, cookies, cache) in a
 // folder next to the .exe instead of the host's %APPDATA%. This makes it a true
@@ -54,6 +61,31 @@ function iconPath() {
   return path.join(__dirname, "..", "electron-resources", "icon.png");
 }
 
+function clearRetryTimer() {
+  if (retryTimer) {
+    clearInterval(retryTimer);
+    retryTimer = null;
+  }
+}
+
+// Navigate the main window to the hosted web app. Used on startup (after the
+// splash paints), by the auto-reconnect timer, and by the "Retry now" button.
+function loadRemoteApp() {
+  if (mainWindow) mainWindow.loadURL(APP_URL);
+}
+
+// Show the bundled offline page and start polling the hosted URL. The page is
+// loaded only on the first failure (guarded by showingError) so repeated misses
+// don't make it flicker; the timer keeps retrying until a load succeeds, at
+// which point did-finish-load clears it — i.e. auto-reconnect.
+function showOfflinePage() {
+  if (!mainWindow || showingError) return;
+  showingError = true;
+  mainWindow.loadFile(path.join(__dirname, "offline.html"));
+  clearRetryTimer();
+  retryTimer = setInterval(loadRemoteApp, RETRY_INTERVAL_MS);
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -61,6 +93,7 @@ function createWindow() {
     minWidth: 960,
     minHeight: 600,
     backgroundColor: "#0b0b0f",
+    show: false, // revealed on ready-to-show once the splash has painted
     autoHideMenuBar: true, // hide the menu bar by default (toggle with Alt)
     icon: iconPath(),
     webPreferences: {
@@ -71,7 +104,36 @@ function createWindow() {
     },
   });
 
-  mainWindow.loadURL(APP_URL);
+  const wc = mainWindow.webContents;
+
+  // Startup: paint a local splash (loading.html) immediately, then navigate to
+  // the hosted app once the splash is up. The splash stays visible until the
+  // remote first paints (or fails), so cold start is never a blank window.
+  mainWindow.loadFile(path.join(__dirname, "loading.html"));
+  mainWindow.once("ready-to-show", () => mainWindow.show());
+
+  wc.on("did-finish-load", () => {
+    // Local pages (loading/offline) finished painting. On the first one, kick
+    // off the real navigation to the hosted app.
+    if (wc.getURL().startsWith("file://")) {
+      if (!started) {
+        started = true;
+        loadRemoteApp();
+      }
+      return;
+    }
+    // Hosted app loaded successfully — back online, stop retrying.
+    clearRetryTimer();
+    showingError = false;
+  });
+
+  // Main-frame load failure (offline, DNS, server unreachable) → offline page +
+  // auto-reconnect. ERR_ABORTED (-3) is a normal navigation cancel (e.g. the
+  // retry timer firing mid-load), so ignore it.
+  wc.on("did-fail-load", (_event, errorCode, _desc, _url, isMainFrame) => {
+    if (!isMainFrame || errorCode === -3) return;
+    showOfflinePage();
+  });
 
   // Open external links (window.open / target=_blank) in the system browser.
   // Same-origin navigations (incl. Auth0 redirect back to the app) stay in-window.
@@ -89,6 +151,9 @@ function createWindow() {
   });
 
   mainWindow.on("closed", () => {
+    clearRetryTimer();
+    started = false;
+    showingError = false;
     mainWindow = null;
   });
 }
@@ -186,6 +251,11 @@ if (!gotLock) {
     app.setAppUserModelId(APP_ID);
     // Clicking a notification brings the app to the foreground.
     registerNotificationIpc({ iconPath, onClick: showMainWindow });
+    // "Retry now" button on the offline page → re-attempt the hosted app.
+    ipcMain.handle("autoclaw:retry", () => {
+      loadRemoteApp();
+      return { ok: true };
+    });
     buildMenu();
     createWindow();
     createTray();

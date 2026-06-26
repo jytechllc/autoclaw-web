@@ -18,4 +18,6 @@ contextBridge.exposeInMainWorld("autoclawDesktop", {
       body: options?.body,
       silent: options?.silent,
     }),
+  // Re-attempt loading the hosted app (used by the offline page's retry button).
+  retry: () => ipcRenderer.invoke("autoclaw:retry"),
 });
