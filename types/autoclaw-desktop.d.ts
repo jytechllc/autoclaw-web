@@ -10,6 +10,8 @@ export interface AutoclawDesktopBridge {
     body?: string;
     silent?: boolean;
   }) => Promise<{ ok: boolean; reason?: string }>;
+  // Re-attempt loading the hosted app (offline page retry button).
+  retry: () => Promise<{ ok: boolean }>;
 }
 
 declare global {
