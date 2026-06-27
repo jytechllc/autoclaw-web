@@ -794,6 +794,8 @@ const zhTW: typeof en = {
     errorMsg: "抱歉，發生問題。請重試。",
     modelAuto: "自動（最佳可用）",
     modelNeedsByok: "需要 BYOK",
+    characterLabel: "人格",
+    characterNone: "不使用人格",
     modelFree: "免費",
     modelMInput: "M 輸入",
     modelMOutput: "M 輸出",

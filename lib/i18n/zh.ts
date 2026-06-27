@@ -794,6 +794,8 @@ const zh: typeof en = {
     errorMsg: "抱歉，出了点问题。请重试。",
     modelAuto: "自动（最佳可用）",
     modelNeedsByok: "需要 BYOK",
+    characterLabel: "人格",
+    characterNone: "不使用人格",
     modelFree: "免费",
     modelMInput: "M 输入",
     modelMOutput: "M 输出",

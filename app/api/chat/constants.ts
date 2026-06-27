@@ -1,3 +1,5 @@
+import { buildCharacterPrompt } from "./characters";
+
 export const AVAILABLE_AGENTS = [
   { type: "email_marketing", label: "Email Marketing", desc: "Cold outreach, follow-ups, newsletters" },
   { type: "seo_content", label: "SEO & Content", desc: "Blog posts, keyword optimization" },
@@ -267,8 +269,11 @@ export function buildSystemPrompt(opts: {
   agentLimit: number;
   ragContext: string;
   locale: string;
+  /** Optional character persona id; overlays thinking style + voice. */
+  character?: string | null;
 }): string {
-  const { projects, agents, userPlan, agentLimit, ragContext, locale } = opts;
+  const { projects, agents, userPlan, agentLimit, ragContext, locale, character } = opts;
+  const characterPrompt = buildCharacterPrompt(character);
   return `You are AutoClaw, an AI marketing automation assistant built by JY Tech. You help users manage their marketing projects and AI agents. Respond in the same language the user uses (Chinese if they write in Chinese, English if English, etc.).
 
 ## About AutoClaw
@@ -333,7 +338,7 @@ Guide users to use these specific commands:
 
 ${ragContext ? ragContext + "\nUse the knowledge base context above to inform your answers when relevant.\n" : ""}${projects.length === 0 ? "The user has no projects yet. Help them create one by asking about their business, or answer their question directly. Always connect back to how AutoClaw's agents can help.\n" : ""}
 Keep responses concise and helpful. Use markdown formatting. Always be proactive in suggesting relevant AutoClaw capabilities.
-${locale === "zh" ? "IMPORTANT: You MUST respond entirely in Simplified Chinese (简体中文)." : locale === "zh-TW" ? "IMPORTANT: You MUST respond entirely in Traditional Chinese (繁體中文)." : locale === "fr" ? "IMPORTANT: You MUST respond entirely in French (Français)." : ""}`;
+${characterPrompt}${locale === "zh" ? "IMPORTANT: You MUST respond entirely in Simplified Chinese (简体中文)." : locale === "zh-TW" ? "IMPORTANT: You MUST respond entirely in Traditional Chinese (繁體中文)." : locale === "fr" ? "IMPORTANT: You MUST respond entirely in French (Français)." : ""}`;
 }
 
 export const TOOL_SYSTEM_PROMPT_EXTENSION = `\n

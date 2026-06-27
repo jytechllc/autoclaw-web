@@ -30,6 +30,13 @@ interface ModelOption {
   available: boolean;
 }
 
+interface CharacterOption {
+  id: string;
+  name: string;
+  emoji: string;
+  tagline: string;
+}
+
 function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
@@ -85,6 +92,8 @@ export default function ChatPage() {
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState("auto");
   const [models, setModels] = useState<ModelOption[]>([]);
+  const [characters, setCharacters] = useState<CharacterOption[]>([]);
+  const [selectedCharacter, setSelectedCharacter] = useState("");
   const [quota, setQuota] = useState<{
     todayTokens: number; dailyTokenLimit: number; remainingTokens: number | null;
     plan: string; unlimited: boolean; nextResetUtc: string;
@@ -183,8 +192,22 @@ export default function ChatPage() {
     fetch("/api/models")
       .then((r) => r.json())
       .then((data) => setModels(data.models || []));
+    fetch("/api/characters")
+      .then((r) => r.json())
+      .then((data) => setCharacters(data.characters || []))
+      .catch(() => {});
+    const savedCharacter = typeof window !== "undefined" ? localStorage.getItem("chat_character") : null;
+    if (savedCharacter) setSelectedCharacter(savedCharacter);
     refreshQuota();
   }, [user]);
+
+  function handleSelectCharacter(id: string) {
+    setSelectedCharacter(id);
+    if (typeof window !== "undefined") {
+      if (id) localStorage.setItem("chat_character", id);
+      else localStorage.removeItem("chat_character");
+    }
+  }
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -280,6 +303,7 @@ export default function ChatPage() {
         body: JSON.stringify({
           message: userMsg,
           model: selectedModel !== "auto" ? selectedModel : undefined,
+          character: selectedCharacter || undefined,
           locale,
           conversation_id: activeConvId ? String(activeConvId) : undefined,
         }),
@@ -736,6 +760,28 @@ export default function ChatPage() {
                     return `$${(m.costPer1MInput / 100).toFixed(2)}/${td.modelMInput} · $${(m.costPer1MOutput / 100).toFixed(2)}/${td.modelMOutput}`;
                   })()}
                 </span>
+              )}
+              {characters.length > 0 && (
+                <>
+                  <select
+                    value={selectedCharacter}
+                    onChange={(e) => handleSelectCharacter(e.target.value)}
+                    title={td.characterLabel || "Persona"}
+                    className="text-xs border border-gray-200 rounded-md px-2 py-1 text-gray-600 bg-white focus:outline-none focus:ring-1 focus:ring-red-500 cursor-pointer"
+                  >
+                    <option value="">{td.characterNone || "No persona"}</option>
+                    {characters.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.emoji} {c.name}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedCharacter && (
+                    <span className="text-xs text-gray-400 truncate max-w-[16rem] hidden sm:inline">
+                      {characters.find((c) => c.id === selectedCharacter)?.tagline}
+                    </span>
+                  )}
+                </>
               )}
             </div>
           </div>

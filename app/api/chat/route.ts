@@ -76,14 +76,14 @@ export async function POST(req: NextRequest) {
     const sql = getDb();
     const email = session.user.email as string;
 
-    let body: { message?: string; project_id?: string; conversation_id?: string; model?: string; locale?: string };
+    let body: { message?: string; project_id?: string; conversation_id?: string; model?: string; locale?: string; character?: string };
     try {
       body = await req.json();
     } catch {
       return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
     }
 
-    const { message, project_id, conversation_id, model: selectedModel, locale: reqLocale } = body;
+    const { message, project_id, conversation_id, model: selectedModel, locale: reqLocale, character } = body;
     const locale = (reqLocale as string) || "en";
     const convId = conversation_id ? parseInt(conversation_id) : null;
 
@@ -687,7 +687,7 @@ export async function POST(req: NextRequest) {
         // RAG unavailable, skip
       }
 
-      const systemPrompt = buildSystemPrompt({ projects, agents, userPlan, agentLimit, ragContext, locale });
+      const systemPrompt = buildSystemPrompt({ projects, agents, userPlan, agentLimit, ragContext, locale, character });
       const toolSystemPrompt = systemPrompt + SAFETY_SYSTEM_PROMPT + TOOL_SYSTEM_PROMPT_EXTENSION;
 
       try {

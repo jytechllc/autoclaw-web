@@ -807,6 +807,8 @@ const en = {
     errorMsg: "Sorry, something went wrong. Please try again.",
     modelAuto: "Auto (Best Available)",
     modelNeedsByok: "BYOK required",
+    characterLabel: "Persona",
+    characterNone: "No persona",
     modelFree: "Free",
     modelMInput: "M input",
     modelMOutput: "M output",
