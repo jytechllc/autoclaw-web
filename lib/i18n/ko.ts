@@ -776,6 +776,8 @@ const ko = {
     errorMsg: "죄송합니다, 문제가 발생했습니다. 다시 시도해 주세요.",
     modelAuto: "자동 (최적 모델)",
     modelNeedsByok: "BYOK 필요",
+    characterLabel: "페르소나",
+    characterNone: "페르소나 없음",
     modelFree: "무료",
     modelMInput: "M 입력",
     modelMOutput: "M 출력",
