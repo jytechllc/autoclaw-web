@@ -29,7 +29,13 @@ describe("character agent", () => {
     expect(without).not.toContain("Active persona");
     expect(withMunger).toContain("Active persona: Charlie Munger");
     expect(withMunger).toContain("nuwa-skill");
-    expect(withMunger).toContain("核心心智模型");
+    expect(withMunger).toContain("## Mental models");
+  });
+
+  it("overlays are written in English (no CJK characters)", () => {
+    for (const c of AVAILABLE_CHARACTERS) {
+      expect(c.prompt).not.toMatch(/[一-鿿]/);
+    }
   });
 
   it("ignores unknown character ids (falls back to default)", () => {
