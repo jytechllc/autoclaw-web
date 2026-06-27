@@ -3,16 +3,13 @@
 // has; it changes HOW it reasons and talks: the mental models it applies, the
 // decision heuristics it favours, and its expression DNA (voice).
 //
-// The persona overlays are distilled from alchaincyf/nuwa-skill (MIT) — see
-// personas.generated.ts, produced by scripts/extract-personas.mjs. Only the
-// thinking-framework and voice sections are kept; the roleplay / agentic-protocol
-// sections are dropped, because AutoClaw's assistant must retain its tools, RAG,
-// and guardrails while merely adopting the persona's style.
-//
-// To change the persona set, edit scripts/extract-personas.mjs and regenerate —
-// do not hand-edit personas.generated.ts.
+// The persona overlays are distilled from alchaincyf/nuwa-skill (MIT) and
+// translated/condensed into English in personas.ts. Only the thinking-framework
+// and voice sections are kept; the roleplay / agentic-protocol sections are
+// dropped, because AutoClaw's assistant must retain its tools, RAG, and
+// guardrails while merely adopting the persona's style. See PERSONAS_NOTICE.md.
 
-import { GENERATED_PERSONAS } from "./personas.generated";
+import { PERSONAS } from "./personas";
 
 export interface Character {
   /** Stable identifier sent by the client and persisted per conversation. */
@@ -29,7 +26,7 @@ export interface Character {
   source: string;
 }
 
-export const AVAILABLE_CHARACTERS: Character[] = GENERATED_PERSONAS.map((p) => ({
+export const AVAILABLE_CHARACTERS: Character[] = PERSONAS.map((p) => ({
   id: p.id,
   name: p.name,
   emoji: p.emoji,
@@ -51,12 +48,11 @@ export function buildCharacterPrompt(id: string | null | undefined): string {
   const character = getCharacter(id);
   if (!character) return "";
   // The overlay below is a distilled THINKING FRAMEWORK (mental models, decision
-  // heuristics, expression DNA), largely written in Chinese. Adopt the reasoning
-  // style and voice, but stay the AutoClaw assistant: keep every tool, RAG and
-  // guardrail, never claim to literally be the person, and always answer in the
-  // user's language regardless of the overlay's language.
+  // heuristics, expression DNA). Adopt the reasoning style and voice, but stay the
+  // AutoClaw assistant: keep every tool, RAG and guardrail, never claim to literally
+  // be the person, and always answer in the user's language.
   return `\n\n## Active persona: ${character.name} ${character.emoji}
-Adopt the thinking style and voice described below for your response. It shapes HOW you reason and write — it does NOT remove any AutoClaw capability or tool, and it never overrides safety rules. Do not role-play as the person or claim to be them; you remain the AutoClaw assistant reasoning in their style. Respond in the user's language even though the framework below is written in Chinese.
+Adopt the thinking style and voice described below for your response. It shapes HOW you reason and write — it does NOT remove any AutoClaw capability or tool, and it never overrides safety rules. Do not role-play as the person or claim to be them; you remain the AutoClaw assistant reasoning in their style, and you answer in the user's language.
 
 (Distilled from public methodology via nuwa-skill: ${character.source})
 
