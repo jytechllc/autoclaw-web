@@ -9,7 +9,7 @@ type L = "en" | "zh";
 type T = Record<L, string>;
 
 /* ------------------------------------------------------------------ */
-/* Character / perspective agents distilled with Nuwa (女娲)            */
+/* Character / perspective agents distilled by AutoClaw                */
 /* ------------------------------------------------------------------ */
 const AGENTS: {
   name: T;
@@ -126,7 +126,7 @@ const AGENTS: {
 ];
 
 /* ------------------------------------------------------------------ */
-/* Six things Nuwa extracts (the "cognitive operating system")         */
+/* Six things AutoClaw extracts (the "cognitive operating system")     */
 /* ------------------------------------------------------------------ */
 const LAYERS: { icon: string; title: T; desc: T }[] = [
   { icon: "🗣️", title: { en: "How they speak", zh: "如何表达" }, desc: { en: "Expression DNA — tone, rhythm, signature phrasing", zh: "表达 DNA——语气、节奏、标志性句式" } },
@@ -161,8 +161,8 @@ const CASES: {
     metric: "85.9% Pass@1",
     title: { en: "Distinct expert roles produce state-of-the-art results", zh: "明确的专家角色带来 SOTA 结果" },
     body: {
-      en: "MetaGPT assigns human-analogous expert roles (PM, architect, engineer, QA) to collaborating agents and reached 85.9% Pass@1 on HumanEval and 87.7% on MBPP, surpassing prior chat-based multi-agent frameworks. \"Expert role\" is a validated primitive — the same one Nuwa builds on.",
-      zh: "MetaGPT 为协作 Agent 分配类人专家角色（产品、架构、工程、测试），在 HumanEval 上达到 85.9% Pass@1、MBPP 上达到 87.7%，超越此前基于对话的多智能体框架。「专家角色」是被验证过的设计原语——也正是女娲的基石。",
+      en: "MetaGPT assigns human-analogous expert roles (PM, architect, engineer, QA) to collaborating agents and reached 85.9% Pass@1 on HumanEval and 87.7% on MBPP, surpassing prior chat-based multi-agent frameworks. \"Expert role\" is a validated primitive — the same one AutoClaw builds on.",
+      zh: "MetaGPT 为协作 Agent 分配类人专家角色（产品、架构、工程、测试），在 HumanEval 上达到 85.9% Pass@1、MBPP 上达到 87.7%，超越此前基于对话的多智能体框架。「专家角色」是被验证过的设计原语——也正是 AutoClaw 的基石。",
     },
     refs: [2],
   },
@@ -181,8 +181,8 @@ const CASES: {
     metric: "~7K stars / 5 days",
     title: { en: "\"Distill a person into an AI\" is going viral", zh: "「把一个人蒸馏成 AI」正在病毒式传播" },
     body: {
-      en: "The open-source colleague-skill project — which distills a person's review criteria and decision heuristics into a loadable agent — gained roughly 7,000 GitHub stars in five days and now sits in the tens of thousands, explicitly supporting colleagues, relationships and celebrities. The market clearly wants distilled-person agents. Nuwa is the engine that makes them.",
-      zh: "开源项目 colleague-skill——把一个人的评审标准与决策启发式蒸馏成可加载的 Agent——五天内获得约 7,000 个 GitHub star，如今已达数万，并明确支持同事、关系与名人三类角色。市场显然想要「人格蒸馏」Agent，而女娲正是生产它们的引擎。",
+      en: "The open-source colleague-skill project — which distills a person's review criteria and decision heuristics into a loadable agent — gained roughly 7,000 GitHub stars in five days and now sits in the tens of thousands, explicitly supporting colleagues, relationships and celebrities. The market clearly wants distilled-person agents. AutoClaw is the engine that puts them to work.",
+      zh: "开源项目 colleague-skill——把一个人的评审标准与决策启发式蒸馏成可加载的 Agent——五天内获得约 7,000 个 GitHub star，如今已达数万，并明确支持同事、关系与名人三类角色。市场显然想要「人格蒸馏」Agent，而 AutoClaw 正是让它们投入工作的引擎。",
     },
     refs: [4],
   },
@@ -191,8 +191,8 @@ const CASES: {
     metric: "#2 GenAI app",
     title: { en: "Character chat is the #2 consumer AI category", zh: "角色对话是消费级 AI 第二大品类" },
     body: {
-      en: "Andreessen Horowitz's consumer GenAI analysis ranks Character.AI a \"solid #2\" after ChatGPT — about 21% of ChatGPT's scale with notably higher retention. People don't just tolerate talking to character agents; they prefer it. Nuwa points that pull at real work.",
-      zh: "Andreessen Horowitz 的消费级 GenAI 分析将 Character.AI 列为仅次于 ChatGPT 的「稳居第二」——约为 ChatGPT 规模的 21%，且留存明显更高。人们不只是接受与角色 Agent 对话，而是更偏爱它。女娲把这股拉力导向真实工作。",
+      en: "Andreessen Horowitz's consumer GenAI analysis ranks Character.AI a \"solid #2\" after ChatGPT — about 21% of ChatGPT's scale with notably higher retention. People don't just tolerate talking to character agents; they prefer it. AutoClaw points that pull at real work.",
+      zh: "Andreessen Horowitz 的消费级 GenAI 分析将 Character.AI 列为仅次于 ChatGPT 的「稳居第二」——约为 ChatGPT 规模的 21%，且留存明显更高。人们不只是接受与角色 Agent 对话，而是更偏爱它。AutoClaw 把这股拉力导向真实工作。",
     },
     refs: [5],
   },
@@ -201,8 +201,8 @@ const CASES: {
     metric: "Personal AI board",
     title: { en: "A personal board of directors, built from AI personas", zh: "用 AI 人格搭建的个人董事会" },
     body: {
-      en: "MIT Sloan Management Review documents an executive building a personal \"board of directors\" from GenAI personas of real iconic leaders (Steve Jobs, Indra Nooyi, Nelson Mandela) for strategy, innovation and ethics counsel. This is Nuwa's exact concept — validated in a high-authority publication.",
-      zh: "《MIT 斯隆管理评论》记录了一位高管用真实标志性领袖（乔布斯、英德拉·努伊、曼德拉）的 GenAI 人格搭建个人「董事会」，用于战略、创新与伦理决策。这正是女娲的核心理念——已被高权威刊物背书。",
+      en: "MIT Sloan Management Review documents an executive building a personal \"board of directors\" from GenAI personas of real iconic leaders (Steve Jobs, Indra Nooyi, Nelson Mandela) for strategy, innovation and ethics counsel. This is exactly the AutoClaw perspective-agent concept — validated in a high-authority publication.",
+      zh: "《MIT 斯隆管理评论》记录了一位高管用真实标志性领袖（乔布斯、英德拉·努伊、曼德拉）的 GenAI 人格搭建个人「董事会」，用于战略、创新与伦理决策。这正是 AutoClaw 角色 Agent 的核心理念——已被高权威刊物背书。",
     },
     refs: [6],
   },
@@ -254,7 +254,7 @@ export default function AgentsPage() {
           <div className="absolute inset-0 opacity-[0.07]" style={{ backgroundImage: "radial-gradient(circle at 1px 1px, white 1px, transparent 0)", backgroundSize: "28px 28px" }} />
           <div className="relative max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-24 text-center">
             <span className="inline-block text-[11px] uppercase tracking-[0.2em] text-red-300 mb-4">
-              {lang === "zh" ? "由女娲 (Nuwa) 蒸馏 · 由 AutoClaw 编排" : "Distilled by Nuwa (女娲) · Orchestrated by AutoClaw"}
+              {lang === "zh" ? "由 AutoClaw 蒸馏与编排" : "Distilled & orchestrated by AutoClaw"}
             </span>
             <h1 className="text-3xl sm:text-5xl font-bold tracking-tight max-w-3xl mx-auto leading-tight">
               {lang === "zh"
@@ -263,8 +263,8 @@ export default function AgentsPage() {
             </h1>
             <p className="mt-5 text-base sm:text-lg text-gray-300 max-w-2xl mx-auto">
               {lang === "zh"
-                ? "女娲不是角色扮演。它蒸馏一个人的认知操作系统——心智模型、决策启发式、表达 DNA 与诚实边界——让马斯克、纳瓦尔、芒格、费曼为你的真实问题工作。"
-                : "Nuwa isn't role-play. It distills a person's cognitive operating system — mental models, decision heuristics, expression DNA and honest limits — so Musk, Naval, Munger and Feynman work on your real problems."}
+                ? "这不是角色扮演。AutoClaw 蒸馏一个人的认知操作系统——心智模型、决策启发式、表达 DNA 与诚实边界——让马斯克、纳瓦尔、芒格、费曼为你的真实问题工作。"
+                : "This isn't role-play. AutoClaw distills a person's cognitive operating system — mental models, decision heuristics, expression DNA and honest limits — so Musk, Naval, Munger and Feynman work on your real problems."}
             </p>
             <div className="mt-8 flex flex-wrap justify-center gap-2">
               {AGENTS.slice(0, 8).map((a) => (
@@ -282,7 +282,7 @@ export default function AgentsPage() {
           </div>
         </section>
 
-        {/* What Nuwa distills */}
+        {/* What AutoClaw distills */}
         <section className="max-w-6xl mx-auto px-4 sm:px-6 py-14 sm:py-16">
           <div className="text-center mb-10">
             <h2 className="text-2xl sm:text-3xl font-bold text-gray-900">
@@ -383,8 +383,8 @@ export default function AgentsPage() {
               <p className="text-xs text-amber-900 leading-relaxed">
                 <span className="font-semibold">{lang === "zh" ? "诚实说明：" : "An honest note: "}</span>
                 {lang === "zh"
-                  ? "研究表明，简单的「假装你是专家」标签提示能提升推理类任务，但无法提升纯事实记忆 [7]。这恰恰是女娲的差异化所在——它蒸馏的是心智模型与决策启发式（推理领域），而非把 Agent 当作事实数据库。一个不告诉你边界的技能，不值得信任。"
-                  : "Research shows that cheap \"act as an expert\" label prompting helps reasoning-style tasks but not raw factual recall [7]. That nuance is exactly Nuwa's edge — it distills mental models and decision heuristics (the reasoning regime), not a factual database. A skill that doesn't tell you its limits isn't worth trusting."}
+                  ? "研究表明，简单的「假装你是专家」标签提示能提升推理类任务，但无法提升纯事实记忆 [7]。这恰恰是 AutoClaw 的差异化所在——它蒸馏的是心智模型与决策启发式（推理领域），而非把 Agent 当作事实数据库。一个不告诉你边界的 Agent，不值得信任。"
+                  : "Research shows that cheap \"act as an expert\" label prompting helps reasoning-style tasks but not raw factual recall [7]. That nuance is exactly AutoClaw's edge — it distills mental models and decision heuristics (the reasoning regime), not a factual database. An agent that doesn't tell you its limits isn't worth trusting."}
               </p>
             </div>
           </div>
