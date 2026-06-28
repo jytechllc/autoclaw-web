@@ -9,11 +9,11 @@ export async function generateMetadata({
   const isZh = locale.startsWith("zh");
   return {
     title: isZh
-      ? "角色 Agent：把顶尖头脑变成你的 AI 顾问 | AutoClaw"
-      : "Perspective Agents: Turn the Best Minds Into Your AI Advisors | AutoClaw",
+      ? "AI 员工 Agent + 人物属性增强 | AutoClaw"
+      : "AI Employee Agents + Persona Enhancement | AutoClaw",
     description: isZh
-      ? "AutoClaw 蒸馏出 15+ 角色 Agent——马斯克、纳瓦尔、芒格、费曼、乔布斯等——以他们的心智模型和决策启发式提升你的 AI 工作流。附真实市场案例与引用来源。"
-      : "AutoClaw distills 15+ perspective agents — Musk, Naval, Munger, Feynman, Jobs and more — applying their mental models and decision heuristics to upgrade your AI workflow. With real, cited market case studies.",
+      ? "AutoClaw 的 General Agent 自主完成营销与销售工作，并即将推出人物属性增强——用顶尖头脑的心智模型与决策启发式，为不同任务提供更精准的推荐。"
+      : "AutoClaw's General Agents autonomously run marketing and sales, with persona enhancement coming soon — using the mental models and decision heuristics of the best minds to power sharper, task-specific recommendations.",
   };
 }
 

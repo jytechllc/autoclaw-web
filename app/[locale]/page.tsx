@@ -391,6 +391,32 @@ export default function Home() {
           </div>
         </section>
 
+        {/* Persona-Based Agents — Coming Soon */}
+        <section className="py-16 bg-gradient-to-br from-gray-900 to-red-950 text-white">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-300 mb-4">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-300 animate-pulse" />
+              {locale.startsWith("zh") ? "即将上线" : "Coming Soon"}
+            </span>
+            <h2 className="text-2xl sm:text-4xl font-bold mb-4">
+              {locale.startsWith("zh") ? "人物属性增强：让顶尖头脑为你的 Agent 赋能" : "Persona enhancement: the best minds, powering your agents"}
+            </h2>
+            <p className="text-base sm:text-lg text-gray-300 max-w-2xl mx-auto mb-6">
+              {locale.startsWith("zh")
+                ? "在 General Agent 的能力之上，叠加马斯克、纳瓦尔、芒格、费曼等人物的心智模型与决策启发式，为不同任务提供更精准的推荐与判断。"
+                : "On top of your General Agents, layer the mental models and decision heuristics of Musk, Naval, Munger, Feynman and more — for sharper, task-specific recommendations and judgment."}
+            </p>
+            <div className="flex flex-wrap justify-center gap-2 mb-8">
+              {["🚀 Musk", "🧭 Naval", "🔄 Munger", "🔬 Feynman", "🍎 Jobs", "🦢 Taleb"].map((p) => (
+                <span key={p} className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-white/10 border border-white/15">{p}</span>
+              ))}
+            </div>
+            <Link href={`/${locale}/agents`} className="inline-flex items-center gap-1.5 bg-white text-gray-900 hover:bg-gray-100 px-7 py-3 rounded-lg text-sm font-semibold transition-colors">
+              {locale.startsWith("zh") ? "了解 Agents 能力" : "Explore AutoClaw Agents"} →
+            </Link>
+          </div>
+        </section>
+
         {/* How It Works */}
         <section id="how-it-works" className="py-20 bg-gray-50">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
