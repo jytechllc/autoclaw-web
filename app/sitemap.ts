@@ -1,9 +1,11 @@
 import type { MetadataRoute } from "next";
 import { locales, type Locale } from "@/lib/i18n";
 import { DEFAULT_OG_IMAGE, PUBLIC_MARKETING_PATHS, SITE_URL, localizedPath } from "@/lib/seo";
+import { getAllCases } from "@/app/[locale]/use-cases/data";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const now = new Date();
+
   const localeEntries = locales.flatMap((locale) =>
     PUBLIC_MARKETING_PATHS.map((path): MetadataRoute.Sitemap[number] => ({
       url: `${SITE_URL}${localizedPath(locale as Locale, path)}`,
@@ -14,5 +16,16 @@ export default function sitemap(): MetadataRoute.Sitemap {
     }))
   );
 
-  return localeEntries;
+  // Every case study / research article, per locale
+  const cases = getAllCases();
+  const caseEntries = locales.flatMap((locale) =>
+    cases.map((c): MetadataRoute.Sitemap[number] => ({
+      url: `${SITE_URL}${localizedPath(locale as Locale, `/use-cases/${c.slug}`)}`,
+      lastModified: c.date ? new Date(c.date) : now,
+      changeFrequency: "monthly",
+      priority: 0.7,
+    }))
+  );
+
+  return [...localeEntries, ...caseEntries];
 }
