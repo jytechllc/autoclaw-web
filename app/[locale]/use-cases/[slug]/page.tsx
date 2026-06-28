@@ -1,24 +1,30 @@
-"use client";
-
+import type { Metadata } from "next";
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { getDictionary, type Locale } from "@/lib/i18n";
-import LanguageSwitcher from "@/components/LanguageSwitcher";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { USE_CASES } from "../page";
+import { getDictionary, type Locale } from "@/lib/i18n";
+import LanguageSwitcher from "@/components/LanguageSwitcher";
+import { findCase, getAllCases, caseLang, buildCaseMetadata, buildCaseJsonLd } from "../data";
 
-export default function UseCaseArticlePage() {
-  const params = useParams();
-  const locale = (params.locale as Locale) || "en";
-  const slug = params.slug as string;
-  const dict = getDictionary(locale);
+type Params = { locale: string; slug: string };
+
+// Pre-render every case study at build time (SSG) for fast, indexable HTML.
+export function generateStaticParams() {
+  return getAllCases().map((c) => ({ slug: c.slug }));
+}
+
+export async function generateMetadata({ params }: { params: Promise<Params> }): Promise<Metadata> {
+  const { locale, slug } = await params;
+  return buildCaseMetadata(locale, slug);
+}
+
+export default async function UseCaseArticlePage({ params }: { params: Promise<Params> }) {
+  const { locale, slug } = await params;
+  const dict = getDictionary(locale as Locale);
   const tc = dict.common;
-  const lang = locale === "zh" || locale === "zh-TW" ? "zh" : "en";
+  const lang = caseLang(locale);
 
-  // Find the use case across all categories
-  const allCases = [...(USE_CASES.existing || []), ...(USE_CASES.featured || [])];
-  const uc = allCases.find((c) => c.slug === slug);
+  const uc = findCase(slug);
 
   if (!uc) {
     return (
@@ -37,9 +43,13 @@ export default function UseCaseArticlePage() {
   const content = uc.content[lang] || uc.content.en;
   const industry = uc.industry[lang] || uc.industry.en;
   const summary = uc.summary[lang] || uc.summary.en;
+  const jsonLd = buildCaseJsonLd(locale, slug);
 
   return (
     <div className="min-h-screen bg-white">
+      {jsonLd && (
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      )}
       {/* Header */}
       <header className="bg-gray-50 border-b border-gray-200">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
@@ -48,7 +58,7 @@ export default function UseCaseArticlePage() {
             {lang === "zh" ? "所有案例" : "All Use Cases"}
           </Link>
           <div className="flex items-center gap-3">
-            <LanguageSwitcher locale={locale} />
+            <LanguageSwitcher locale={locale as Locale} />
             <Link href={`/${locale}`} className="text-sm font-medium text-red-700 hover:text-red-900">
               AutoClaw
             </Link>
@@ -59,6 +69,14 @@ export default function UseCaseArticlePage() {
       {/* Hero */}
       <div className="bg-gradient-to-b from-gray-50 to-white">
         <div className="max-w-4xl mx-auto px-4 py-12">
+          {/* Breadcrumb (SEO + UX) */}
+          <nav aria-label="Breadcrumb" className="text-xs text-gray-400 mb-4">
+            <Link href={`/${locale}`} className="hover:text-gray-600">{lang === "zh" ? "首页" : "Home"}</Link>
+            <span className="mx-1.5">/</span>
+            <Link href={`/${locale}/use-cases`} className="hover:text-gray-600">{lang === "zh" ? "客户案例" : "Use Cases"}</Link>
+            <span className="mx-1.5">/</span>
+            <span className="text-gray-500">{title}</span>
+          </nav>
           <div className="flex items-center gap-3 mb-4">
             <span className="text-xs font-medium text-red-700 bg-red-50 px-3 py-1 rounded-full">{industry}</span>
             {uc.agents > 0 && (
