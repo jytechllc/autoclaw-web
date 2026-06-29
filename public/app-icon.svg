@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ef4444"/>
+      <stop offset="1" stop-color="#991b1b"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#bg)"/>
+
+  <g transform="translate(6 6) scale(0.8125)" fill="none">
+    <!-- Antennae -->
+    <path d="M28 17C24 10 18 5 10 2" stroke="#fff" stroke-width="2.4" stroke-linecap="round" opacity="0.95"/>
+    <path d="M36 17C40 10 46 5 54 2" stroke="#fff" stroke-width="2.4" stroke-linecap="round" opacity="0.95"/>
+    <path d="M30 18C28 9 25 4 21 1" stroke="#fff" stroke-width="1.8" stroke-linecap="round" opacity="0.8"/>
+    <path d="M34 18C36 9 39 4 43 1" stroke="#fff" stroke-width="1.8" stroke-linecap="round" opacity="0.8"/>
+
+    <!-- Claws raised -->
+    <path d="M21 27C13 26 8 22 4 15C9 13 15 13 20 16C17 11 17 6 19 2C27 6 31 14 31 21" fill="#fff" fill-opacity="0.95"/>
+    <path d="M43 27C51 26 56 22 60 15C55 13 49 13 44 16C47 11 47 6 45 2C37 6 33 14 33 21" fill="#fff" fill-opacity="0.95"/>
+    <path d="M24 24L16 19" stroke="#fff" stroke-width="2.7" stroke-linecap="round" opacity="0.6"/>
+    <path d="M40 24L48 19" stroke="#fff" stroke-width="2.7" stroke-linecap="round" opacity="0.6"/>
+
+    <!-- Head and thorax -->
+    <path d="M32 16C24.5 16 20 23 20 30C20 36 24 40 32 40C40 40 44 36 44 30C44 23 39.5 16 32 16Z" fill="#fff" fill-opacity="0.95"/>
+
+    <!-- Rosy cheeks -->
+    <circle cx="24.6" cy="29.4" r="2.1" fill="#fca5a5" opacity="0.7"/>
+    <circle cx="39.4" cy="29.4" r="2.1" fill="#fca5a5" opacity="0.7"/>
+
+    <!-- Bright eyes -->
+    <circle cx="28" cy="24.6" r="2.5" fill="#991b1b"/>
+    <circle cx="36" cy="24.6" r="2.5" fill="#991b1b"/>
+    <circle cx="27.3" cy="23.7" r="0.7" fill="#fff"/>
+    <circle cx="35.3" cy="23.7" r="0.7" fill="#fff"/>
+
+    <!-- Smile -->
+    <path d="M27.5 29.6C29.2 32.2 34.8 32.2 36.5 29.6" stroke="#991b1b" stroke-width="1.9" stroke-linecap="round" fill="none"/>
+
+    <!-- Segmented tail -->
+    <ellipse cx="32" cy="42" rx="8.5" ry="5.8" fill="#fff" fill-opacity="0.85"/>
+    <ellipse cx="32" cy="49" rx="7" ry="4.8" fill="#fff" fill-opacity="0.72"/>
+    <ellipse cx="32" cy="55" rx="5.5" ry="3.8" fill="#fff" fill-opacity="0.6"/>
+    <path d="M27 58C29 61 30.5 62 32 62C33.5 62 35 61 37 58" stroke="#fff" stroke-width="2.2" stroke-linecap="round" opacity="0.6"/>
+
+    <!-- Legs -->
+    <path d="M23 35L15 39" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity="0.7"/>
+    <path d="M24 40L15 45" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity="0.7"/>
+    <path d="M25 45L17 50" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity="0.7"/>
+    <path d="M41 35L49 39" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity="0.7"/>
+    <path d="M40 40L49 45" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity="0.7"/>
+    <path d="M39 45L47 50" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity="0.7"/>
+  </g>
+</svg>
