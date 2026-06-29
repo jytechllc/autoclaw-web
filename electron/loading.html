@@ -7,7 +7,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' file:; style-src 'unsafe-inline';" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' file:; style-src 'unsafe-inline'; script-src 'unsafe-inline';" />
     <title>AutoClaw</title>
     <style>
       :root {
@@ -27,29 +27,62 @@
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 22px;
+        gap: 28px;
         user-select: none;
         -webkit-user-select: none;
       }
+      /* Red progress ring with the lobster logo nested in its center. */
+      .ring {
+        position: relative;
+        width: 150px;
+        height: 150px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .ring::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border: 5px solid rgba(255, 59, 48, 0.16);
+        border-top-color: #ff3b30;
+        border-radius: 50%;
+        animation: spin 0.9s linear infinite;
+        filter: drop-shadow(0 0 6px rgba(255, 59, 48, 0.45));
+      }
       .logo {
-        width: 72px;
-        height: 72px;
+        width: 98px;
+        height: 98px;
         border-radius: 16px;
         opacity: 0;
         animation: fade-in 0.4s ease forwards;
       }
-      .spinner {
-        width: 26px;
-        height: 26px;
-        border: 3px solid rgba(255, 255, 255, 0.14);
-        border-top-color: #6d8bff;
-        border-radius: 50%;
-        animation: spin 0.8s linear infinite;
+      .status {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
       }
       .label {
-        font-size: 13px;
+        font-size: 16px;
         letter-spacing: 0.02em;
-        color: #9a9aa6;
+        color: #f2f2f5;
+      }
+      /* Big tabular-nums percent that eases up toward ~90% while the hosted app
+         paints. It is a visual reassurance, not a measured value, so it never
+         claims to hit 100% — the real page replaces this splash on load. */
+      .percent {
+        font-size: 30px;
+        font-weight: 500;
+        line-height: 1;
+        color: #8a8a96;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.01em;
+      }
+      .sub {
+        font-size: 13.5px;
+        letter-spacing: 0.02em;
+        color: #6a6a76;
       }
       @keyframes spin {
         to {
@@ -64,8 +97,26 @@
     </style>
   </head>
   <body>
-    <img class="logo" src="../electron-resources/icon.png" alt="AutoClaw" />
-    <div class="spinner" aria-hidden="true"></div>
-    <div class="label">Starting AutoClaw…</div>
+    <div class="ring" aria-hidden="true">
+      <img class="logo" src="../electron-resources/icon.png" alt="AutoClaw" />
+    </div>
+    <div class="status">
+      <div class="label">Starting AutoClaw…</div>
+      <div class="percent" id="pct">0%</div>
+      <div class="sub">Almost ready…</div>
+    </div>
+    <script>
+      // Smoothly ease the percentage toward a 90% ceiling: fast at first, then
+      // asymptotically slower, so it always feels like progress but never stalls
+      // at a number that pretends the load finished. The hosted page swaps this
+      // splash out the moment it paints.
+      const CEILING = 90;
+      const pct = document.getElementById("pct");
+      let current = 0;
+      setInterval(() => {
+        current += (CEILING - current) * 0.04;
+        pct.textContent = Math.min(CEILING, Math.round(current)) + "%";
+      }, 80);
+    </script>
   </body>
 </html>
