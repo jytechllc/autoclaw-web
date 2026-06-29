@@ -15,6 +15,8 @@
   <ellipse cx="16" cy="24.5" rx="4.5" ry="3" fill="#fff" fill-opacity="0.8"/>
   <ellipse cx="16" cy="28.5" rx="3" ry="2" fill="#fff" fill-opacity="0.7"/>
   <!-- Eyes -->
-  <circle cx="14" cy="17.5" r="1.2" fill="#991b1b"/>
-  <circle cx="18" cy="17.5" r="1.2" fill="#991b1b"/>
+  <circle cx="14" cy="17.3" r="1.2" fill="#991b1b"/>
+  <circle cx="18" cy="17.3" r="1.2" fill="#991b1b"/>
+  <!-- Smile -->
+  <path d="M13.6 20C14.7 21.5 17.3 21.5 18.4 20" stroke="#991b1b" stroke-width="1.1" stroke-linecap="round" fill="none"/>
 </svg>
