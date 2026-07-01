@@ -9,8 +9,10 @@ const {
   shell,
   nativeImage,
   ipcMain,
+  dialog,
 } = require("electron");
 const path = require("path");
+const fs = require("fs");
 const { registerNotificationIpc } = require("./notify");
 
 // App identity. On Windows this MUST be set (and match the installer's appId)
@@ -37,6 +39,51 @@ let tray = null;
 let retryTimer = null;
 let started = false; // true once the first remote navigation has been kicked off
 let showingError = false; // true while the local offline page is displayed
+let isQuitting = false; // true once a real quit is underway (vs. close-to-tray)
+let saveStateTimer = null; // debounce for persisting window bounds
+
+// Default window geometry; also the fallback when no saved state exists.
+const DEFAULT_BOUNDS = { width: 1280, height: 860 };
+
+// Persist window size/position/maximized state between launches so the app
+// reopens where the user left it. Stored as JSON in userData (drive folder for
+// portable builds, %APPDATA% otherwise).
+function windowStateFile() {
+  return path.join(app.getPath("userData"), "window-state.json");
+}
+
+function readWindowState() {
+  try {
+    const raw = fs.readFileSync(windowStateFile(), "utf8");
+    const s = JSON.parse(raw);
+    if (typeof s.width === "number" && typeof s.height === "number") return s;
+  } catch {
+    // No saved state yet, or unreadable — fall back to defaults.
+  }
+  return null;
+}
+
+function saveWindowState() {
+  if (!mainWindow) return;
+  try {
+    const isMaximized = mainWindow.isMaximized();
+    // getBounds() reports the maximized bounds while maximized, which we don't
+    // want to restore to. getNormalBounds() is the pre-maximize rectangle.
+    const bounds = mainWindow.getNormalBounds();
+    fs.writeFileSync(
+      windowStateFile(),
+      JSON.stringify({ ...bounds, isMaximized }),
+    );
+  } catch {
+    // Read-only drive or locked path — losing window state is non-fatal.
+  }
+}
+
+// Coalesce the rapid-fire resize/move events into a single write.
+function scheduleSaveWindowState() {
+  if (saveStateTimer) clearTimeout(saveStateTimer);
+  saveStateTimer = setTimeout(saveWindowState, 400);
+}
 
 // USB / portable build: keep all app state (login session, cookies, cache) in a
 // folder next to the .exe instead of the host's %APPDATA%. This makes it a true
@@ -87,9 +134,16 @@ function showOfflinePage() {
 }
 
 function createWindow() {
+  const saved = readWindowState();
+  const bounds = saved || DEFAULT_BOUNDS;
+
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 860,
+    width: bounds.width,
+    height: bounds.height,
+    // x/y are omitted when there's no saved state so the OS centers the window.
+    ...(typeof bounds.x === "number" && typeof bounds.y === "number"
+      ? { x: bounds.x, y: bounds.y }
+      : {}),
     minWidth: 960,
     minHeight: 600,
     backgroundColor: "#0b0b0f",
@@ -104,13 +158,24 @@ function createWindow() {
     },
   });
 
+  if (saved && saved.isMaximized) mainWindow.maximize();
+
   const wc = mainWindow.webContents;
 
   // Startup: paint a local splash (loading.html) immediately, then navigate to
   // the hosted app once the splash is up. The splash stays visible until the
   // remote first paints (or fails), so cold start is never a blank window.
   mainWindow.loadFile(path.join(__dirname, "loading.html"));
-  mainWindow.once("ready-to-show", () => mainWindow.show());
+  const revealWindow = () => {
+    if (mainWindow && !mainWindow.isVisible()) mainWindow.show();
+  };
+  mainWindow.once("ready-to-show", revealWindow);
+  // Fallback: some Linux/WSLg compositors never emit `ready-to-show`, which
+  // would leave the window stuck invisible. Reveal it once the splash paints,
+  // and again on a short timer, so the window can't get lost. show() is
+  // idempotent, so this is a no-op once the window is already visible.
+  wc.once("did-finish-load", revealWindow);
+  setTimeout(revealWindow, 2000);
 
   wc.on("did-finish-load", () => {
     // Local pages (loading/offline) finished painting. On the first one, kick
@@ -135,6 +200,40 @@ function createWindow() {
     showOfflinePage();
   });
 
+  // Renderer crash (GPU/OOM/killed) → recover instead of leaving a dead white
+  // window. A clean exit is normal (e.g. during quit), so ignore it; otherwise
+  // re-navigate to the hosted app.
+  wc.on("render-process-gone", (_event, details) => {
+    if (isQuitting || details.reason === "clean-exit") return;
+    showingError = false;
+    loadRemoteApp();
+  });
+
+  // Page hung (long task / stuck request). Offer to reload rather than leaving
+  // the user stuck on a frozen window.
+  wc.on("unresponsive", () => {
+    if (!mainWindow || isQuitting) return;
+    const choice = dialog.showMessageBoxSync(mainWindow, {
+      type: "warning",
+      buttons: ["Wait", "Reload"],
+      defaultId: 0,
+      cancelId: 0,
+      title: "AutoClaw",
+      message: "AutoClaw is not responding.",
+      detail: "You can keep waiting, or reload the app.",
+    });
+    // A hard-wedged main thread can't honor a normal reload() (the reload has
+    // to run on the very thread that's stuck), so forcibly crash the renderer;
+    // the render-process-gone handler above then re-navigates to a fresh page.
+    if (choice === 1 && mainWindow) {
+      mainWindow.webContents.forcefullyCrashRenderer();
+    }
+  });
+
+  // Persist window geometry as the user resizes/moves it.
+  mainWindow.on("resize", scheduleSaveWindowState);
+  mainWindow.on("move", scheduleSaveWindowState);
+
   // Open external links (window.open / target=_blank) in the system browser.
   // Same-origin navigations (incl. Auth0 redirect back to the app) stay in-window.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -150,8 +249,29 @@ function createWindow() {
     return { action: "deny" };
   });
 
+  // Close-to-tray: the first close hides the window and keeps the app resident
+  // (so notifications keep working). Quitting for real (tray menu, app menu, or
+  // Cmd/Ctrl+Q) sets isQuitting first, letting the window actually close.
+  //
+  // Linux (incl. WSLg) is excluded: its system tray is unreliable or absent, so
+  // a hidden window can't be brought back — there, closing the window quits, as
+  // Linux users expect. Windows and macOS have a tray/Dock to restore from.
+  mainWindow.on("close", (event) => {
+    if (isQuitting || process.platform === "linux") {
+      saveWindowState();
+      return;
+    }
+    event.preventDefault();
+    saveWindowState();
+    mainWindow.hide();
+  });
+
   mainWindow.on("closed", () => {
     clearRetryTimer();
+    if (saveStateTimer) {
+      clearTimeout(saveStateTimer);
+      saveStateTimer = null;
+    }
     started = false;
     showingError = false;
     mainWindow = null;
@@ -246,6 +366,12 @@ if (!gotLock) {
     showMainWindow();
   });
 
+  // Distinguish a real quit from a close-to-tray so the window "close" handler
+  // knows whether to hide or actually close.
+  app.on("before-quit", () => {
+    isQuitting = true;
+  });
+
   app.whenReady().then(() => {
     // Must be set before any notification is shown (Windows requirement).
     app.setAppUserModelId(APP_ID);
@@ -261,7 +387,9 @@ if (!gotLock) {
     createTray();
 
     app.on("activate", () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+      // With close-to-tray the window is hidden, not destroyed — reveal it.
+      if (mainWindow) showMainWindow();
+      else createWindow();
     });
   });
 
