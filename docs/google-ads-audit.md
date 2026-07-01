@@ -520,3 +520,30 @@ These should be asked before starting any PR beyond #1.
 ---
 
 **End of audit.** Updates to this document should be made by appending a `## Changelog` section at the bottom rather than editing earlier sections in place — that way the audit remains a snapshot of `cc44538` while still being a live planning artifact.
+
+---
+
+## Changelog
+
+Appended per the convention above. Earlier sections remain a snapshot of `cc44538`.
+
+### 2026-06-30 — status reconciliation + PR #2
+
+Between the audit date (2026-05-19) and today, several items landed via teammate PRs and are now merged into `main` (`10d25c3`):
+
+- **D-1 — RESOLVED.** `.github/workflows/cron-maintenance.yml` now schedules `google-ads-sync` (hourly, `40 * * * *`) and `google-ads-reconcile` (daily, `45 3 * * *`), each wired as a schedule entry, a `Run` step, and a `workflow_dispatch` option. Landed in `ac2b8e6` (also see `d15456c`). The runaway-spend / ledger-drift risk in Section 5 is closed for the shared-account setup.
+- **D-2 — RESOLVED.** The four ad tables (`ad_accounts`, `campaigns`, `ad_credits`, `ad_credit_transactions`) now live in `lib/schema.sql` (`27ba0fa`). `app/api/google-ads/campaigns/route.ts` no longer calls `ensureAdsTables()`. Leftover: `ensureAdCreditsTables()` in `lib/credits.ts` is still defined but has no remaining call sites — safe to delete in a cleanup pass.
+- **PERFORMANCE_MAX** channel added to `createCampaign` and the creation UI (`d2f67d6`, `0ce78c0`) — beyond the original roadmap.
+- **PMAX asset groups** (KAN-53) shipped end-to-end: schema + types → validation → `createAssetGroup()` → upload UI + API (`b0a61d1` → `c004c24`).
+- **Read-only spend/budget redaction** for sandbox/viewer accounts on the Google Ads dashboard (`0e6b9be`).
+
+### 2026-06-30 — PR #2: AI optimization recommendations (this PR)
+
+Implements Section 7 PR #2. New endpoint returns a ranked, campaign-specific list of optimization recommendations generated from live 30-day metrics.
+
+- `app/api/google-ads/campaigns/[id]/recommendations/route.ts` — `POST`. Auth + org check (campaign must belong to the caller's org), tight rate limit (10/min, matching `ad-copy/generate`), pulls `fetchCampaignDetail`, builds a numeric snapshot (30-day rollup + last-7-vs-prior-7 trend + structure counts), calls `chatWithAI`, parses/validates/clamps the JSON, sorts HIGH→MEDIUM→LOW, and logs `google_ads.recommendations`. No DB mutation.
+- `app/api/google-ads/campaigns/[id]/recommendations/prompt.ts` — prompt template + `Recommendation` / `CampaignSnapshot` types + category/priority enums, isolated for tuning and testing.
+- `lib/audit.ts` — added the `google_ads.recommendations` audit action.
+- Categories: `BUDGET`, `BID`, `KEYWORD`, `AD_STRENGTH`, `AUDIENCE`, `TARGETING`. Prompt is locale-aware (zh / ko / en) and instructs the model to recommend conversion-tracking setup when conversions are absent — a natural lead-in to PR #4.
+
+Follow-up (not in this PR): surface the recommendations in the detail page UI (`app/[locale]/dashboard/google-ads/[id]/page.tsx`), respecting the `isReadOnly` gate added in `0e6b9be`.

@@ -43,7 +43,8 @@ export type AuditAction =
   | "google_ads.create_asset_group"
   | "google_ads.topup"
   | "google_ads.reserve"
-  | "google_ads.release";
+  | "google_ads.release"
+  | "google_ads.recommendations";
 
 interface AuditLogParams {
   userId: number | null;
