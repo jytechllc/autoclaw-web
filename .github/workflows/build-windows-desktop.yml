@@ -33,9 +33,18 @@ jobs:
         with:
           node-version: "22"
           cache: "npm"
+          cache-dependency-path: |
+            package-lock.json
+            electron/package-lock.json
 
+      # Root install brings the build tooling (electron, electron-builder);
+      # electron/ install brings the app's runtime deps (electron-updater),
+      # which is all that gets packed into the asar (two-package.json
+      # structure, see electron-builder.yml).
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: |
+          npm install --no-audit --no-fund
+          npm install --prefix electron --no-audit --no-fund
 
       - name: Build Windows installer
         run: npm run electron:build:win
@@ -51,11 +60,13 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # Read the app version so the release can be tagged with it.
+      # Read the app version so the release can be tagged with it. The desktop
+      # version lives in electron/package.json (the packaged app root), not the
+      # web app's root package.json.
       - name: Read app version
         id: pkg
         shell: bash
-        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(node -p "require('./electron/package.json').version")" >> "$GITHUB_OUTPUT"
 
       # Publish to a GitHub Release so it can be downloaded straight from the
       # repo's Releases section — no login, no 30-day expiry. The release also
