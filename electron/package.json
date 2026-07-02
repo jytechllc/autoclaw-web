@@ -1,0 +1,11 @@
+{
+  "name": "autoclaw-desktop",
+  "version": "0.1.3",
+  "private": true,
+  "description": "AutoClaw desktop shell",
+  "author": "jytech",
+  "main": "main.js",
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  }
+}

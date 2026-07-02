@@ -112,7 +112,11 @@ function configurePortableDataDir() {
 }
 
 function iconPath() {
-  return path.join(__dirname, "..", "electron-resources", "icon.png");
+  // Packaged: electron-builder copies the icon next to the asar (see
+  // extraResources in electron-builder.yml). Dev: read it from the repo.
+  return app.isPackaged
+    ? path.join(process.resourcesPath, "icon.png")
+    : path.join(__dirname, "..", "electron-resources", "icon.png");
 }
 
 function clearRetryTimer() {

@@ -7,15 +7,29 @@ copyright: Copyright © jytech
 # also avoids needing a C toolchain on the build host.
 npmRebuild: false
 
+# Two-package.json structure: electron/ is the packaged app root with its own
+# package.json, so electron-builder collects only the desktop runtime deps
+# (electron-updater) instead of the whole web dependency tree (next, @aws-sdk,
+# stripe, …) from the repo root. electron/node_modules must be installed before
+# building (`npm install --prefix electron`). The desktop version is
+# electron/package.json's `version`; the root version stays the web app's.
 directories:
   output: dist-electron
   buildResources: electron-resources
+  app: electron
 
-# Desktop app is a remote shell — only the Electron sources + icon are packed.
+# Relative to electron/ (the app directory). node_modules is handled by the
+# dependency collector, not these globs.
 files:
-  - electron/**/*
-  - electron-resources/icon.png
-  - package.json
+  - "**/*"
+  - "!make-icon.js"
+  - "!package-lock.json"
+
+# Tray/window icon, read at runtime from process.resourcesPath (see
+# iconPath() in electron/main.js). Path is relative to the repo root.
+extraResources:
+  - from: electron-resources/icon.png
+    to: icon.png
 
 # Auto-update feed (electron-updater reads this via the app-update.yml that
 # electron-builder bakes into the package). The `generic` provider is used
