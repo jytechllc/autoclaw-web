@@ -336,6 +336,10 @@ export interface CampaignDetail {
   /** Performance Max only — PMax has no ad groups, instead it has asset groups. Empty for other channels. */
   assetGroups: Array<{ resourceName: string; name: string; status: string; adStrength: string; primaryStatus: string; primaryStatusReasons: string[]; finalUrls: string[] }>;
   keywords: Array<{ text: string; matchType: string }>;
+  /** Google's reported bidding strategy + targets (micros / ratio) when set. */
+  bidding: { strategyType: string; targetCpaMicros: number; targetRoas: number };
+  /** Campaign-level negative keywords. resourceName is needed for removal. */
+  negativeKeywords: Array<{ resourceName: string; text: string; matchType: string }>;
   ads: Array<{
     resourceName: string;
     status: string;
@@ -359,12 +363,18 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
 
   // Campaign settings + per-day metrics (last 30 days, one row per calendar day)
   type CampaignRow = {
-    campaign: { name: string; status: string; advertisingChannelType: string; startDate?: string; endDate?: string; optimizationScore?: number };
+    campaign: {
+      name: string; status: string; advertisingChannelType: string; startDate?: string; endDate?: string; optimizationScore?: number;
+      biddingStrategyType?: string;
+      maximizeConversions?: { targetCpaMicros?: string };
+      maximizeConversionValue?: { targetRoas?: number };
+    };
     metrics?: { impressions?: string; clicks?: string; costMicros?: string; conversions?: number; ctr?: number; averageCpc?: string };
     segments?: { date?: string };
   };
   const campaignRows = await adsSearchStream(customerId, `
     SELECT campaign.name, campaign.status, campaign.advertising_channel_type, campaign.start_date, campaign.end_date, campaign.optimization_score,
+           campaign.bidding_strategy_type, campaign.maximize_conversions.target_cpa_micros, campaign.maximize_conversion_value.target_roas,
            metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, metrics.ctr, metrics.average_cpc,
            segments.date
     FROM campaign
@@ -408,7 +418,8 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
 
   // If no metric rows (campaign too new / paused with no impressions), still grab settings
   const settingsFallback = first ? null : await adsSearchStream(customerId, `
-    SELECT campaign.name, campaign.status, campaign.advertising_channel_type, campaign.start_date, campaign.end_date, campaign.optimization_score
+    SELECT campaign.name, campaign.status, campaign.advertising_channel_type, campaign.start_date, campaign.end_date, campaign.optimization_score,
+           campaign.bidding_strategy_type, campaign.maximize_conversions.target_cpa_micros, campaign.maximize_conversion_value.target_roas
     FROM campaign WHERE campaign.resource_name = '${escaped}'
   `) as Array<{ campaign: CampaignRow["campaign"] }>;
   const camp = first || settingsFallback?.[0]?.campaign;
@@ -640,6 +651,21 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
     .map((r) => ({ text: r.adGroupCriterion.keyword?.text || "", matchType: r.adGroupCriterion.keyword?.matchType || "BROAD" }))
     .filter((k) => k.text);
 
+  // Campaign-level negative keywords
+  type NegKwRow = { campaignCriterion: { resourceName?: string; keyword?: { text?: string; matchType?: string } } };
+  const negKwRows = await adsSearchStream(customerId, `
+    SELECT campaign_criterion.resource_name, campaign_criterion.keyword.text, campaign_criterion.keyword.match_type
+    FROM campaign_criterion
+    WHERE campaign.id = ${numericCampaignId} AND campaign_criterion.type = KEYWORD AND campaign_criterion.negative = TRUE
+  `).catch(() => []) as NegKwRow[];
+  const negativeKeywords = negKwRows
+    .map((r) => ({
+      resourceName: r.campaignCriterion.resourceName || "",
+      text: r.campaignCriterion.keyword?.text || "",
+      matchType: r.campaignCriterion.keyword?.matchType || "BROAD",
+    }))
+    .filter((k) => k.text && k.resourceName);
+
   // Ads — query fields for all common ad types (search / video / demand gen)
   type TextRow = { text: string };
   type AssetRef = { asset: string };
@@ -784,6 +810,12 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
     adGroups,
     assetGroups,
     keywords,
+    bidding: {
+      strategyType: camp?.biddingStrategyType || "",
+      targetCpaMicros: Number(camp?.maximizeConversions?.targetCpaMicros || 0),
+      targetRoas: Number(camp?.maximizeConversionValue?.targetRoas || 0),
+    },
+    negativeKeywords,
     ads,
   };
 }
@@ -1831,4 +1863,240 @@ export function validateAssetGroupInput(input: CreateAssetGroupInput): { valid: 
   }
 
   return { valid: errors.length === 0, errors };
+}
+
+// ---------------------------------------------------------------------------
+// Bid strategy (PR #3)
+// ---------------------------------------------------------------------------
+
+/** Campaign-level bidding strategies we expose. TARGET_CPA / TARGET_ROAS are
+ *  implemented as MaximizeConversions / MaximizeConversionValue with a target,
+ *  per Google's standard→smart bidding migration (standalone targetCpa /
+ *  targetRoas campaign fields are deprecated). */
+export type BidStrategyType =
+  | "MANUAL_CPC"
+  | "MAXIMIZE_CLICKS"
+  | "MAXIMIZE_CONVERSIONS"
+  | "TARGET_CPA"
+  | "MAXIMIZE_CONVERSION_VALUE"
+  | "TARGET_ROAS";
+
+export const BID_STRATEGY_TYPES: BidStrategyType[] = [
+  "MANUAL_CPC",
+  "MAXIMIZE_CLICKS",
+  "MAXIMIZE_CONVERSIONS",
+  "TARGET_CPA",
+  "MAXIMIZE_CONVERSION_VALUE",
+  "TARGET_ROAS",
+];
+
+export interface BidStrategyInput {
+  type: BidStrategyType;
+  /** Required for TARGET_CPA. Average cost you're willing to pay per conversion, in USD. */
+  targetCpaUsd?: number;
+  /** Required for TARGET_ROAS. Conversion value per dollar spent, e.g. 4 = 400%. Google allows 0.01–1000. */
+  targetRoas?: number;
+}
+
+/** Which strategies each channel accepts. Channels not listed fall back to ALL. */
+const CHANNEL_BID_STRATEGIES: Record<string, BidStrategyType[]> = {
+  // Manual CPC is not allowed for VIDEO; clicks-based smart bidding isn't either.
+  VIDEO: ["MAXIMIZE_CONVERSIONS", "TARGET_CPA"],
+  // PMax requires Smart Bidding (conversions or conversion value).
+  PERFORMANCE_MAX: ["MAXIMIZE_CONVERSIONS", "TARGET_CPA", "MAXIMIZE_CONVERSION_VALUE", "TARGET_ROAS"],
+  // Demand Gen supports smart bidding + clicks, no manual CPC.
+  DEMAND_GEN: ["MAXIMIZE_CLICKS", "MAXIMIZE_CONVERSIONS", "TARGET_CPA", "MAXIMIZE_CONVERSION_VALUE", "TARGET_ROAS"],
+};
+
+export function allowedBidStrategies(channelType: string): BidStrategyType[] {
+  return CHANNEL_BID_STRATEGIES[channelType] || BID_STRATEGY_TYPES;
+}
+
+/** Pure validation — kept separate from the API call so it can be unit-tested. */
+export function validateBidStrategyInput(channelType: string, input: BidStrategyInput): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+
+  if (!BID_STRATEGY_TYPES.includes(input.type)) {
+    errors.push(`type must be one of: ${BID_STRATEGY_TYPES.join(", ")}`);
+    return { valid: false, errors };
+  }
+
+  const allowed = allowedBidStrategies(channelType);
+  if (!allowed.includes(input.type)) {
+    errors.push(`${input.type} is not supported for ${channelType || "this"} campaigns. Allowed: ${allowed.join(", ")}`);
+  }
+
+  if (input.type === "TARGET_CPA") {
+    if (!Number.isFinite(input.targetCpaUsd) || (input.targetCpaUsd as number) <= 0) {
+      errors.push("targetCpaUsd is required for TARGET_CPA and must be > 0.");
+    } else if ((input.targetCpaUsd as number) > 100_000) {
+      errors.push("targetCpaUsd is unreasonably high (max $100,000).");
+    }
+  } else if (input.targetCpaUsd !== undefined) {
+    errors.push("targetCpaUsd is only valid with type TARGET_CPA.");
+  }
+
+  if (input.type === "TARGET_ROAS") {
+    if (!Number.isFinite(input.targetRoas) || (input.targetRoas as number) <= 0) {
+      errors.push("targetRoas is required for TARGET_ROAS and must be > 0.");
+    } else if ((input.targetRoas as number) > 1000) {
+      errors.push("targetRoas must be ≤1000 (Google's limit).");
+    }
+  } else if (input.targetRoas !== undefined) {
+    errors.push("targetRoas is only valid with type TARGET_ROAS.");
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+/** Switch a campaign's bidding strategy. Detects the channel type first and
+ *  validates the combination before mutating. */
+export async function setCampaignBidStrategy(
+  campaignResourceName: string,
+  input: BidStrategyInput
+): Promise<{ success: boolean; error?: unknown }> {
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
+  if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
+
+  const numericCampaignId = campaignResourceName.split("/").pop() || "";
+  type ChannelRow = { campaign: { advertisingChannelType?: string } };
+  const channelRows = await adsSearchStream(customerId, `
+    SELECT campaign.advertising_channel_type FROM campaign WHERE campaign.id = ${numericCampaignId}
+  `) as ChannelRow[];
+  const channelType = channelRows[0]?.campaign?.advertisingChannelType || "";
+
+  const validation = validateBidStrategyInput(channelType, input);
+  if (!validation.valid) return { success: false, error: validation.errors.join(" ") };
+
+  const update: Record<string, unknown> = { resourceName: campaignResourceName };
+  let mask = "";
+  switch (input.type) {
+    case "MANUAL_CPC":
+      update.manualCpc = {};
+      mask = "manual_cpc";
+      break;
+    case "MAXIMIZE_CLICKS":
+      update.targetSpend = {};
+      mask = "target_spend";
+      break;
+    case "MAXIMIZE_CONVERSIONS":
+      update.maximizeConversions = {};
+      mask = "maximize_conversions";
+      break;
+    case "TARGET_CPA":
+      update.maximizeConversions = { targetCpaMicros: String(Math.round((input.targetCpaUsd as number) * 1_000_000)) };
+      mask = "maximize_conversions";
+      break;
+    case "MAXIMIZE_CONVERSION_VALUE":
+      update.maximizeConversionValue = {};
+      mask = "maximize_conversion_value";
+      break;
+    case "TARGET_ROAS":
+      update.maximizeConversionValue = { targetRoas: input.targetRoas };
+      mask = "maximize_conversion_value";
+      break;
+  }
+
+  const res = await adsMutate(customerId, "campaigns:mutate", {
+    operations: [{ update, updateMask: mask }],
+  });
+  if (res.status !== 200) return { success: false, error: res.data };
+  return { success: true };
+}
+
+// ---------------------------------------------------------------------------
+// Campaign-level negative keywords (PR #3)
+// ---------------------------------------------------------------------------
+
+/** Channels where campaign-level negative keyword criteria are supported.
+ *  PMax negatives have separate semantics (account-level lists) — excluded for now. */
+const NEGATIVE_KEYWORD_CHANNELS = new Set(["SEARCH", "DISPLAY", "SHOPPING", "VIDEO"]);
+
+export function channelSupportsNegativeKeywords(channelType: string): boolean {
+  return NEGATIVE_KEYWORD_CHANNELS.has(channelType);
+}
+
+/** Add negative keywords at the campaign level. Mirrors createKeywords():
+ *  partialFailure so duplicates don't sink the batch. */
+export async function addCampaignNegativeKeywords(
+  campaignResourceName: string,
+  keywords: KeywordInput[]
+): Promise<CreateKeywordsResult> {
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
+  if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
+
+  const out: CreateKeywordsResult = { created: 0, resourceNames: [], errors: [], duplicatesIgnored: [] };
+  const cleaned = keywords
+    .map((k) => ({ text: (k.text || "").trim(), matchType: (k.matchType || "BROAD").toUpperCase() as KeywordMatchType }))
+    .filter((k) => k.text.length > 0 && k.text.length <= 80);
+  if (cleaned.length === 0) return out;
+
+  const operations = cleaned.map((k) => ({
+    create: {
+      campaign: campaignResourceName,
+      negative: true,
+      keyword: { text: k.text, matchType: k.matchType },
+    },
+  }));
+
+  const res = await adsMutate(customerId, "campaignCriteria:mutate", {
+    operations,
+    partialFailure: true,
+  });
+  const data = res.data as {
+    results?: Array<{ resourceName?: string }>;
+    partialFailureError?: { details?: Array<{ errors?: Array<{ message?: string; location?: { fieldPathElements?: Array<{ index?: number }> }; errorCode?: { criterionError?: string } }> }> };
+  };
+
+  if (res.status !== 200) {
+    out.errors.push({ keyword: "(batch)", details: res.data });
+    return out;
+  }
+
+  const failedIndexes = new Map<number, string>();
+  for (const d of data.partialFailureError?.details || []) {
+    for (const err of d.errors || []) {
+      const idx = err.location?.fieldPathElements?.[0]?.index;
+      if (typeof idx === "number") {
+        failedIndexes.set(idx, err.errorCode?.criterionError || err.message || "unknown");
+      }
+    }
+  }
+
+  for (let i = 0; i < cleaned.length; i++) {
+    const r = data.results?.[i];
+    if (failedIndexes.has(i)) {
+      const reason = failedIndexes.get(i) || "";
+      if (/EXISTS|DUPLICATE/i.test(reason)) {
+        out.duplicatesIgnored.push(cleaned[i].text);
+      } else {
+        out.errors.push({ keyword: cleaned[i].text, details: reason });
+      }
+      continue;
+    }
+    if (r?.resourceName) {
+      out.created += 1;
+      out.resourceNames.push(r.resourceName);
+    }
+  }
+
+  return out;
+}
+
+/** Remove a single campaign-level negative keyword criterion by resource name. */
+export async function removeCampaignNegativeKeyword(
+  criterionResourceName: string
+): Promise<{ success: boolean; error?: unknown }> {
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
+  if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
+
+  if (!/^customers\/\d+\/campaignCriteria\/\d+~\d+$/.test(criterionResourceName)) {
+    return { success: false, error: "Invalid campaign criterion resource name" };
+  }
+
+  const res = await adsMutate(customerId, "campaignCriteria:mutate", {
+    operations: [{ remove: criterionResourceName }],
+  });
+  if (res.status !== 200) return { success: false, error: res.data };
+  return { success: true };
 }

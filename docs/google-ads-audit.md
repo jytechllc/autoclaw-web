@@ -547,3 +547,27 @@ Implements Section 7 PR #2. New endpoint returns a ranked, campaign-specific lis
 - Categories: `BUDGET`, `BID`, `KEYWORD`, `AD_STRENGTH`, `AUDIENCE`, `TARGETING`. Prompt is locale-aware (zh / ko / en) and instructs the model to recommend conversion-tracking setup when conversions are absent — a natural lead-in to PR #4.
 
 Follow-up (not in this PR): surface the recommendations in the detail page UI (`app/[locale]/dashboard/google-ads/[id]/page.tsx`), respecting the `isReadOnly` gate added in `0e6b9be`.
+
+### 2026-07-02 — PR #3: bid strategy switching + negative keywords (this PR)
+
+Implements Section 7 PR #3 — the two highest-impact competitor-parity gaps after AI recommendations.
+
+**Bid strategy switching**
+
+- `lib/google-ads.ts` — `setCampaignBidStrategy()` + pure `validateBidStrategyInput()` / `allowedBidStrategies()` (unit-tested). Six strategies: `MANUAL_CPC`, `MAXIMIZE_CLICKS` (→ `target_spend`), `MAXIMIZE_CONVERSIONS`, `TARGET_CPA`, `MAXIMIZE_CONVERSION_VALUE`, `TARGET_ROAS`. Targets are implemented per Google's smart-bidding migration: tCPA rides on `maximize_conversions.target_cpa_micros`, tROAS on `maximize_conversion_value.target_roas`. Channel rules mirror `createCampaign`'s constraints: VIDEO → conversions-based only; PMax → Smart Bidding only; DEMAND_GEN → no manual CPC.
+- `fetchCampaignDetail()` now returns `bidding` (`bidding_strategy_type` + targets) so the UI can display the live strategy.
+- `app/api/google-ads/campaigns/[id]/bid-strategy/route.ts` — `POST { type, targetCpa?, targetRoas? }`. Standard auth/org/closed checks, audit-logged as `sub_action: set_bid_strategy`.
+- Detail page: strategy chip (🎯) in the header meta row with inline editor (select + conditional target input), options filtered by channel.
+
+**Campaign-level negative keywords**
+
+- `lib/google-ads.ts` — `addCampaignNegativeKeywords()` (campaign_criterion, `negative: true`, partialFailure with duplicate detection, mirroring `createKeywords`), `removeCampaignNegativeKeyword()` (resource-name validated), `channelSupportsNegativeKeywords()` (SEARCH/DISPLAY/SHOPPING/VIDEO; PMax excluded — its negatives use account-level lists, deferred).
+- `fetchCampaignDetail()` returns `negativeKeywords` with `resourceName` per entry (needed for removal).
+- `app/api/google-ads/campaigns/[id]/negative-keywords/route.ts` — `POST { keywords[] }` / `DELETE { resourceName }`. DELETE cross-checks that the criterion belongs to this campaign's customer AND this campaign's numeric id (`{campaignId}~{criterionId}`).
+- Detail page: "Negative Keywords" card (shown for supported channels even when empty), red chips with per-keyword remove, add form with `[exact]/[phrase]/[broad]` per-line override — same syntax as the ad-group keyword form.
+
+**Misc**
+
+- `lib/google-ads.test.ts` — 19 new assertions covering bid-strategy validation, channel rules, and negative-keyword channel gating.
+- i18n: 10 new `googleAdsPage` keys × 4 locales (en / zh / zh-TW / ko).
+- Section 6's "Bid strategy management" and "Negative keywords" gaps are now closed; remaining from that table: conversion tracking (PR #4), asset library, day parting, experiments, MCC, report exports.
