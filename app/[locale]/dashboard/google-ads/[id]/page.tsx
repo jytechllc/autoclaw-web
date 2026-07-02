@@ -79,6 +79,8 @@ interface Detail {
   adGroups: Array<{ resourceName: string; name: string; status: string; cpcBidMicros: number }>;
   assetGroups?: Array<{ resourceName: string; name: string; status: string; adStrength: string; primaryStatus: string; primaryStatusReasons: string[]; finalUrls: string[] }>;
   keywords: Array<{ text: string; matchType: string }>;
+  bidding?: { strategyType: string; targetCpaMicros: number; targetRoas: number };
+  negativeKeywords?: Array<{ resourceName: string; text: string; matchType: string }>;
   ads: Array<{
     resourceName: string;
     status: string;
@@ -145,6 +147,44 @@ const DEMO_OPTIONS: { apiType: DemoApiType; title: string; options: Array<{ valu
 ];
 
 const DEMO_API_TYPES: DemoApiType[] = DEMO_OPTIONS.map((d) => d.apiType);
+
+// Bid strategies selectable per channel (mirrors lib/google-ads.ts allowedBidStrategies).
+type BidStrategyOption = "MANUAL_CPC" | "MAXIMIZE_CLICKS" | "MAXIMIZE_CONVERSIONS" | "TARGET_CPA" | "MAXIMIZE_CONVERSION_VALUE" | "TARGET_ROAS";
+const ALL_BID_STRATEGIES: Array<{ value: BidStrategyOption; label: string }> = [
+  { value: "MANUAL_CPC", label: "Manual CPC" },
+  { value: "MAXIMIZE_CLICKS", label: "Maximize Clicks" },
+  { value: "MAXIMIZE_CONVERSIONS", label: "Maximize Conversions" },
+  { value: "TARGET_CPA", label: "Target CPA" },
+  { value: "MAXIMIZE_CONVERSION_VALUE", label: "Maximize Conversion Value" },
+  { value: "TARGET_ROAS", label: "Target ROAS" },
+];
+const CHANNEL_BID_OPTIONS: Record<string, BidStrategyOption[]> = {
+  VIDEO: ["MAXIMIZE_CONVERSIONS", "TARGET_CPA"],
+  PERFORMANCE_MAX: ["MAXIMIZE_CONVERSIONS", "TARGET_CPA", "MAXIMIZE_CONVERSION_VALUE", "TARGET_ROAS"],
+  DEMAND_GEN: ["MAXIMIZE_CLICKS", "MAXIMIZE_CONVERSIONS", "TARGET_CPA", "MAXIMIZE_CONVERSION_VALUE", "TARGET_ROAS"],
+};
+function bidOptionsForChannel(channelType: string): Array<{ value: BidStrategyOption; label: string }> {
+  const allowed = CHANNEL_BID_OPTIONS[channelType];
+  return allowed ? ALL_BID_STRATEGIES.filter((o) => allowed.includes(o.value)) : ALL_BID_STRATEGIES;
+}
+/** Human label for Google's reported bidding_strategy_type + targets. */
+function describeBidding(b?: { strategyType: string; targetCpaMicros: number; targetRoas: number }): string {
+  if (!b?.strategyType) return "";
+  const base: Record<string, string> = {
+    MANUAL_CPC: "Manual CPC",
+    TARGET_SPEND: "Maximize Clicks",
+    MAXIMIZE_CONVERSIONS: "Maximize Conversions",
+    MAXIMIZE_CONVERSION_VALUE: "Maximize Conversion Value",
+    TARGET_CPA: "Target CPA",
+    TARGET_ROAS: "Target ROAS",
+  };
+  let label = base[b.strategyType] || b.strategyType;
+  if (b.targetCpaMicros > 0) label = `Target CPA $${(b.targetCpaMicros / 1_000_000).toFixed(2)}`;
+  else if (b.targetRoas > 0) label = `Target ROAS ${(b.targetRoas * 100).toFixed(0)}%`;
+  return label;
+}
+/** Channels where campaign-level negative keywords are supported (mirrors lib). */
+const NEG_KW_CHANNELS = new Set(["SEARCH", "DISPLAY", "SHOPPING", "VIDEO"]);
 
 function formatUsd(cents: number | string | null | undefined): string {
   return `$${(Number(cents || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -684,6 +724,146 @@ export default function CampaignDetailPage() {
     setKwSubmitting(false);
   }
 
+  // Bid strategy edit
+  const [editingBid, setEditingBid] = useState(false);
+  const [bidType, setBidType] = useState<BidStrategyOption>("MAXIMIZE_CONVERSIONS");
+  const [bidTarget, setBidTarget] = useState("");
+  const [savingBid, setSavingBid] = useState(false);
+
+  function openBidEditor() {
+    const st = detail?.bidding?.strategyType || "";
+    if (detail?.bidding?.targetCpaMicros) {
+      setBidType("TARGET_CPA");
+      setBidTarget((detail.bidding.targetCpaMicros / 1_000_000).toFixed(2));
+    } else if (detail?.bidding?.targetRoas) {
+      setBidType("TARGET_ROAS");
+      setBidTarget(String(detail.bidding.targetRoas));
+    } else {
+      const mapped: Record<string, BidStrategyOption> = {
+        MANUAL_CPC: "MANUAL_CPC",
+        TARGET_SPEND: "MAXIMIZE_CLICKS",
+        MAXIMIZE_CONVERSIONS: "MAXIMIZE_CONVERSIONS",
+        MAXIMIZE_CONVERSION_VALUE: "MAXIMIZE_CONVERSION_VALUE",
+      };
+      const options = bidOptionsForChannel(detail?.channelType || "");
+      setBidType(mapped[st] || options[0]?.value || "MAXIMIZE_CONVERSIONS");
+      setBidTarget("");
+    }
+    setEditingBid(true);
+  }
+
+  async function handleSaveBidStrategy() {
+    const needsTarget = bidType === "TARGET_CPA" || bidType === "TARGET_ROAS";
+    const target = Number(bidTarget);
+    if (needsTarget && (!Number.isFinite(target) || target <= 0)) {
+      setToast(t.bidTargetInvalid || "Enter a valid target > 0");
+      setTimeout(() => setToast(""), 3000);
+      return;
+    }
+    setSavingBid(true);
+    try {
+      const body: Record<string, unknown> = { type: bidType, orgId: activeOrg?.id };
+      if (bidType === "TARGET_CPA") body.targetCpa = target;
+      if (bidType === "TARGET_ROAS") body.targetRoas = target;
+      const res = await fetch(`/api/google-ads/campaigns/${campaignId}/bid-strategy`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setToast(t.updated || "Updated");
+        setEditingBid(false);
+        fetchData();
+        setTimeout(() => setToast(""), 4000);
+      } else {
+        setToast(typeof data.details === "string" ? data.details : (data.error || "Update failed"));
+        setTimeout(() => setToast(""), 5000);
+      }
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Update failed");
+      setTimeout(() => setToast(""), 3000);
+    }
+    setSavingBid(false);
+  }
+
+  // Negative keywords
+  const [negKwFormOpen, setNegKwFormOpen] = useState(false);
+  const [negKwText, setNegKwText] = useState("");
+  const [negKwMatchType, setNegKwMatchType] = useState<"BROAD" | "PHRASE" | "EXACT">("BROAD");
+  const [negKwSubmitting, setNegKwSubmitting] = useState(false);
+  const [negKwError, setNegKwError] = useState("");
+  const [removingNegKw, setRemovingNegKw] = useState<string | null>(null);
+
+  async function handleAddNegativeKeywords() {
+    const lines = negKwText.split("\n").map((s) => s.trim()).filter(Boolean);
+    if (lines.length === 0) {
+      setNegKwError(t.kwValidation || "Enter at least 1 keyword (one per line)");
+      return;
+    }
+    const keywords = lines.map((line) => {
+      const m = line.match(/^\[(exact|phrase|broad)\]\s*(.+)$/i);
+      if (m) return { text: m[2].trim(), matchType: m[1].toUpperCase() as "EXACT" | "PHRASE" | "BROAD" };
+      return { text: line, matchType: negKwMatchType };
+    }).filter((k) => k.text.length > 0 && k.text.length <= 80);
+    if (keywords.length === 0) {
+      setNegKwError(t.kwValidation || "No valid keywords (each must be 1-80 chars)");
+      return;
+    }
+
+    setNegKwSubmitting(true);
+    setNegKwError("");
+    try {
+      const res = await fetch(`/api/google-ads/campaigns/${campaignId}/negative-keywords`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keywords, orgId: activeOrg?.id }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const dupes = Array.isArray(data.duplicatesIgnored) ? data.duplicatesIgnored.length : 0;
+        const errs = Array.isArray(data.errors) ? data.errors.length : 0;
+        const parts: string[] = [`${data.created} ${t.negKwCreated || "negative keywords added"}`];
+        if (dupes > 0) parts.push(`${dupes} ${t.kwDuplicatesIgnored || "duplicates ignored"}`);
+        if (errs > 0) parts.push(`${errs} ${t.kwErrored || "failed"}`);
+        setToast(parts.join(" · "));
+        setNegKwFormOpen(false);
+        setNegKwText("");
+        fetchData();
+        setTimeout(() => setToast(""), 4000);
+      } else {
+        setNegKwError(typeof data.errors === "object" ? JSON.stringify(data.errors, null, 2) : (data.error || "Failed"));
+      }
+    } catch (e) {
+      setNegKwError(e instanceof Error ? e.message : "Failed");
+    }
+    setNegKwSubmitting(false);
+  }
+
+  async function handleRemoveNegativeKeyword(resourceName: string) {
+    setRemovingNegKw(resourceName);
+    try {
+      const res = await fetch(`/api/google-ads/campaigns/${campaignId}/negative-keywords`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resourceName, orgId: activeOrg?.id }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setToast(t.negKwRemoved || "Negative keyword removed");
+        fetchData();
+        setTimeout(() => setToast(""), 3000);
+      } else {
+        setToast(data.error || "Remove failed");
+        setTimeout(() => setToast(""), 4000);
+      }
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Remove failed");
+      setTimeout(() => setToast(""), 3000);
+    }
+    setRemovingNegKw(null);
+  }
+
   async function handleGenerateCopy(channel: "DISPLAY" | "SEARCH" | "VIDEO", url: string) {
     if (!/^https?:\/\//i.test(url.trim())) {
       setAdError(t.adCopyNeedsUrl || "Enter a valid http(s) Final URL first");
@@ -969,6 +1149,41 @@ export default function CampaignDetailPage() {
                           onClick={() => { setFieldInputA(detail.startDate || ""); setFieldInputB(detail.endDate && detail.endDate !== "9999-12-31" ? detail.endDate : ""); setEditingField("schedule"); }}
                           className="text-gray-400 hover:text-gray-700 cursor-pointer"
                         >✏️</button>
+                      )}
+                    </span>
+                  )
+                )}
+                {editingBid ? (
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <select
+                      value={bidType}
+                      onChange={(e) => { setBidType(e.target.value as BidStrategyOption); setBidTarget(""); }}
+                      className="text-xs px-1 py-0.5 border border-red-500 rounded outline-none bg-white"
+                    >
+                      {bidOptionsForChannel(detail?.channelType || "").map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                    {(bidType === "TARGET_CPA" || bidType === "TARGET_ROAS") && (
+                      <input
+                        type="number"
+                        min="0"
+                        step={bidType === "TARGET_CPA" ? "0.01" : "0.1"}
+                        value={bidTarget}
+                        onChange={(e) => setBidTarget(e.target.value)}
+                        placeholder={bidType === "TARGET_CPA" ? (t.bidTargetCpaPlaceholder || "CPA $") : (t.bidTargetRoasPlaceholder || "ROAS, 4 = 400%")}
+                        className="text-xs px-1 py-0.5 border border-red-500 rounded outline-none w-28"
+                      />
+                    )}
+                    <button onClick={handleSaveBidStrategy} disabled={savingBid} className="text-xs px-2 py-0.5 bg-red-800 text-white rounded hover:bg-red-900 cursor-pointer">{savingBid ? "..." : (t.save || "Save")}</button>
+                    <button onClick={() => setEditingBid(false)} className="text-xs px-1 text-gray-400 cursor-pointer">×</button>
+                  </div>
+                ) : (
+                  detail?.bidding?.strategyType && (
+                    <span className="px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 border border-sky-200 inline-flex items-center gap-1" title={t.bidStrategyLabel || "Bid strategy"}>
+                      🎯 {describeBidding(detail.bidding)}
+                      {!campaign.closed && (
+                        <button onClick={openBidEditor} className="text-sky-400 hover:text-sky-700 cursor-pointer">✏️</button>
                       )}
                     </span>
                   )
@@ -1992,6 +2207,86 @@ export default function CampaignDetailPage() {
                 </span>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Negative keywords — campaign level */}
+        {detail && NEG_KW_CHANNELS.has(detail.channelType) && (
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-gray-700">
+                {t.negKwSection || "Negative Keywords"} ({detail.negativeKeywords?.length || 0})
+              </h2>
+              {!campaign.closed && (
+                <button
+                  onClick={() => { setNegKwFormOpen(!negKwFormOpen); setNegKwError(""); }}
+                  className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer"
+                >
+                  {negKwFormOpen ? (t.cancel || "Cancel") : `+ ${t.negKwAdd || "Add Negative Keywords"}`}
+                </button>
+              )}
+            </div>
+            {(detail.negativeKeywords?.length || 0) === 0 && !negKwFormOpen && (
+              <p className="text-xs text-gray-400">{t.negKwEmpty || "No negative keywords yet. Add terms you never want to match on."}</p>
+            )}
+            <div className="flex flex-wrap gap-1.5">
+              {(detail.negativeKeywords || []).map((kw) => (
+                <span key={kw.resourceName} className="px-2 py-0.5 bg-red-50 text-red-700 text-xs rounded-full inline-flex items-center gap-1">
+                  {kw.text} <span className="text-red-400">[{kw.matchType}]</span>
+                  {!campaign.closed && (
+                    <button
+                      onClick={() => handleRemoveNegativeKeyword(kw.resourceName)}
+                      disabled={removingNegKw === kw.resourceName}
+                      className="text-red-400 hover:text-red-800 cursor-pointer disabled:opacity-50"
+                      title={t.negKwRemove || "Remove"}
+                    >
+                      {removingNegKw === kw.resourceName ? "…" : "×"}
+                    </button>
+                  )}
+                </span>
+              ))}
+            </div>
+            {negKwFormOpen && (
+              <div className="mt-4 border-t border-gray-100 pt-4 space-y-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">
+                    {t.kwLabel || "Keywords (one per line, ≤80 chars each). Prefix with [exact] / [phrase] / [broad] to override the default."}
+                  </label>
+                  <textarea
+                    value={negKwText}
+                    onChange={(e) => setNegKwText(e.target.value)}
+                    rows={4}
+                    placeholder={"free\n[exact] cheap alternative\n[phrase] refund"}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-red-500 font-mono"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-gray-500">{t.kwDefaultMatchType || "Default match type"}:</label>
+                  <select
+                    value={negKwMatchType}
+                    onChange={(e) => setNegKwMatchType(e.target.value as "BROAD" | "PHRASE" | "EXACT")}
+                    className="text-xs px-2 py-1 border border-gray-300 rounded outline-none bg-white"
+                  >
+                    <option value="BROAD">BROAD</option>
+                    <option value="PHRASE">PHRASE</option>
+                    <option value="EXACT">EXACT</option>
+                  </select>
+                </div>
+                {negKwError && <pre className="text-xs text-red-600 bg-red-50 p-2 rounded whitespace-pre-wrap break-all">{negKwError}</pre>}
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleAddNegativeKeywords}
+                    disabled={negKwSubmitting}
+                    className="bg-red-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-900 disabled:opacity-50 cursor-pointer"
+                  >
+                    {negKwSubmitting ? (t.creating || "Adding...") : (t.negKwAdd || "Add Negative Keywords")}
+                  </button>
+                  <button onClick={() => { setNegKwFormOpen(false); setNegKwError(""); }} className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 cursor-pointer">
+                    {t.cancel || "Cancel"}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

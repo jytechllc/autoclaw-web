@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { validateAssetGroupInput, type CreateAssetGroupInput } from "./google-ads";
+import {
+  validateAssetGroupInput,
+  validateBidStrategyInput,
+  allowedBidStrategies,
+  channelSupportsNegativeKeywords,
+  type CreateAssetGroupInput,
+} from "./google-ads";
 
 /**
  * Validation tests for PMAX asset group input.
@@ -140,5 +146,107 @@ describe("validateAssetGroupInput — accumulates multiple errors", () => {
     expect(result.valid).toBe(false);
     // Expect at least 8 distinct errors (one per field family)
     expect(result.errors.length).toBeGreaterThanOrEqual(8);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateBidStrategyInput (PR #3)
+// ---------------------------------------------------------------------------
+
+describe("validateBidStrategyInput — type + channel rules", () => {
+  it("accepts MANUAL_CPC for SEARCH", () => {
+    const result = validateBidStrategyInput("SEARCH", { type: "MANUAL_CPC" });
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("rejects an unknown type", () => {
+    const result = validateBidStrategyInput("SEARCH", { type: "TARGET_IMPRESSION_SHARE" as never });
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes("type must be one of"))).toBe(true);
+  });
+
+  it("rejects MANUAL_CPC for VIDEO", () => {
+    const result = validateBidStrategyInput("VIDEO", { type: "MANUAL_CPC" });
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes("not supported for VIDEO"))).toBe(true);
+  });
+
+  it("rejects MANUAL_CPC for PERFORMANCE_MAX", () => {
+    const result = validateBidStrategyInput("PERFORMANCE_MAX", { type: "MANUAL_CPC" });
+    expect(result.valid).toBe(false);
+  });
+
+  it("accepts TARGET_ROAS for PERFORMANCE_MAX", () => {
+    const result = validateBidStrategyInput("PERFORMANCE_MAX", { type: "TARGET_ROAS", targetRoas: 4 });
+    expect(result.valid).toBe(true);
+  });
+
+  it("falls back to allowing all strategies for unknown channels", () => {
+    const result = validateBidStrategyInput("", { type: "MAXIMIZE_CLICKS" });
+    expect(result.valid).toBe(true);
+  });
+});
+
+describe("validateBidStrategyInput — targets", () => {
+  it("requires targetCpaUsd for TARGET_CPA", () => {
+    const result = validateBidStrategyInput("SEARCH", { type: "TARGET_CPA" });
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes("targetCpaUsd is required"))).toBe(true);
+  });
+
+  it("rejects targetCpaUsd <= 0", () => {
+    const result = validateBidStrategyInput("SEARCH", { type: "TARGET_CPA", targetCpaUsd: 0 });
+    expect(result.valid).toBe(false);
+  });
+
+  it("accepts a valid TARGET_CPA", () => {
+    const result = validateBidStrategyInput("SEARCH", { type: "TARGET_CPA", targetCpaUsd: 12.5 });
+    expect(result.valid).toBe(true);
+  });
+
+  it("requires targetRoas for TARGET_ROAS", () => {
+    const result = validateBidStrategyInput("SEARCH", { type: "TARGET_ROAS" });
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes("targetRoas is required"))).toBe(true);
+  });
+
+  it("rejects targetRoas above Google's 1000 limit", () => {
+    const result = validateBidStrategyInput("SEARCH", { type: "TARGET_ROAS", targetRoas: 1001 });
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes("≤1000"))).toBe(true);
+  });
+
+  it("rejects a target passed with the wrong type", () => {
+    const cpaOnWrongType = validateBidStrategyInput("SEARCH", { type: "MAXIMIZE_CONVERSIONS", targetCpaUsd: 10 });
+    expect(cpaOnWrongType.valid).toBe(false);
+    expect(cpaOnWrongType.errors.some((e) => e.includes("only valid with type TARGET_CPA"))).toBe(true);
+
+    const roasOnWrongType = validateBidStrategyInput("SEARCH", { type: "MANUAL_CPC", targetRoas: 4 });
+    expect(roasOnWrongType.valid).toBe(false);
+    expect(roasOnWrongType.errors.some((e) => e.includes("only valid with type TARGET_ROAS"))).toBe(true);
+  });
+});
+
+describe("allowedBidStrategies", () => {
+  it("returns the restricted set for VIDEO", () => {
+    expect(allowedBidStrategies("VIDEO")).toEqual(["MAXIMIZE_CONVERSIONS", "TARGET_CPA"]);
+  });
+
+  it("returns all six for SEARCH", () => {
+    expect(allowedBidStrategies("SEARCH")).toHaveLength(6);
+  });
+});
+
+describe("channelSupportsNegativeKeywords", () => {
+  it("allows SEARCH / DISPLAY / SHOPPING / VIDEO", () => {
+    for (const ch of ["SEARCH", "DISPLAY", "SHOPPING", "VIDEO"]) {
+      expect(channelSupportsNegativeKeywords(ch)).toBe(true);
+    }
+  });
+
+  it("rejects PERFORMANCE_MAX and unknown channels", () => {
+    expect(channelSupportsNegativeKeywords("PERFORMANCE_MAX")).toBe(false);
+    expect(channelSupportsNegativeKeywords("")).toBe(false);
   });
 });
