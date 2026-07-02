@@ -47,6 +47,7 @@ jobs:
           path: |
             dist-electron/*.exe
             dist-electron/*.blockmap
+            dist-electron/latest.yml
           if-no-files-found: error
           retention-days: 30
 
@@ -56,19 +57,47 @@ jobs:
         shell: bash
         run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
-      # Publish the .exe to a GitHub Release so it can be downloaded straight
-      # from the repo's Releases section — no login, no 30-day expiry.
-      - name: Publish to GitHub Release
+      # Publish to a GitHub Release so it can be downloaded straight from the
+      # repo's Releases section — no login, no 30-day expiry. The release also
+      # serves as the auto-update feed: installed apps poll
+      # releases/latest/download/latest.yml (see `publish` in
+      # electron-builder.yml), so latest.yml and the *.blockmap (differential
+      # download) must be uploaded alongside the installers.
+      #
+      # Created as a draft first, then flipped live in a separate step: while
+      # assets are still uploading, releases/latest keeps pointing at the
+      # previous version, so an app checking mid-publish can never see a
+      # latest.yml whose installer isn't uploaded yet.
+      - name: Create draft release with assets
         uses: softprops/action-gh-release@v2
         with:
           tag_name: desktop-v${{ steps.pkg.outputs.version }}
           name: AutoClaw Desktop v${{ steps.pkg.outputs.version }} (Windows)
+          draft: true
           body: |
             AutoClaw Windows desktop build (automated).
 
             - **AutoClaw-${{ steps.pkg.outputs.version }}-Portable.exe** — portable / no-install, double-click to run (32-bit, runs on any 32/64-bit Windows). Login session and cache live in an `AutoClaw-Data/` folder next to the .exe, so copy it to a USB drive to carry it between machines without re-logging in or leaving traces on the host.
-            - **AutoClaw-${{ steps.pkg.outputs.version }}-Setup.exe** — installer (writes to the local %APPDATA%).
+            - **AutoClaw-${{ steps.pkg.outputs.version }}-Setup.exe** — installer (writes to the local %APPDATA%). Auto-updates itself from newer releases; portable builds must be re-downloaded manually.
 
             Not code-signed yet: if SmartScreen blocks the first run, click "More info → Run anyway".
-          files: dist-electron/*.exe
-          make_latest: true
+          files: |
+            dist-electron/*.exe
+            dist-electron/*.blockmap
+            dist-electron/latest.yml
+
+      # gh has no built-in retry, and a transient network error here would
+      # strand the release as an invisible draft — so retry a few times.
+      - name: Publish release
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if gh release edit "desktop-v${{ steps.pkg.outputs.version }}" --draft=false --latest --repo "${{ github.repository }}"; then
+              exit 0
+            fi
+            echo "publish attempt ${attempt} failed; retrying in 15s..."
+            sleep 15
+          done
+          exit 1
+        env:
+          GH_TOKEN: ${{ github.token }}

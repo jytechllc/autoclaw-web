@@ -33,6 +33,10 @@ const APP_ORIGIN = (() => {
 // How often the offline page retries the hosted app (auto-reconnect).
 const RETRY_INTERVAL_MS = 5000;
 
+// How often to re-check for app updates while running (the app is resident in
+// the tray, so a long-lived process still picks up new releases same-day).
+const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
+
 const isDev = !app.isPackaged;
 let mainWindow = null;
 let tray = null;
@@ -41,6 +45,9 @@ let started = false; // true once the first remote navigation has been kicked of
 let showingError = false; // true while the local offline page is displayed
 let isQuitting = false; // true once a real quit is underway (vs. close-to-tray)
 let saveStateTimer = null; // debounce for persisting window bounds
+let autoUpdater = null; // set by initAutoUpdater() on builds that can self-update
+let updateReadyVersion = null; // version string once an update is downloaded
+let manualUpdateCheck = false; // menu-triggered check → surface result dialogs
 
 // Default window geometry; also the fallback when no saved state exists.
 const DEFAULT_BOUNDS = { width: 1280, height: 860 };
@@ -291,6 +298,12 @@ function buildMenu() {
         { role: "zoomOut" },
         { type: "separator" },
         ...(isDev ? [{ role: "toggleDevTools" }, { type: "separator" }] : []),
+        ...(updaterSupported()
+          ? [
+              { label: "Check for Updates…", click: manualCheckForUpdates },
+              { type: "separator" },
+            ]
+          : []),
         { role: "quit" },
       ],
     },
@@ -310,25 +323,48 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+function buildTrayMenu() {
+  return Menu.buildFromTemplate([
+    // Version line so a user can read their version off the tray when asked.
+    { label: `AutoClaw v${app.getVersion()}`, enabled: false },
+    { type: "separator" },
+    {
+      label: "Open AutoClaw",
+      click: () => {
+        if (mainWindow) mainWindow.show();
+        else createWindow();
+      },
+    },
+    // Shown only while a downloaded update is waiting (see initAutoUpdater).
+    // With close-to-tray the app can stay resident for days, so the tray is
+    // the one place a pending update stays visible without stealing focus.
+    ...(updateReadyVersion
+      ? [
+          {
+            label: `Restart to Update (v${updateReadyVersion})`,
+            click: restartToInstall,
+          },
+        ]
+      : []),
+    ...(updaterSupported()
+      ? [{ label: "Check for Updates…", click: manualCheckForUpdates }]
+      : []),
+    { type: "separator" },
+    { role: "quit" },
+  ]);
+}
+
+function refreshTrayMenu() {
+  if (tray) tray.setContextMenu(buildTrayMenu());
+}
+
 function createTray() {
   try {
     const img = nativeImage.createFromPath(iconPath());
     if (img.isEmpty()) return;
     tray = new Tray(img.resize({ width: 16, height: 16 }));
     tray.setToolTip("AutoClaw");
-    tray.setContextMenu(
-      Menu.buildFromTemplate([
-        {
-          label: "Open AutoClaw",
-          click: () => {
-            if (mainWindow) mainWindow.show();
-            else createWindow();
-          },
-        },
-        { type: "separator" },
-        { role: "quit" },
-      ]),
-    );
+    tray.setContextMenu(buildTrayMenu());
     tray.on("click", () => {
       if (mainWindow) {
         mainWindow.isVisible() ? mainWindow.focus() : mainWindow.show();
@@ -339,6 +375,128 @@ function createTray() {
   } catch {
     /* tray is optional */
   }
+}
+
+// ---------------------------------------------------------------------------
+// Auto-update. electron-updater reads the feed URL baked into the package by
+// electron-builder (`publish` in electron-builder.yml → app-update.yml), which
+// points at the repo's GitHub Releases. Only builds with an installer can
+// update themselves:
+//   - Windows NSIS install: the primary channel — fully supported.
+//   - Windows portable: the exe on the drive can't replace itself → skipped.
+//   - Linux: only AppImage has in-place update support (APPIMAGE env is set).
+//   - macOS: electron-updater requires a code-signed app; ours is unsigned.
+function updaterSupported() {
+  if (isDev) return false;
+  if (process.platform === "win32") return !process.env.PORTABLE_EXECUTABLE_DIR;
+  if (process.platform === "linux") return Boolean(process.env.APPIMAGE);
+  return false;
+}
+
+function initAutoUpdater() {
+  if (!updaterSupported()) return;
+  // Lazy require so a packaging problem degrades to "no auto-update" instead
+  // of taking the whole app down at startup.
+  try {
+    ({ autoUpdater } = require("electron-updater"));
+  } catch (err) {
+    console.error("auto-update unavailable:", err);
+    autoUpdater = null;
+    return;
+  }
+
+  autoUpdater.autoDownload = true;
+  // Even when the user picks "Later", the update applies on the next quit.
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on("update-available", (info) => {
+    if (!manualUpdateCheck) return;
+    manualUpdateCheck = false;
+    dialog.showMessageBox({
+      type: "info",
+      title: "AutoClaw",
+      message: `AutoClaw ${info.version} is available.`,
+      detail:
+        "It is downloading in the background — you'll be asked to restart once it's ready.",
+    });
+  });
+
+  autoUpdater.on("update-not-available", () => {
+    if (!manualUpdateCheck) return;
+    manualUpdateCheck = false;
+    dialog.showMessageBox({
+      type: "info",
+      title: "AutoClaw",
+      message: "You're up to date.",
+      detail: `AutoClaw ${app.getVersion()} is the latest version.`,
+    });
+  });
+
+  autoUpdater.on("update-downloaded", (info) => {
+    updateReadyVersion = info.version;
+    refreshTrayMenu();
+    // Prompt only when the window is actually on screen. If it's hidden in
+    // the tray, don't steal focus — the tray shows "Restart to Update" and
+    // autoInstallOnAppQuit applies the update on the next quit anyway.
+    if (mainWindow && mainWindow.isVisible()) {
+      dialog
+        .showMessageBox(mainWindow, {
+          type: "info",
+          buttons: ["Restart Now", "Later"],
+          defaultId: 0,
+          cancelId: 1,
+          title: "AutoClaw",
+          message: `AutoClaw ${info.version} is ready to install.`,
+          detail:
+            "Restart now to apply the update, or it will be installed automatically the next time you quit.",
+        })
+        .then(({ response }) => {
+          if (response === 0) restartToInstall();
+        });
+    }
+  });
+
+  // Failed checks are routine for a desktop client (offline, firewalled,
+  // GitHub unreachable) — log and retry next cycle instead of nagging. Only a
+  // user-initiated check surfaces the failure.
+  autoUpdater.on("error", (err) => {
+    console.error("auto-update error:", err);
+    if (!manualUpdateCheck) return;
+    manualUpdateCheck = false;
+    dialog.showMessageBox({
+      type: "warning",
+      title: "AutoClaw",
+      message: "Could not check for updates.",
+      detail: String((err && err.message) || err),
+    });
+  });
+
+  // First check shortly after startup (don't compete with the initial page
+  // load), then periodically while the app stays resident. Rejections are
+  // already reported via the "error" event above.
+  setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 15000);
+  setInterval(
+    () => autoUpdater.checkForUpdates().catch(() => {}),
+    UPDATE_CHECK_INTERVAL_MS,
+  );
+}
+
+// Result dialogs are deliberately parentless: a tray-triggered check can run
+// while the main window is hidden, and a dialog modal to a hidden window
+// would be invisible.
+function manualCheckForUpdates() {
+  if (!autoUpdater) return;
+  manualUpdateCheck = true;
+  autoUpdater.checkForUpdates().catch(() => {});
+}
+
+function restartToInstall() {
+  if (!autoUpdater) return;
+  // Flag the real quit first so the close-to-tray handler lets the window go.
+  isQuitting = true;
+  // Silent install matters: with oneClick:false a non-silent run would pop
+  // the full NSIS wizard. isForceRunAfter relaunches the app once installed.
+  autoUpdater.quitAndInstall(true, true);
 }
 
 // Native OS notifications. The web app calls window.autoclawDesktop.notify(...)
@@ -385,6 +543,7 @@ if (!gotLock) {
     buildMenu();
     createWindow();
     createTray();
+    initAutoUpdater();
 
     app.on("activate", () => {
       // With close-to-tray the window is hidden, not destroyed — reveal it.
