@@ -17,6 +17,17 @@ files:
   - electron-resources/icon.png
   - package.json
 
+# Auto-update feed (electron-updater reads this via the app-update.yml that
+# electron-builder bakes into the package). The `generic` provider is used
+# instead of `github` on purpose: our release tags are `desktop-vX.Y.Z`, which
+# the github provider can't parse as versions, while this URL always redirects
+# to the newest release's assets regardless of tag naming. The CI workflow
+# uploads latest.yml + the installer + its blockmap next to each release.
+# The trailing slash matters — file names are resolved relative to this URL.
+publish:
+  provider: generic
+  url: https://github.com/jytechllc/autoclaw-web/releases/latest/download/
+
 # Windows first (primary target for the China-market channel).
 win:
   target:
