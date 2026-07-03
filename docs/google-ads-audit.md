@@ -766,7 +766,16 @@ Completes the bid-modifier trio (device ✅, location ✅, schedule ✅) — "+2
 - ⏰ card: interval chips now colored by adjustment (+green/−amber) with the % inline; new "% Adjust bids" mode listing intervals with one % input each.
 - 5 new test cases. i18n: 2 keys × 4 locales.
 
-### 2026-07-03 — promotion extensions (this PR)
+### 2026-07-03 — printable campaign report page (this PR)
+
+The "send it to my accountant / boss" artifact: `google-ads/[id]/report` renders a clean single-page report — open, Cmd/Ctrl+P, save as PDF.
+
+- Pure frontend, zero new API surface: reuses the detail GET (campaign + live 30-day metrics) and the stored recommendations digest GET. Read-only accounts can print reports (both endpoints are pure reads).
+- No DashboardShell — the page IS the document, so print output is clean by construction; the toolbar (back link + print button) is `print:hidden`.
+- Content: KPI grid (impressions/clicks/CTR/CPC/cost/conversions), budget bar (daily/cap/spent %), dependency-free SVG spend trend (prints crisply — no canvas/chart lib), setup summary table (bid strategy, locations, keyword counts, ad schedule, extensions inventory), and the AI recommendations digest with generation timestamp.
+- 🖨️ Report button in the detail-page header. i18n: 9 keys × 4 locales. No new tests (no new logic — presentation only).
+
+### 2026-07-03 — promotion extensions
 
 Completes the extensions family (sitelinks ✅, callouts ✅, snippets ✅, call ✅, **promotion ✅**) — "10% off All running shoes · SUMMER20 · until 12-31" now attachable under search ads.
 
