@@ -2083,6 +2083,208 @@ export async function addCampaignNegativeKeywords(
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// Conversion tracking — conversion actions (PR #4a)
+// ---------------------------------------------------------------------------
+
+/** Common website-conversion categories we expose (subset of Google's enum). */
+export const CONVERSION_ACTION_CATEGORIES = [
+  "PURCHASE",
+  "SIGNUP",
+  "LEAD",
+  "SUBMIT_LEAD_FORM",
+  "CONTACT",
+  "PAGE_VIEW",
+  "DOWNLOAD",
+  "ADD_TO_CART",
+  "BEGIN_CHECKOUT",
+  "SUBSCRIBE_PAID",
+] as const;
+export type ConversionActionCategory = (typeof CONVERSION_ACTION_CATEGORIES)[number];
+
+export const CONVERSION_COUNTING_TYPES = ["ONE_PER_CLICK", "MANY_PER_CLICK"] as const;
+export type ConversionCountingType = (typeof CONVERSION_COUNTING_TYPES)[number];
+
+export interface CreateConversionActionInput {
+  name: string;
+  category: ConversionActionCategory;
+  /** ONE_PER_CLICK for leads/signups (dedupe), MANY_PER_CLICK for purchases. */
+  countingType: ConversionCountingType;
+  /** Optional fixed value per conversion, in USD. Omit for "no value". */
+  defaultValueUsd?: number;
+  /** Click-through lookback window. Google default is 30; allowed 1-90. */
+  clickLookbackDays?: number;
+}
+
+export interface ConversionActionSummary {
+  resourceName: string;
+  id: string;
+  name: string;
+  category: string;
+  status: string;
+  type: string;
+  countingType: string;
+  primaryForGoal: boolean;
+  /** gtag snippets (global site tag + event snippet) for WEBPAGE actions. */
+  tagSnippets: Array<{ type: string; pageFormat: string; globalSiteTag: string; eventSnippet: string }>;
+}
+
+/** Pure validation — kept separate from the API call so it can be unit-tested. */
+export function validateConversionActionInput(input: CreateConversionActionInput): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+
+  const name = (input.name || "").trim();
+  if (!name) errors.push("name is required.");
+  else if (name.length > 100) errors.push("name must be ≤100 characters.");
+
+  if (!CONVERSION_ACTION_CATEGORIES.includes(input.category)) {
+    errors.push(`category must be one of: ${CONVERSION_ACTION_CATEGORIES.join(", ")}`);
+  }
+  if (!CONVERSION_COUNTING_TYPES.includes(input.countingType)) {
+    errors.push(`countingType must be one of: ${CONVERSION_COUNTING_TYPES.join(", ")}`);
+  }
+
+  if (input.defaultValueUsd !== undefined) {
+    if (!Number.isFinite(input.defaultValueUsd) || input.defaultValueUsd < 0) {
+      errors.push("defaultValueUsd must be ≥ 0.");
+    } else if (input.defaultValueUsd > 1_000_000) {
+      errors.push("defaultValueUsd is unreasonably high (max $1,000,000).");
+    }
+  }
+
+  if (input.clickLookbackDays !== undefined) {
+    if (!Number.isInteger(input.clickLookbackDays) || input.clickLookbackDays < 1 || input.clickLookbackDays > 90) {
+      errors.push("clickLookbackDays must be an integer between 1 and 90.");
+    }
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+/** List all non-removed conversion actions on the account, including gtag snippets. */
+export async function listConversionActions(): Promise<ConversionActionSummary[]> {
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
+  if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
+
+  type Row = {
+    conversionAction: {
+      resourceName: string;
+      id?: string;
+      name?: string;
+      category?: string;
+      status?: string;
+      type?: string;
+      countingType?: string;
+      primaryForGoal?: boolean;
+      tagSnippets?: Array<{ type?: string; pageFormat?: string; globalSiteTag?: string; eventSnippet?: string }>;
+    };
+  };
+  const rows = await adsSearchStream(customerId, `
+    SELECT conversion_action.resource_name, conversion_action.id, conversion_action.name,
+           conversion_action.category, conversion_action.status, conversion_action.type,
+           conversion_action.counting_type, conversion_action.primary_for_goal,
+           conversion_action.tag_snippets
+    FROM conversion_action
+    WHERE conversion_action.status != 'REMOVED'
+    ORDER BY conversion_action.id
+  `) as Row[];
+
+  return rows.map((r) => ({
+    resourceName: r.conversionAction.resourceName,
+    id: String(r.conversionAction.id || ""),
+    name: r.conversionAction.name || "",
+    category: r.conversionAction.category || "",
+    status: r.conversionAction.status || "",
+    type: r.conversionAction.type || "",
+    countingType: r.conversionAction.countingType || "",
+    primaryForGoal: !!r.conversionAction.primaryForGoal,
+    tagSnippets: (r.conversionAction.tagSnippets || [])
+      .filter((t) => (t.pageFormat || "") === "HTML")
+      .map((t) => ({
+        type: t.type || "",
+        pageFormat: t.pageFormat || "",
+        globalSiteTag: t.globalSiteTag || "",
+        eventSnippet: t.eventSnippet || "",
+      })),
+  }));
+}
+
+/** Create a WEBPAGE conversion action. Returns the new resource + its gtag
+ *  snippets (fetched in a follow-up query — mutate doesn't return snippets). */
+export async function createConversionAction(
+  input: CreateConversionActionInput
+): Promise<{ action: ConversionActionSummary | null; error?: unknown }> {
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
+  if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
+
+  const validation = validateConversionActionInput(input);
+  if (!validation.valid) return { action: null, error: validation.errors.join(" ") };
+
+  const create: Record<string, unknown> = {
+    name: input.name.trim(),
+    type: "WEBPAGE",
+    category: input.category,
+    status: "ENABLED",
+    countingType: input.countingType,
+    valueSettings: input.defaultValueUsd !== undefined
+      ? { defaultValue: input.defaultValueUsd, alwaysUseDefaultValue: true }
+      : { defaultValue: 0, alwaysUseDefaultValue: false },
+  };
+  if (input.clickLookbackDays !== undefined) {
+    create.clickThroughLookbackWindowDays = input.clickLookbackDays;
+  }
+
+  const res = await adsMutate(customerId, "conversionActions:mutate", {
+    operations: [{ create }],
+  });
+  if (res.status !== 200) return { action: null, error: res.data };
+
+  const resourceName = (res.data as { results?: Array<{ resourceName?: string }> })?.results?.[0]?.resourceName;
+  if (!resourceName) return { action: null, error: "Mutate succeeded but returned no resource name" };
+
+  // Fetch back with snippets so the caller can show the gtag install code immediately.
+  try {
+    const all = await listConversionActions();
+    const created = all.find((a) => a.resourceName === resourceName);
+    if (created) return { action: created };
+  } catch { /* fall through to minimal response */ }
+  return {
+    action: {
+      resourceName,
+      id: resourceName.split("/").pop() || "",
+      name: input.name.trim(),
+      category: input.category,
+      status: "ENABLED",
+      type: "WEBPAGE",
+      countingType: input.countingType,
+      primaryForGoal: false,
+      tagSnippets: [],
+    },
+  };
+}
+
+/** Pause / re-enable / remove a conversion action. */
+export async function setConversionActionStatus(
+  resourceName: string,
+  status: "ENABLED" | "PAUSED" | "REMOVED"
+): Promise<{ success: boolean; error?: unknown }> {
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
+  if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
+
+  if (!/^customers\/\d+\/conversionActions\/\d+$/.test(resourceName)) {
+    return { success: false, error: "Invalid conversion action resource name" };
+  }
+
+  const res = await adsMutate(customerId, "conversionActions:mutate", {
+    operations: [{
+      update: { resourceName, status },
+      updateMask: "status",
+    }],
+  });
+  if (res.status !== 200) return { success: false, error: res.data };
+  return { success: true };
+}
+
 /** Remove a single campaign-level negative keyword criterion by resource name. */
 export async function removeCampaignNegativeKeyword(
   criterionResourceName: string
