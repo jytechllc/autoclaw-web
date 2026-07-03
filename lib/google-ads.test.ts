@@ -14,6 +14,7 @@ import {
   validateCalloutInput,
   validateStructuredSnippetInput,
   channelSupportsTextExtensions,
+  aggregateSearchTermRows,
   type SitelinkInput,
   type CreateAssetGroupInput,
   type CreateConversionActionInput,
@@ -472,6 +473,51 @@ describe("channelSupportsSitelinks", () => {
     for (const ch of ["DISPLAY", "SHOPPING", "VIDEO", "PERFORMANCE_MAX", ""]) {
       expect(channelSupportsSitelinks(ch)).toBe(false);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// aggregateSearchTermRows (search terms report)
+// ---------------------------------------------------------------------------
+
+describe("aggregateSearchTermRows", () => {
+  const row = (term: string, impressions: number, clicks = 0, costMicros = 0, conversions = 0) => ({
+    searchTermView: { searchTerm: term, status: "NONE" },
+    metrics: { impressions: String(impressions), clicks: String(clicks), costMicros: String(costMicros), conversions },
+  });
+
+  it("aggregates duplicate terms (case-insensitive) and sums metrics", () => {
+    const result = aggregateSearchTermRows([
+      row("crm software", 100, 5, 2_000_000),
+      row("CRM Software", 50, 3, 1_000_000),
+      row("free crm", 80, 2),
+    ]);
+    expect(result).toHaveLength(2);
+    expect(result[0].term).toBe("crm software");
+    expect(result[0].impressions).toBe(150);
+    expect(result[0].clicks).toBe(8);
+    expect(result[0].costMicros).toBe(3_000_000);
+  });
+
+  it("sorts by impressions descending", () => {
+    const result = aggregateSearchTermRows([row("low", 1), row("high", 100), row("mid", 10)]);
+    expect(result.map((r) => r.term)).toEqual(["high", "mid", "low"]);
+  });
+
+  it("applies the limit", () => {
+    const rows = Array.from({ length: 10 }, (_, i) => row(`term ${i}`, i));
+    expect(aggregateSearchTermRows(rows, 3)).toHaveLength(3);
+  });
+
+  it("skips rows without a term and handles empty input", () => {
+    expect(aggregateSearchTermRows([])).toEqual([]);
+    expect(aggregateSearchTermRows([{ metrics: { impressions: "5" } }])).toEqual([]);
+    expect(aggregateSearchTermRows([{ searchTermView: { searchTerm: "  " }, metrics: {} }])).toEqual([]);
+  });
+
+  it("tolerates missing metrics", () => {
+    const result = aggregateSearchTermRows([{ searchTermView: { searchTerm: "bare" } }]);
+    expect(result[0]).toMatchObject({ term: "bare", impressions: 0, clicks: 0, costMicros: 0, conversions: 0 });
   });
 });
 

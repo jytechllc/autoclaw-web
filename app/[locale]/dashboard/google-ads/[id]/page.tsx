@@ -1018,6 +1018,51 @@ export default function CampaignDetailPage() {
     setRemovingSitelink(null);
   }
 
+  // Search terms report
+  type SearchTermStat = { term: string; status: string; impressions: number; clicks: number; costMicros: number; conversions: number };
+  const [searchTerms, setSearchTerms] = useState<SearchTermStat[] | null>(null);
+  const [termsLoading, setTermsLoading] = useState(false);
+  const [termsError, setTermsError] = useState("");
+  const [addingNegTerm, setAddingNegTerm] = useState<string | null>(null);
+
+  async function handleLoadSearchTerms() {
+    setTermsLoading(true);
+    setTermsError("");
+    try {
+      const res = await fetch(`/api/google-ads/campaigns/${campaignId}/search-terms${activeOrg ? `?org_id=${activeOrg.id}` : ""}`);
+      const data = await res.json();
+      if (res.ok) setSearchTerms(data.terms || []);
+      else setTermsError(data.error || "Failed to load");
+    } catch (e) {
+      setTermsError(e instanceof Error ? e.message : "Failed to load");
+    }
+    setTermsLoading(false);
+  }
+
+  async function handleAddTermAsNegative(term: string) {
+    setAddingNegTerm(term);
+    try {
+      const res = await fetch(`/api/google-ads/campaigns/${campaignId}/negative-keywords`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keywords: [{ text: term, matchType: "EXACT" }], orgId: activeOrg?.id }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setToast(`"${term}" ${t.termNegAdded || "added as negative keyword"}`);
+        fetchData();
+        setTimeout(() => setToast(""), 4000);
+      } else {
+        setToast(data.error || "Failed");
+        setTimeout(() => setToast(""), 4000);
+      }
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Failed");
+      setTimeout(() => setToast(""), 3000);
+    }
+    setAddingNegTerm(null);
+  }
+
   // Callouts + structured snippets
   const SNIPPET_HEADERS = ["Amenities", "Brands", "Courses", "Degree programs", "Destinations", "Featured hotels", "Insurance coverage", "Models", "Neighborhoods", "Service catalog", "Shows", "Styles", "Types"];
   const [extFormOpen, setExtFormOpen] = useState<"callout" | "snippet" | null>(null);
@@ -2775,6 +2820,79 @@ export default function CampaignDetailPage() {
                     {t.cancel || "Cancel"}
                   </button>
                 </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Search terms report — SEARCH only */}
+        {detail && detail.channelType === "SEARCH" && (
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-gray-700">
+                🔍 {t.termsSection || "Search Terms (last 30 days)"}{searchTerms ? ` (${searchTerms.length})` : ""}
+              </h2>
+              <button
+                onClick={handleLoadSearchTerms}
+                disabled={termsLoading}
+                className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 cursor-pointer"
+              >
+                {termsLoading ? (t.loading || "Loading...") : searchTerms ? (t.termsRefresh || "Refresh") : (t.termsLoad || "Load")}
+              </button>
+            </div>
+            {!searchTerms && !termsLoading && !termsError && (
+              <p className="text-xs text-gray-400">{t.termsHint || "See the actual queries that triggered your ads — spot waste and add negatives in one click."}</p>
+            )}
+            {termsError && <pre className="text-xs text-red-600 bg-red-50 p-2 rounded whitespace-pre-wrap break-all">{termsError}</pre>}
+            {searchTerms && searchTerms.length === 0 && (
+              <p className="text-xs text-gray-400">{t.termsEmpty || "No search terms recorded in the last 30 days."}</p>
+            )}
+            {searchTerms && searchTerms.length > 0 && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead className="text-gray-500">
+                    <tr className="border-b border-gray-100">
+                      <th className="text-left py-1.5 pr-2">{t.termsColTerm || "Search term"}</th>
+                      <th className="text-right py-1.5 px-2">{t.metricImpressions || "Impressions"}</th>
+                      <th className="text-right py-1.5 px-2">{t.metricClicks || "Clicks"}</th>
+                      <th className="text-right py-1.5 px-2">{t.metricCost || "Cost"}</th>
+                      <th className="text-right py-1.5 px-2">{t.metricConversions || "Conversions"}</th>
+                      {!campaign.closed && <th className="py-1.5 pl-2"></th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {searchTerms.map((st) => {
+                      const alreadyNegative = (detail.negativeKeywords || []).some(
+                        (nk) => nk.text.toLowerCase() === st.term.toLowerCase()
+                      );
+                      return (
+                        <tr key={st.term} className="border-b border-gray-50">
+                          <td className="py-1.5 pr-2 text-gray-800">{st.term}</td>
+                          <td className="py-1.5 px-2 text-right text-gray-600">{st.impressions.toLocaleString()}</td>
+                          <td className="py-1.5 px-2 text-right text-gray-600">{st.clicks.toLocaleString()}</td>
+                          <td className="py-1.5 px-2 text-right text-gray-600">${(st.costMicros / 1_000_000).toFixed(2)}</td>
+                          <td className="py-1.5 px-2 text-right text-gray-600">{st.conversions}</td>
+                          {!campaign.closed && (
+                            <td className="py-1.5 pl-2 text-right">
+                              {alreadyNegative ? (
+                                <span className="text-gray-300">{t.termsAlreadyNeg || "excluded"}</span>
+                              ) : (
+                                <button
+                                  onClick={() => handleAddTermAsNegative(st.term)}
+                                  disabled={addingNegTerm === st.term}
+                                  className="px-2 py-0.5 border border-red-200 text-red-700 rounded hover:bg-red-50 disabled:opacity-50 cursor-pointer whitespace-nowrap"
+                                  title={t.termsAddNegTooltip || "Add as EXACT negative keyword"}
+                                >
+                                  {addingNegTerm === st.term ? "…" : `− ${t.termsAddNeg || "Negative"}`}
+                                </button>
+                              )}
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>

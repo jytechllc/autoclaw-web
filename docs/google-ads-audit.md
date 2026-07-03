@@ -650,3 +650,13 @@ The promised cheap follow-up to sitelinks — same asset → campaign_asset plum
 - Detail page: "📣 Callouts & Snippets" card — callout chips (emerald) + snippet rows (`Header: v1 · v2 · v3`), two add forms (textarea one-per-line for callouts; header select + values textarea for snippets), per-item remove.
 - `lib/google-ads.test.ts` — 11 new test cases. i18n: 10 keys × 4 locales.
 - With sitelinks + callouts + snippets shipped, the high-value half of "extensions" is done; call/price/promotion extensions deferred until user pull.
+
+### 2026-07-03 — search terms report + one-click negatives (this PR)
+
+Closes the loop between reporting and the negative-keyword feature: see what actually triggered your ads, exclude waste in one click.
+
+- `lib/google-ads.ts` — `fetchSearchTerms()` (last-30-days `search_term_view`, top 500 raw rows) + pure `aggregateSearchTermRows()` (case-insensitive term dedupe + metric summing, impressions-desc, limit — unit-tested since GAQL returns per-segment rows).
+- `app/api/google-ads/campaigns/[id]/search-terms/route.ts` — `GET`, read-only. Closed campaigns allowed (historical data stays useful); SEARCH channel only.
+- Detail page: "🔍 Search Terms" card — **load-on-demand** (button, not auto-fetch: `search_term_view` is one of the slower GAQL views and most visits don't need it). Table of term / impressions / clicks / cost / conversions with a per-row "− Negative" button that POSTs to the existing negative-keywords endpoint as EXACT match; rows already excluded show a gray "excluded" marker (matched against `detail.negativeKeywords`).
+- `lib/google-ads.test.ts` — 5 new test cases for the aggregator. i18n: 11 keys × 4 locales.
+- Nice follow-up someday: feed the top wasteful terms (high cost, zero conversions) into the AI recommendations prompt.
