@@ -751,3 +751,7 @@ Third extension type on the shared asset plumbing.
 - Detail page 📣 card: "+ Phone" button, call rows (📞 number + country badge) with remove, minimal country/phone form.
 - 4 new test cases. i18n: 4 keys × 4 locales.
 - Launch checklist addendum: verify the call asset appears in Google UI and the number passes Google's own verification (they call/verify some numbers — expect a pending state).
+
+### 2026-07-03 — A/B experiments design proposal (this PR)
+
+`docs/google-ads-experiments-design.md` — design-first for the last major Section 6 item, because experiments break two assumptions every previous feature relied on: mutations are synchronous (scheduleExperiment is an LRO), and every spending campaign lives in our `campaigns` table (Google creates the treatment campaign). The second is a **ledger-safety conflict**: untracked treatment spend = drift, the exact failure mode D-1 guarded against. Core design decision: treatment campaigns become first-class `campaigns` rows with a zero-sum reserve split from the base campaign, so hourly sync / auto-pause / reconcile all work unchanged (plus an arm-cascade on pause). 3-PR implementation plan; exp-1 explicitly gated on live-account access since LRO behavior can't be desk-checked.
