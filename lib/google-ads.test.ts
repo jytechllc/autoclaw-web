@@ -17,6 +17,7 @@ import {
   aggregateSearchTermRows,
   validateLocationModifiers,
   channelSupportsLocationModifiers,
+  normalizeAssetRows,
 } from "./google-ads";
 import { orderOrgsForCron } from "./google-ads-sync";
 import {
@@ -405,6 +406,51 @@ describe("channelSupportsAdSchedule", () => {
     expect(channelSupportsAdSchedule("PERFORMANCE_MAX")).toBe(false);
     expect(channelSupportsAdSchedule("DEMAND_GEN")).toBe(false);
     expect(channelSupportsAdSchedule("")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// normalizeAssetRows (asset library, read-only slice)
+// ---------------------------------------------------------------------------
+
+describe("normalizeAssetRows", () => {
+  const usage = new Map([["customers/1/assets/10", 3]]);
+
+  it("normalizes each asset type with the right label/detail", () => {
+    const rows = [
+      { asset: { resourceName: "customers/1/assets/10", id: "10", type: "SITELINK", sitelinkAsset: { linkText: "Pricing" }, finalUrls: ["https://a.com/p"] } },
+      { asset: { resourceName: "customers/1/assets/11", id: "11", type: "CALLOUT", calloutAsset: { calloutText: "Free shipping" } } },
+      { asset: { resourceName: "customers/1/assets/12", id: "12", type: "STRUCTURED_SNIPPET", structuredSnippetAsset: { header: "Brands", values: ["A", "B"] } } },
+      { asset: { resourceName: "customers/1/assets/13", id: "13", type: "IMAGE", imageAsset: { fullSize: { url: "https://img", widthPixels: 1200, heightPixels: 628 } } } },
+      { asset: { resourceName: "customers/1/assets/14", id: "14", type: "YOUTUBE_VIDEO", youtubeVideoAsset: { youtubeVideoId: "abc123", youtubeVideoTitle: "Demo" } } },
+    ];
+    const result = normalizeAssetRows(rows, usage);
+    expect(result).toHaveLength(5);
+    const byId = new Map(result.map((a) => [a.id, a]));
+    expect(byId.get("10")).toMatchObject({ label: "Pricing", detail: "https://a.com/p", campaignCount: 3 });
+    expect(byId.get("11")).toMatchObject({ label: "Free shipping", campaignCount: 0 });
+    expect(byId.get("12")).toMatchObject({ label: "Brands", detail: "A · B" });
+    expect(byId.get("13")).toMatchObject({ imageUrl: "https://img", detail: "1200×628" });
+    expect(byId.get("14")?.imageUrl).toContain("abc123");
+  });
+
+  it("sorts most-used first", () => {
+    const rows = [
+      { asset: { resourceName: "customers/1/assets/99", id: "99", type: "CALLOUT", calloutAsset: { calloutText: "Unused" } } },
+      { asset: { resourceName: "customers/1/assets/10", id: "10", type: "SITELINK", sitelinkAsset: { linkText: "Used" } } },
+    ];
+    const result = normalizeAssetRows(rows, usage);
+    expect(result[0].id).toBe("10");
+  });
+
+  it("skips rows without resourceName or any label", () => {
+    const result = normalizeAssetRows([
+      {},
+      { asset: {} },
+      { asset: { resourceName: "customers/1/assets/1", type: "CALLOUT", calloutAsset: {} } }, // falls back to "Callout"
+    ], new Map());
+    expect(result).toHaveLength(1);
+    expect(result[0].label).toBe("Callout");
   });
 });
 

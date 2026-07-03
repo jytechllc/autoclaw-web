@@ -718,3 +718,13 @@ Closes audit **D-10**: both Google Ads crons iterated orgs sequentially with no 
 - Both crons now stop starting new orgs after `maxDuration - 30s`, report `orgsSkipped` / `skippedOrgIds` / `elapsedMs` in the response, and `console.warn` on budget hit so it shows in function logs.
 - New pure `orderOrgsForCron(orgIds, seed)` in `lib/google-ads-sync.ts`: deterministic rotation of the processing order (sync seeds by hour, reconcile by day) so a skipped tail is a *different* tail next run — bounded starvation instead of permanent. 4 unit tests.
 - No behavior change while the org list fits in budget (it currently does — this is a scale guard, not a hotfix).
+
+### 2026-07-03 — asset library, read-only slice (this PR)
+
+First slice of the Section 6 "Asset library" gap — the read side. Assets already accumulate in the account (sitelinks/callouts/snippets detach without deleting, exactly for reuse); this page makes them visible.
+
+- `lib/google-ads.ts` — `fetchAccountAssets()` (GAQL over `asset` for IMAGE / SITELINK / CALLOUT / STRUCTURED_SNIPPET / YOUTUBE_VIDEO / TEXT, cap 500) + a `campaign_asset` pass for per-asset campaign usage counts. Pure `normalizeAssetRows()` maps each type to a display label/detail/thumbnail (YouTube ids → ytimg thumbnails) and sorts most-used first — unit-tested.
+- `GET /api/google-ads/assets` — read-only; open to viewers (no spend data), same trust boundary as diagnose.
+- `/dashboard/google-ads/assets` — new page (per D-3, monoliths don't grow): type filter chips with counts, thumbnail cards, per-asset "used in N campaigns". Entry link (🗂️) on the list-page header.
+- `lib/google-ads.test.ts` — 3 new test cases. i18n: 5 keys × 4 locales.
+- Slice 2 (write side — attach an existing asset to a campaign, delete unused assets) deferred; the API surface for attach already exists per-type via the extension endpoints.
