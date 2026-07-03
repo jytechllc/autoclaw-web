@@ -353,6 +353,19 @@ export interface CampaignDetail {
   structuredSnippets: Array<{ resourceName: string; header: string; values: string[] }>;
   /** Call extensions. resourceName = campaign_asset link. */
   callAssets: Array<{ resourceName: string; countryCode: string; phoneNumber: string }>;
+  /** Promotion extensions. resourceName = campaign_asset link. percentOff in whole percent (10 = 10%). */
+  promotions: Array<{
+    resourceName: string;
+    promotionTarget: string;
+    percentOff: number;
+    moneyAmountOff: number;
+    currencyCode: string;
+    promotionCode: string;
+    occasion: string;
+    redemptionStartDate: string;
+    redemptionEndDate: string;
+    finalUrl: string;
+  }>;
   ads: Array<{
     resourceName: string;
     status: string;
@@ -792,6 +805,48 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
     }))
     .filter((c) => c.phoneNumber && c.resourceName);
 
+  type PromotionRow = {
+    campaignAsset: { resourceName?: string };
+    asset?: {
+      finalUrls?: string[];
+      promotionAsset?: {
+        promotionTarget?: string;
+        percentOff?: string;
+        moneyAmountOff?: { currencyCode?: string; amountMicros?: string };
+        promotionCode?: string;
+        occasion?: string;
+        redemptionStartDate?: string;
+        redemptionEndDate?: string;
+      };
+    };
+  };
+  const promotionRows = await adsSearchStream(customerId, `
+    SELECT campaign_asset.resource_name, asset.final_urls,
+           asset.promotion_asset.promotion_target, asset.promotion_asset.percent_off,
+           asset.promotion_asset.money_amount_off.currency_code,
+           asset.promotion_asset.money_amount_off.amount_micros,
+           asset.promotion_asset.promotion_code, asset.promotion_asset.occasion,
+           asset.promotion_asset.redemption_start_date, asset.promotion_asset.redemption_end_date
+    FROM campaign_asset
+    WHERE campaign.id = ${numericCampaignId} AND campaign_asset.field_type = PROMOTION
+      AND campaign_asset.status != 'REMOVED'
+  `).catch(() => []) as PromotionRow[];
+  const promotions = promotionRows
+    .map((r) => ({
+      resourceName: r.campaignAsset.resourceName || "",
+      promotionTarget: r.asset?.promotionAsset?.promotionTarget || "",
+      // Google stores percent_off in micros: 1,000,000 = 100% → whole percent = /10,000.
+      percentOff: Number(r.asset?.promotionAsset?.percentOff || 0) / 10_000,
+      moneyAmountOff: Number(r.asset?.promotionAsset?.moneyAmountOff?.amountMicros || 0) / 1_000_000,
+      currencyCode: r.asset?.promotionAsset?.moneyAmountOff?.currencyCode || "",
+      promotionCode: r.asset?.promotionAsset?.promotionCode || "",
+      occasion: r.asset?.promotionAsset?.occasion || "",
+      redemptionStartDate: r.asset?.promotionAsset?.redemptionStartDate || "",
+      redemptionEndDate: r.asset?.promotionAsset?.redemptionEndDate || "",
+      finalUrl: r.asset?.finalUrls?.[0] || "",
+    }))
+    .filter((p) => p.promotionTarget && p.resourceName);
+
   // Ads — query fields for all common ad types (search / video / demand gen)
   type TextRow = { text: string };
   type AssetRef = { asset: string };
@@ -948,6 +1003,7 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
     callouts,
     structuredSnippets,
     callAssets,
+    promotions,
     ads,
   };
 }
@@ -2963,14 +3019,179 @@ export async function createCampaignCallAsset(
   return { created: 1 };
 }
 
-/** Detach a callout / structured-snippet / call asset from a campaign (asset kept for reuse). */
+// ---------------------------------------------------------------------------
+// Promotion extensions
+// ---------------------------------------------------------------------------
+
+/** Curated PromotionExtensionOccasion values (v20 enum subset — the common ones). */
+export const PROMOTION_OCCASIONS = [
+  "NONE",
+  "NEW_YEARS",
+  "CHINESE_NEW_YEAR",
+  "VALENTINES_DAY",
+  "EASTER",
+  "MOTHERS_DAY",
+  "FATHERS_DAY",
+  "BACK_TO_SCHOOL",
+  "HALLOWEEN",
+  "SINGLES_DAY",
+  "BLACK_FRIDAY",
+  "CYBER_MONDAY",
+  "CHRISTMAS",
+  "BOXING_DAY",
+  "SPRING_SALE",
+  "SUMMER_SALE",
+  "FALL_SALE",
+  "WINTER_SALE",
+  "END_OF_SEASON",
+] as const;
+export type PromotionOccasion = (typeof PROMOTION_OCCASIONS)[number];
+
+export interface PromotionInput {
+  /** The promoted item, e.g. "All running shoes". ≤20 chars (Google UI limit). */
+  promotionTarget: string;
+  /** Whole percent 1..100. Exactly one of percentOff / moneyAmountOff. */
+  percentOff?: number;
+  /** Money discount, in account currency units (e.g. 15 = $15 off). */
+  moneyAmountOff?: number;
+  /** ISO-4217 code for moneyAmountOff. Default USD. */
+  currencyCode?: string;
+  /** Optional promo code, ≤15 chars. Mutually exclusive with ordersOverAmount. */
+  promotionCode?: string;
+  /** Optional min order value ("on orders over $X"), account currency units. */
+  ordersOverAmount?: number;
+  /** BCP-47 language of the promotion text, e.g. "en", "zh". Default "en". */
+  languageCode?: string;
+  occasion?: string;
+  /** YYYY-MM-DD. Both or neither; end ≥ start. */
+  redemptionStartDate?: string;
+  redemptionEndDate?: string;
+  /** Landing page for the promotion. Required. */
+  finalUrl: string;
+}
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Pure validation for a promotion asset — unit-tested. */
+export function validatePromotionInput(input: PromotionInput): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  const target = (input.promotionTarget || "").trim();
+  if (!target) errors.push("promotionTarget is required.");
+  else if (target.length > 20) errors.push("promotionTarget must be ≤20 characters.");
+
+  const hasPercent = input.percentOff !== undefined && input.percentOff !== null;
+  const hasMoney = input.moneyAmountOff !== undefined && input.moneyAmountOff !== null;
+  if (hasPercent === hasMoney) {
+    errors.push("Exactly one of percentOff or moneyAmountOff is required.");
+  } else if (hasPercent) {
+    const pct = Number(input.percentOff);
+    if (!Number.isFinite(pct) || pct < 1 || pct > 100) errors.push("percentOff must be between 1 and 100.");
+  } else {
+    const amt = Number(input.moneyAmountOff);
+    if (!Number.isFinite(amt) || amt <= 0) errors.push("moneyAmountOff must be > 0.");
+    const cur = (input.currencyCode || "USD").trim().toUpperCase();
+    if (!/^[A-Z]{3}$/.test(cur)) errors.push("currencyCode must be a 3-letter ISO code.");
+  }
+
+  if (input.promotionCode && input.ordersOverAmount) {
+    errors.push("promotionCode and ordersOverAmount are mutually exclusive.");
+  }
+  if (input.promotionCode && input.promotionCode.trim().length > 15) {
+    errors.push("promotionCode must be ≤15 characters.");
+  }
+  if (input.ordersOverAmount !== undefined && input.ordersOverAmount !== null) {
+    const over = Number(input.ordersOverAmount);
+    if (!Number.isFinite(over) || over <= 0) errors.push("ordersOverAmount must be > 0.");
+  }
+
+  const lang = (input.languageCode || "en").trim();
+  if (!/^[a-z]{2,3}(-[A-Za-z]{2,4})?$/.test(lang)) {
+    errors.push('languageCode must be a BCP-47 code like "en" or "zh-CN".');
+  }
+  if (input.occasion && !(PROMOTION_OCCASIONS as readonly string[]).includes(input.occasion)) {
+    errors.push(`occasion must be one of: ${PROMOTION_OCCASIONS.join(", ")}`);
+  }
+
+  const start = (input.redemptionStartDate || "").trim();
+  const end = (input.redemptionEndDate || "").trim();
+  if (Boolean(start) !== Boolean(end)) {
+    errors.push("redemptionStartDate and redemptionEndDate must be provided together.");
+  } else if (start && end) {
+    if (!DATE_RE.test(start) || !DATE_RE.test(end)) errors.push("Redemption dates must be YYYY-MM-DD.");
+    else if (end < start) errors.push("redemptionEndDate must be on or after redemptionStartDate.");
+  }
+
+  if (!/^https?:\/\//i.test((input.finalUrl || "").trim())) {
+    errors.push("finalUrl must start with http:// or https://");
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+/** Create one promotion asset and attach it to a campaign (promotion extension). */
+export async function createCampaignPromotion(
+  campaignResourceName: string,
+  input: PromotionInput
+): Promise<{ created: number; error?: unknown }> {
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
+  if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
+
+  const validation = validatePromotionInput(input);
+  if (!validation.valid) return { created: 0, error: validation.errors.join(" ") };
+
+  const promotionAsset: Record<string, unknown> = {
+    promotionTarget: input.promotionTarget.trim(),
+    languageCode: (input.languageCode || "en").trim(),
+  };
+  if (input.percentOff !== undefined && input.percentOff !== null) {
+    // Google expects micros: 1,000,000 = 100% → whole percent × 10,000.
+    promotionAsset.percentOff = String(Math.round(Number(input.percentOff) * 10_000));
+  } else {
+    promotionAsset.moneyAmountOff = {
+      currencyCode: (input.currencyCode || "USD").trim().toUpperCase(),
+      amountMicros: String(Math.round(Number(input.moneyAmountOff) * 1_000_000)),
+    };
+  }
+  if (input.promotionCode?.trim()) promotionAsset.promotionCode = input.promotionCode.trim();
+  if (input.ordersOverAmount) {
+    promotionAsset.ordersOverAmount = {
+      currencyCode: (input.currencyCode || "USD").trim().toUpperCase(),
+      amountMicros: String(Math.round(Number(input.ordersOverAmount) * 1_000_000)),
+    };
+  }
+  if (input.occasion && input.occasion !== "NONE") promotionAsset.occasion = input.occasion;
+  if (input.redemptionStartDate?.trim()) {
+    promotionAsset.redemptionStartDate = input.redemptionStartDate.trim();
+    promotionAsset.redemptionEndDate = (input.redemptionEndDate || "").trim();
+  }
+
+  const assetRes = await adsMutate(customerId, "assets:mutate", {
+    operations: [{
+      create: {
+        finalUrls: [input.finalUrl.trim()],
+        promotionAsset,
+      },
+    }],
+  });
+  if (assetRes.status !== 200) return { created: 0, error: assetRes.data };
+  const assetName = (assetRes.data as { results?: Array<{ resourceName?: string }> })?.results?.[0]?.resourceName;
+  if (!assetName) return { created: 0, error: "Asset created but no resource name returned" };
+
+  const linkRes = await adsMutate(customerId, "campaignAssets:mutate", {
+    operations: [{ create: { campaign: campaignResourceName, asset: assetName, fieldType: "PROMOTION" } }],
+  });
+  if (linkRes.status !== 200) return { created: 0, error: linkRes.data };
+  return { created: 1 };
+}
+
+/** Detach a callout / structured-snippet / call / promotion asset from a campaign (asset kept for reuse). */
 export async function removeCampaignExtensionAsset(
   campaignAssetResourceName: string
 ): Promise<{ success: boolean; error?: unknown }> {
   const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
   if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
 
-  if (!/^customers\/\d+\/campaignAssets\/\d+~\d+~(CALLOUT|STRUCTURED_SNIPPET|CALL)$/.test(campaignAssetResourceName)) {
+  if (!/^customers\/\d+\/campaignAssets\/\d+~\d+~(CALLOUT|STRUCTURED_SNIPPET|CALL|PROMOTION)$/.test(campaignAssetResourceName)) {
     return { success: false, error: "Invalid campaign asset resource name" };
   }
 

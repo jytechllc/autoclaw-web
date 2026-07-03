@@ -766,7 +766,16 @@ Completes the bid-modifier trio (device ✅, location ✅, schedule ✅) — "+2
 - ⏰ card: interval chips now colored by adjustment (+green/−amber) with the % inline; new "% Adjust bids" mode listing intervals with one % input each.
 - 5 new test cases. i18n: 2 keys × 4 locales.
 
-### 2026-07-03 — nightly AI recommendation digests (this PR)
+### 2026-07-03 — promotion extensions (this PR)
+
+Completes the extensions family (sitelinks ✅, callouts ✅, snippets ✅, call ✅, **promotion ✅**) — "10% off All running shoes · SUMMER20 · until 12-31" now attachable under search ads.
+
+- `lib/google-ads.ts` — `createCampaignPromotion()` on the same assets:mutate → campaignAssets:mutate pipeline (fieldType PROMOTION); detach reuses `removeCampaignExtensionAsset` (regex extended). Pure `validatePromotionInput()`: target ≤20 chars, exactly one of percentOff (1..100, sent to Google as micros ×10,000 — 1,000,000 = 100%) / moneyAmountOff (micros ×1,000,000), promo code ≤15 chars XOR ordersOverAmount (API oneof), curated `PROMOTION_OCCASIONS` enum subset, BCP-47 languageCode, redemption dates both-or-neither with ordering. `fetchCampaignDetail()` now returns `promotions` (percent shown back in whole %).
+- `extensions` route gains `kind: "promotion"` — same auth/read-only/closed/channel gates, zero new write surface.
+- Detail page: 🏷️ orange chips in the extensions card (discount, item, code, occasion, dates) + a promotion form; languageCode auto-set from the UI locale.
+- 7 new test cases. i18n: 12 keys × 4 locales.
+
+### 2026-07-03 — nightly AI recommendation digests
 
 **Closes the loop on the product directive: AI keeps watching, the owner just approves.** Until now recommendations existed only if the owner thought to click "Generate". Now a daily cron analyzes the highest-spend ENABLED campaigns and stores the digest — the owner opens the campaign page and the analysis (with one-click apply buttons) is already waiting.
 

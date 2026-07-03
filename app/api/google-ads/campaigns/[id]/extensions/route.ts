@@ -7,10 +7,12 @@ import {
   createCampaignCallouts,
   createCampaignStructuredSnippet,
   createCampaignCallAsset,
+  createCampaignPromotion,
   removeCampaignExtensionAsset,
   channelSupportsTextExtensions,
   STRUCTURED_SNIPPET_HEADERS,
   type StructuredSnippetHeader,
+  type PromotionInput,
 } from "@/lib/google-ads";
 import { resolveOrgId } from "@/lib/credits";
 import { isReadOnlyUserId } from "@/lib/roles-server";
@@ -63,10 +65,13 @@ async function loadCampaign(
   return { campaign: rows[0] as unknown as CampaignRow, campaignId, userId, userEmail };
 }
 
-/** POST — add callouts, a structured snippet, or a call extension.
- *  Body (callouts): { kind: "callout", texts: string[], orgId? }
- *  Body (snippet):  { kind: "snippet", header, values: string[], orgId? }
- *  Body (call):     { kind: "call", countryCode, phoneNumber, orgId? } */
+/** POST — add callouts, a structured snippet, a call, or a promotion extension.
+ *  Body (callouts):  { kind: "callout", texts: string[], orgId? }
+ *  Body (snippet):   { kind: "snippet", header, values: string[], orgId? }
+ *  Body (call):      { kind: "call", countryCode, phoneNumber, orgId? }
+ *  Body (promotion): { kind: "promotion", promotionTarget, percentOff | moneyAmountOff,
+ *                      currencyCode?, promotionCode?, ordersOverAmount?, occasion?,
+ *                      redemptionStartDate?, redemptionEndDate?, languageCode?, finalUrl, orgId? } */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const ip = getIp(req);
   if (!checkRateLimit(ip, { limit: 30, windowMs: 60_000 })) {
@@ -75,8 +80,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const body = await req.json().catch(() => ({}));
   const kind = String(body.kind || "");
-  if (kind !== "callout" && kind !== "snippet" && kind !== "call") {
-    return NextResponse.json({ error: 'kind must be "callout", "snippet", or "call"' }, { status: 400 });
+  if (kind !== "callout" && kind !== "snippet" && kind !== "call" && kind !== "promotion") {
+    return NextResponse.json({ error: 'kind must be "callout", "snippet", "call", or "promotion"' }, { status: 400 });
   }
 
   const loaded = await loadCampaign(params, body);
@@ -96,6 +101,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       countryCode: String(body.countryCode || ""),
       phoneNumber: String(body.phoneNumber || ""),
     });
+    created = result.created;
+    details = result.error;
+  } else if (kind === "promotion") {
+    const input: PromotionInput = {
+      promotionTarget: String(body.promotionTarget || ""),
+      percentOff: body.percentOff !== undefined && body.percentOff !== null && body.percentOff !== "" ? Number(body.percentOff) : undefined,
+      moneyAmountOff: body.moneyAmountOff !== undefined && body.moneyAmountOff !== null && body.moneyAmountOff !== "" ? Number(body.moneyAmountOff) : undefined,
+      currencyCode: body.currencyCode ? String(body.currencyCode) : undefined,
+      promotionCode: body.promotionCode ? String(body.promotionCode) : undefined,
+      ordersOverAmount: body.ordersOverAmount ? Number(body.ordersOverAmount) : undefined,
+      languageCode: body.languageCode ? String(body.languageCode) : undefined,
+      occasion: body.occasion ? String(body.occasion) : undefined,
+      redemptionStartDate: body.redemptionStartDate ? String(body.redemptionStartDate) : undefined,
+      redemptionEndDate: body.redemptionEndDate ? String(body.redemptionEndDate) : undefined,
+      finalUrl: String(body.finalUrl || ""),
+    };
+    const result = await createCampaignPromotion(campaign.platform_campaign_id, input);
     created = result.created;
     details = result.error;
   } else {
