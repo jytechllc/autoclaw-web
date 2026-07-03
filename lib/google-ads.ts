@@ -1299,19 +1299,22 @@ export async function listAllCampaigns(): Promise<GoogleAdsCampaignSummary[]> {
   return [...map.values()];
 }
 
-/** Fetch lifetime spend for all (or specific) campaigns. costMicros is the total cost since the campaign was created. */
-export async function fetchCampaignSpend(resourceNames?: string[]): Promise<CampaignSpend[]> {
+/** Fetch spend for all (or specific) campaigns over a Google Ads date-range keyword.
+ *  Defaults to LAST_30_DAYS (the historical behavior of fetchCampaignSpend). */
+export async function fetchCampaignSpend(
+  resourceNames?: string[],
+  dateRange: "LAST_7_DAYS" | "LAST_30_DAYS" = "LAST_30_DAYS",
+): Promise<CampaignSpend[]> {
   const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
   if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
 
-  // Use lifetime metrics by aggregating over a wide date range
   const filter = resourceNames && resourceNames.length > 0
     ? `AND campaign.resource_name IN (${resourceNames.map((r) => `'${r.replace(/'/g, "''")}'`).join(",")})`
     : "";
   const query = `
     SELECT campaign.resource_name, metrics.cost_micros, metrics.impressions, metrics.clicks, metrics.conversions
     FROM campaign
-    WHERE segments.date DURING LAST_30_DAYS ${filter}
+    WHERE segments.date DURING ${dateRange} ${filter}
   `.trim();
 
   type Row = { campaign: { resourceName: string }; metrics: { costMicros?: string; impressions?: string; clicks?: string; conversions?: number } };
