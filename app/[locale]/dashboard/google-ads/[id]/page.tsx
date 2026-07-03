@@ -1111,6 +1111,51 @@ export default function CampaignDetailPage() {
     setSavingLocMods(false);
   }
 
+  // AI generation for sitelinks + callouts (uses the owner project's website)
+  const [genExtLoading, setGenExtLoading] = useState<"sitelinks" | "callouts" | null>(null);
+
+  async function handleGenerateExtensions(target: "sitelinks" | "callouts") {
+    const site = campaign?.project_website || "";
+    if (!/^https?:\/\//i.test(site)) {
+      setToast(t.extGenNoSite || "Assign an owner project with a website first");
+      setTimeout(() => setToast(""), 4000);
+      return;
+    }
+    setGenExtLoading(target);
+    try {
+      const res = await fetch("/api/google-ads/ad-copy/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: site, mode: "extensions", locale }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        if (target === "sitelinks" && Array.isArray(data.sitelinks) && data.sitelinks.length > 0) {
+          setSitelinkRows(data.sitelinks.map((s: { linkText: string; finalUrl: string; description1?: string; description2?: string }) => ({
+            linkText: s.linkText || "",
+            finalUrl: s.finalUrl || "",
+            description1: s.description1 || "",
+            description2: s.description2 || "",
+          })));
+          setToast(`${data.sitelinks.length} ${t.extGenFilled || "suggestions filled in — review before adding"}`);
+        } else if (target === "callouts" && Array.isArray(data.callouts) && data.callouts.length > 0) {
+          setCalloutText(data.callouts.join("\n"));
+          setToast(`${data.callouts.length} ${t.extGenFilled || "suggestions filled in — review before adding"}`);
+        } else {
+          setToast(t.extGenEmpty || "AI found nothing usable for this target");
+        }
+        setTimeout(() => setToast(""), 4000);
+      } else {
+        setToast(data.error || "Generation failed");
+        setTimeout(() => setToast(""), 4000);
+      }
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Generation failed");
+      setTimeout(() => setToast(""), 3000);
+    }
+    setGenExtLoading(null);
+  }
+
   // Callouts + structured snippets
   const SNIPPET_HEADERS = ["Amenities", "Brands", "Courses", "Degree programs", "Destinations", "Featured hotels", "Insurance coverage", "Models", "Neighborhoods", "Service catalog", "Shows", "Styles", "Types"];
   const [extFormOpen, setExtFormOpen] = useState<"callout" | "snippet" | null>(null);
@@ -2854,12 +2899,21 @@ export default function CampaignDetailPage() {
                     )}
                   </div>
                 ))}
-                <button
-                  onClick={() => setSitelinkRows([...sitelinkRows, { linkText: "", finalUrl: "", description1: "", description2: "" }])}
-                  className="text-xs px-2 py-1 border border-dashed border-gray-300 rounded hover:bg-gray-50 cursor-pointer text-gray-500"
-                >
-                  + {t.slAddRow || "Add another"}
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setSitelinkRows([...sitelinkRows, { linkText: "", finalUrl: "", description1: "", description2: "" }])}
+                    className="text-xs px-2 py-1 border border-dashed border-gray-300 rounded hover:bg-gray-50 cursor-pointer text-gray-500"
+                  >
+                    + {t.slAddRow || "Add another"}
+                  </button>
+                  <button
+                    onClick={() => handleGenerateExtensions("sitelinks")}
+                    disabled={genExtLoading !== null}
+                    className="text-xs px-2 py-1 border border-purple-200 text-purple-700 rounded hover:bg-purple-50 disabled:opacity-50 cursor-pointer"
+                  >
+                    {genExtLoading === "sitelinks" ? (t.adCopyGenerating || "Generating…") : `✨ ${t.extGenerate || "Generate from site"}`}
+                  </button>
+                </div>
                 {sitelinkError && <pre className="text-xs text-red-600 bg-red-50 p-2 rounded whitespace-pre-wrap break-all">{sitelinkError}</pre>}
                 <div className="flex gap-2">
                   <button
@@ -3021,7 +3075,16 @@ export default function CampaignDetailPage() {
 
             {extFormOpen === "callout" && (
               <div className="mt-4 border-t border-gray-100 pt-4 space-y-3">
-                <label className="block text-xs text-gray-500">{t.extCalloutLabel || "Callouts (one per line, ≤25 chars each)"}</label>
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs text-gray-500">{t.extCalloutLabel || "Callouts (one per line, ≤25 chars each)"}</label>
+                  <button
+                    onClick={() => handleGenerateExtensions("callouts")}
+                    disabled={genExtLoading !== null}
+                    className="text-xs px-2 py-1 border border-purple-200 text-purple-700 rounded hover:bg-purple-50 disabled:opacity-50 cursor-pointer"
+                  >
+                    {genExtLoading === "callouts" ? (t.adCopyGenerating || "Generating…") : `✨ ${t.extGenerate || "Generate from site"}`}
+                  </button>
+                </div>
                 <textarea
                   value={calloutText}
                   onChange={(e) => setCalloutText(e.target.value)}

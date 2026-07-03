@@ -4,6 +4,7 @@ import { getDb } from "@/lib/db";
 import { isReadOnlyUserId } from "@/lib/roles-server";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { chatWithAI } from "@/lib/ai";
+import { extractInternalLinks, sanitizeGeneratedExtensions } from "../extensions";
 
 export const dynamic = "force-dynamic";
 
@@ -75,11 +76,16 @@ export async function POST(req: NextRequest) {
   const url = String(body.url || "").trim();
   const channel = String(body.channel || "DISPLAY").toUpperCase();
   const locale = String(body.locale || "en").trim();
+  // mode "extensions": generate sitelinks + callouts instead of ad copy.
+  const mode = String(body.mode || "copy");
 
   if (!/^https?:\/\//i.test(url)) {
     return NextResponse.json({ error: "url must start with http:// or https://" }, { status: 400 });
   }
-  if (!["SEARCH", "DISPLAY", "VIDEO"].includes(channel)) {
+  if (mode !== "copy" && mode !== "extensions") {
+    return NextResponse.json({ error: 'mode must be "copy" or "extensions"' }, { status: 400 });
+  }
+  if (mode === "copy" && !["SEARCH", "DISPLAY", "VIDEO"].includes(channel)) {
     return NextResponse.json({ error: "channel must be SEARCH, DISPLAY, or VIDEO" }, { status: 400 });
   }
 
@@ -112,6 +118,62 @@ export async function POST(req: NextRequest) {
 
   if (pageText.length < 30) {
     return NextResponse.json({ error: "Landing page has too little text content to generate copy" }, { status: 422 });
+  }
+
+  // --- mode "extensions": sitelinks + callouts from real internal links ---
+  if (mode === "extensions") {
+    const links = extractInternalLinks(html, url, 30);
+    if (links.length === 0) {
+      return NextResponse.json({ error: "No internal links found on the page — sitelinks need real destination pages" }, { status: 422 });
+    }
+    const extTargetLanguage = locale.startsWith("zh") ? "Chinese" : locale.startsWith("ko") ? "Korean" : "English";
+    const extSystem = `You write Google Ads assets. Output ONLY a single valid JSON object — no commentary, no code fences. Use the language of the landing page primarily; if unclear, use ${extTargetLanguage}.
+
+Shape: { "callouts": ["..."], "sitelinks": [{ "linkText": "...", "finalUrl": "...", "description1": "...", "description2": "..." }] }
+
+Hard constraints:
+- callouts: 4-8 short selling points, each ≤25 chars, no punctuation-heavy text. Grounded in the page (shipping, support, guarantees, pricing) — never invent claims.
+- sitelinks: 2-6 items. finalUrl MUST be copied EXACTLY from the "Available internal links" list — do not modify or invent URLs. linkText ≤25 chars describes the destination. description1/description2 optional but must come together, each ≤35 chars.
+- Skip links that are login/legal/privacy pages.`;
+    const extUser = `Landing page URL: ${url}
+Page title: ${pageTitle || "(none)"}
+
+Available internal links (pick sitelink finalUrl values ONLY from these):
+${links.join("\n")}
+
+Page content (text excerpt):
+${pageText}
+
+Generate the JSON now.`;
+
+    let extResponse;
+    try {
+      extResponse = await chatWithAI(
+        [
+          { role: "system", content: extSystem },
+          { role: "user", content: extUser },
+        ],
+        1000,
+      );
+    } catch (e) {
+      return NextResponse.json({ error: `AI call failed: ${e instanceof Error ? e.message : String(e)}` }, { status: 502 });
+    }
+    const extRaw = (extResponse?.content || "").trim();
+    const extMatch = extRaw.match(/\{[\s\S]*\}/);
+    if (!extMatch) {
+      return NextResponse.json({ error: "AI did not return valid JSON", raw: extRaw }, { status: 502 });
+    }
+    let extParsed: unknown;
+    try {
+      extParsed = JSON.parse(extMatch[0]);
+    } catch {
+      return NextResponse.json({ error: "Failed to parse AI JSON", raw: extRaw }, { status: 502 });
+    }
+    const sanitized = sanitizeGeneratedExtensions(extParsed, links);
+    if (sanitized.callouts.length === 0 && sanitized.sitelinks.length === 0) {
+      return NextResponse.json({ error: "AI returned no usable extensions", raw: extRaw }, { status: 502 });
+    }
+    return NextResponse.json({ success: true, ...sanitized, pageTitle });
   }
 
   // Channel-specific guidance for the model. We always ask it to return the union of fields;
