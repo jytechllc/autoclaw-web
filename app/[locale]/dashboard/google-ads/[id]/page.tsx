@@ -864,6 +864,35 @@ export default function CampaignDetailPage() {
     setRemovingNegKw(null);
   }
 
+  // AI optimization recommendations (PR #2 follow-up)
+  type Rec = { category: string; priority: string; title: string; rationale: string; action: string; metric?: string };
+  const [recs, setRecs] = useState<Rec[] | null>(null);
+  const [recsLoading, setRecsLoading] = useState(false);
+  const [recsError, setRecsError] = useState("");
+  const [recsGeneratedAt, setRecsGeneratedAt] = useState<string | null>(null);
+
+  async function handleGenerateRecommendations() {
+    setRecsLoading(true);
+    setRecsError("");
+    try {
+      const res = await fetch(`/api/google-ads/campaigns/${campaignId}/recommendations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orgId: activeOrg?.id, locale }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setRecs(data.recommendations || []);
+        setRecsGeneratedAt(data.generatedAt || null);
+      } else {
+        setRecsError(data.error || "Failed to generate recommendations");
+      }
+    } catch (e) {
+      setRecsError(e instanceof Error ? e.message : "Failed to generate recommendations");
+    }
+    setRecsLoading(false);
+  }
+
   async function handleGenerateCopy(channel: "DISPLAY" | "SEARCH" | "VIDEO", url: string) {
     if (!/^https?:\/\//i.test(url.trim())) {
       setAdError(t.adCopyNeedsUrl || "Enter a valid http(s) Final URL first");
@@ -1349,6 +1378,51 @@ export default function CampaignDetailPage() {
               </div>
             );
           })()}
+        </div>
+
+        {/* AI optimization recommendations */}
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-gray-700">✨ {t.recsSection || "AI Optimization Recommendations"}</h2>
+            <button
+              onClick={handleGenerateRecommendations}
+              disabled={recsLoading}
+              className="text-xs px-3 py-1.5 border border-purple-200 text-purple-700 rounded-lg hover:bg-purple-50 disabled:opacity-50 cursor-pointer"
+            >
+              {recsLoading
+                ? (t.recsGenerating || "Analyzing…")
+                : recs
+                  ? (t.recsRegenerate || "Regenerate")
+                  : (t.recsGenerate || "Generate")}
+            </button>
+          </div>
+          {!recs && !recsLoading && !recsError && (
+            <p className="text-xs text-gray-400">{t.recsEmptyHint || "Analyzes this campaign's 30-day performance and suggests ranked, concrete optimizations."}</p>
+          )}
+          {recsError && <pre className="text-xs text-red-600 bg-red-50 p-2 rounded whitespace-pre-wrap break-all">{recsError}</pre>}
+          {recs && recs.length > 0 && (
+            <div className="space-y-3">
+              {recs.map((r, i) => (
+                <div key={i} className="border border-gray-100 rounded-lg p-3">
+                  <div className="flex flex-wrap items-center gap-2 mb-1">
+                    <span className={`px-1.5 py-0.5 text-xs rounded-full font-medium ${
+                      r.priority === "HIGH" ? "bg-red-50 text-red-700" :
+                      r.priority === "MEDIUM" ? "bg-amber-50 text-amber-700" :
+                      "bg-gray-100 text-gray-600"
+                    }`}>{r.priority}</span>
+                    <span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 text-xs rounded-full">{r.category}</span>
+                    {r.metric && <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 text-xs rounded-full">→ {r.metric}</span>}
+                    <span className="font-medium text-gray-800 text-sm">{r.title}</span>
+                  </div>
+                  <p className="text-xs text-gray-600 mb-1">{r.rationale}</p>
+                  <p className="text-xs text-gray-800">▸ <span className="font-medium">{t.recsAction || "Action"}:</span> {r.action}</p>
+                </div>
+              ))}
+              {recsGeneratedAt && (
+                <p className="text-[11px] text-gray-400">{t.recsGeneratedAt || "Generated"}: {new Date(recsGeneratedAt).toLocaleString()}</p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Targeting */}

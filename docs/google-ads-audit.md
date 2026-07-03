@@ -571,3 +571,11 @@ Implements Section 7 PR #3 — the two highest-impact competitor-parity gaps aft
 - `lib/google-ads.test.ts` — 19 new assertions covering bid-strategy validation, channel rules, and negative-keyword channel gating.
 - i18n: 10 new `googleAdsPage` keys × 4 locales (en / zh / zh-TW / ko).
 - Section 6's "Bid strategy management" and "Negative keywords" gaps are now closed; remaining from that table: conversion tracking (PR #4), asset library, day parting, experiments, MCC, report exports.
+
+### 2026-07-03 — PR #2 follow-up: recommendations UI (this PR)
+
+Closes the follow-up noted in the PR #2 changelog entry: the recommendations endpoint is now surfaced in the campaign detail page.
+
+- New "✨ AI Optimization Recommendations" card between Budget and Targeting on `app/[locale]/dashboard/google-ads/[id]/page.tsx`. On-demand (button-triggered POST — no auto-fire on page load, respecting the endpoint's 10/min rate limit and LLM cost), renders ranked cards with priority badge (HIGH red / MEDIUM amber / LOW gray), category + target-metric chips, rationale, and a concrete action line; footer shows generation timestamp. Regenerate supported.
+- Locale passed through so recommendations come back in the user's language (zh / ko / en per the prompt design).
+- i18n: 7 new `googleAdsPage` keys × 4 locales. No API changes, no DB changes.
