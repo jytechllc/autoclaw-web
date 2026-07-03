@@ -630,3 +630,13 @@ Delivers the device half of the bid-modifier pass promised in the day-parting ch
 - Detail page: "📱 Device Bid Adjustments" card — chips (green boost / amber reduction / red strikethrough exclusion / gray default), editor with per-device mode select (default / adjust ± % / exclude).
 - `lib/google-ads.test.ts` — 9 new test cases. i18n: 4 keys × 4 locales.
 - Remaining bid-modifier surface (location, ad-schedule interval, demographics) deferred until there's user pull.
+
+### 2026-07-03 — sitelink extensions (this PR)
+
+First slice of the Section 6 "asset library / extensions" gap: sitelinks, the highest-CTR-impact extension type.
+
+- `lib/google-ads.ts` — `createCampaignSitelinks()` (two-step: `assets:mutate` creates sitelink assets → `campaignAssets:mutate` links them with `fieldType: SITELINK`), `removeCampaignSitelink()` (detaches the campaign_asset link only — the asset stays in the account for future reuse, which is the seed of a proper asset library), `channelSupportsSitelinks()` (SEARCH only; PMax consumes sitelinks via asset groups — deferred), pure `validateSitelinkInput()` (linkText ≤25 + case-insensitive dedupe, http(s) URL, descriptions both-or-neither ≤35, ≤20 per batch). `fetchCampaignDetail()` returns `sitelinks` (from `campaign_asset` joined to `asset`, non-removed only).
+- `app/api/google-ads/campaigns/[id]/sitelinks/route.ts` — `POST { sitelinks[] }` / `DELETE { resourceName }` with the same double ownership check as negative keywords (`customers/{cid}/campaignAssets/{campaignId}~{assetId}~SITELINK`).
+- Detail page: "🔗 Sitelinks" card (SEARCH campaigns) — list with link text / URL / descriptions and per-row remove, add form seeded with 2 rows (Google needs ≥2 to serve, hint shown when empty).
+- `lib/google-ads.test.ts` — 10 new test cases. i18n: 12 keys × 4 locales.
+- Other extension types (callouts, structured snippets, calls) follow the same asset + campaign_asset pattern — cheap follow-ups now that the plumbing exists.

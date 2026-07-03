@@ -84,6 +84,7 @@ interface Detail {
   negativeKeywords?: Array<{ resourceName: string; text: string; matchType: string }>;
   adSchedules?: Array<{ resourceName: string; dayOfWeek: string; startHour: number; endHour: number }>;
   deviceModifiers?: Array<{ resourceName: string; device: string; bidModifier: number }>;
+  sitelinks?: Array<{ resourceName: string; linkText: string; finalUrl: string; description1: string; description2: string }>;
   ads: Array<{
     resourceName: string;
     status: string;
@@ -942,6 +943,77 @@ export default function CampaignDetailPage() {
       setScheduleError(e instanceof Error ? e.message : "Update failed");
     }
     setSavingSchedule(false);
+  }
+
+  // Sitelinks
+  type SitelinkRow = { linkText: string; finalUrl: string; description1: string; description2: string };
+  const emptySitelinkRow: SitelinkRow = { linkText: "", finalUrl: "", description1: "", description2: "" };
+  const [sitelinkFormOpen, setSitelinkFormOpen] = useState(false);
+  const [sitelinkRows, setSitelinkRows] = useState<SitelinkRow[]>([emptySitelinkRow, emptySitelinkRow]);
+  const [sitelinkSubmitting, setSitelinkSubmitting] = useState(false);
+  const [sitelinkError, setSitelinkError] = useState("");
+  const [removingSitelink, setRemovingSitelink] = useState<string | null>(null);
+
+  async function handleAddSitelinks() {
+    const filled = sitelinkRows.filter((r) => r.linkText.trim() || r.finalUrl.trim());
+    if (filled.length === 0) {
+      setSitelinkError(t.slValidation || "Fill in at least one sitelink (text + URL)");
+      return;
+    }
+    setSitelinkSubmitting(true);
+    setSitelinkError("");
+    try {
+      const res = await fetch(`/api/google-ads/campaigns/${campaignId}/sitelinks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sitelinks: filled.map((r) => ({
+            linkText: r.linkText.trim(),
+            finalUrl: r.finalUrl.trim(),
+            description1: r.description1.trim() || undefined,
+            description2: r.description2.trim() || undefined,
+          })),
+          orgId: activeOrg?.id,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setToast(`${data.created} ${t.slCreated || "sitelinks added"}`);
+        setSitelinkFormOpen(false);
+        setSitelinkRows([emptySitelinkRow, emptySitelinkRow]);
+        fetchData();
+        setTimeout(() => setToast(""), 4000);
+      } else {
+        setSitelinkError(typeof data.details === "object" ? JSON.stringify(data.details, null, 2) : (data.details || data.error || "Failed"));
+      }
+    } catch (e) {
+      setSitelinkError(e instanceof Error ? e.message : "Failed");
+    }
+    setSitelinkSubmitting(false);
+  }
+
+  async function handleRemoveSitelink(resourceName: string) {
+    setRemovingSitelink(resourceName);
+    try {
+      const res = await fetch(`/api/google-ads/campaigns/${campaignId}/sitelinks`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resourceName, orgId: activeOrg?.id }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setToast(t.slRemoved || "Sitelink removed");
+        fetchData();
+        setTimeout(() => setToast(""), 3000);
+      } else {
+        setToast(data.error || "Remove failed");
+        setTimeout(() => setToast(""), 4000);
+      }
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Remove failed");
+      setTimeout(() => setToast(""), 3000);
+    }
+    setRemovingSitelink(null);
   }
 
   // Device bid adjustments
@@ -2517,6 +2589,115 @@ export default function CampaignDetailPage() {
                     {savingSchedule ? (t.creating || "Saving...") : (t.save || "Save")}
                   </button>
                   <button onClick={() => setEditingSchedule(false)} className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 cursor-pointer">
+                    {t.cancel || "Cancel"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Sitelinks — SEARCH only */}
+        {detail && detail.channelType === "SEARCH" && (
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-gray-700">
+                🔗 {t.slSection || "Sitelinks"} ({detail.sitelinks?.length || 0})
+              </h2>
+              {!campaign.closed && (
+                <button
+                  onClick={() => { setSitelinkFormOpen(!sitelinkFormOpen); setSitelinkError(""); }}
+                  className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer"
+                >
+                  {sitelinkFormOpen ? (t.cancel || "Cancel") : `+ ${t.slAdd || "Add Sitelinks"}`}
+                </button>
+              )}
+            </div>
+            {(detail.sitelinks?.length || 0) === 0 && !sitelinkFormOpen && (
+              <p className="text-xs text-gray-400">{t.slEmpty || "No sitelinks yet. Google shows them under your ad and needs at least 2 to serve — they typically lift CTR."}</p>
+            )}
+            {(detail.sitelinks?.length || 0) > 0 && (
+              <div className="space-y-2">
+                {(detail.sitelinks || []).map((s) => (
+                  <div key={s.resourceName} className="flex items-start gap-2 border border-gray-100 rounded-lg p-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-blue-700 truncate">{s.linkText}</span>
+                        <a href={s.finalUrl} target="_blank" rel="noreferrer" className="text-xs text-gray-400 hover:text-gray-700 truncate">{s.finalUrl}</a>
+                      </div>
+                      {(s.description1 || s.description2) && (
+                        <p className="text-xs text-gray-500 truncate">{[s.description1, s.description2].filter(Boolean).join(" · ")}</p>
+                      )}
+                    </div>
+                    {!campaign.closed && (
+                      <button
+                        onClick={() => handleRemoveSitelink(s.resourceName)}
+                        disabled={removingSitelink === s.resourceName}
+                        className="text-gray-300 hover:text-red-600 cursor-pointer disabled:opacity-50 shrink-0"
+                        title={t.negKwRemove || "Remove"}
+                      >
+                        {removingSitelink === s.resourceName ? "…" : "×"}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {sitelinkFormOpen && (
+              <div className="mt-4 border-t border-gray-100 pt-4 space-y-3">
+                {sitelinkRows.map((row, i) => (
+                  <div key={i} className="grid grid-cols-1 sm:grid-cols-2 gap-2 border border-gray-100 rounded-lg p-3 relative">
+                    <input
+                      value={row.linkText}
+                      onChange={(e) => setSitelinkRows(sitelinkRows.map((r, j) => j === i ? { ...r, linkText: e.target.value } : r))}
+                      maxLength={25}
+                      placeholder={`${t.slLinkText || "Link text"} (≤25)`}
+                      className="px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-red-500"
+                    />
+                    <input
+                      value={row.finalUrl}
+                      onChange={(e) => setSitelinkRows(sitelinkRows.map((r, j) => j === i ? { ...r, finalUrl: e.target.value } : r))}
+                      placeholder="https://…"
+                      className="px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-red-500"
+                    />
+                    <input
+                      value={row.description1}
+                      onChange={(e) => setSitelinkRows(sitelinkRows.map((r, j) => j === i ? { ...r, description1: e.target.value } : r))}
+                      maxLength={35}
+                      placeholder={`${t.slDesc1 || "Description 1"} (≤35, ${t.slOptional || "optional"})`}
+                      className="px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-red-500"
+                    />
+                    <input
+                      value={row.description2}
+                      onChange={(e) => setSitelinkRows(sitelinkRows.map((r, j) => j === i ? { ...r, description2: e.target.value } : r))}
+                      maxLength={35}
+                      placeholder={`${t.slDesc2 || "Description 2"} (≤35, ${t.slOptional || "optional"})`}
+                      className="px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-red-500"
+                    />
+                    {sitelinkRows.length > 1 && (
+                      <button
+                        onClick={() => setSitelinkRows(sitelinkRows.filter((_, j) => j !== i))}
+                        className="absolute top-1 right-2 text-gray-300 hover:text-red-600 cursor-pointer"
+                      >×</button>
+                    )}
+                  </div>
+                ))}
+                <button
+                  onClick={() => setSitelinkRows([...sitelinkRows, { linkText: "", finalUrl: "", description1: "", description2: "" }])}
+                  className="text-xs px-2 py-1 border border-dashed border-gray-300 rounded hover:bg-gray-50 cursor-pointer text-gray-500"
+                >
+                  + {t.slAddRow || "Add another"}
+                </button>
+                {sitelinkError && <pre className="text-xs text-red-600 bg-red-50 p-2 rounded whitespace-pre-wrap break-all">{sitelinkError}</pre>}
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleAddSitelinks}
+                    disabled={sitelinkSubmitting}
+                    className="bg-red-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-900 disabled:opacity-50 cursor-pointer"
+                  >
+                    {sitelinkSubmitting ? (t.creating || "Adding...") : (t.slAdd || "Add Sitelinks")}
+                  </button>
+                  <button onClick={() => { setSitelinkFormOpen(false); setSitelinkError(""); }} className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 cursor-pointer">
                     {t.cancel || "Cancel"}
                   </button>
                 </div>
