@@ -21,6 +21,7 @@ import {
   assetTypeToFieldType,
   validateCallAssetInput,
   validatePromotionInput,
+  validatePriceAssetInput,
   validateScheduleModifiers,
 } from "./google-ads";
 import { orderOrgsForCron } from "./google-ads-sync";
@@ -964,5 +965,57 @@ describe("validatePromotionInput", () => {
     expect(validatePromotionInput({ ...base, languageCode: "english" }).valid).toBe(false);
     expect(validatePromotionInput({ ...base, finalUrl: "ftp://x" }).valid).toBe(false);
     expect(validatePromotionInput({ ...base, finalUrl: "" }).valid).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validatePriceAssetInput (price extensions)
+// ---------------------------------------------------------------------------
+
+describe("validatePriceAssetInput", () => {
+  const offering = (i: number) => ({
+    header: `Plan ${i}`,
+    description: `Tier ${i} details`,
+    price: 10 * (i + 1),
+    unit: "PER_MONTH",
+    finalUrl: `https://shop.example.com/plan-${i}`,
+  });
+  const base = { type: "SERVICES", offerings: [offering(0), offering(1), offering(2)] };
+
+  it("accepts a minimal valid price asset", () => {
+    expect(validatePriceAssetInput(base)).toEqual({ valid: true, errors: [] });
+  });
+
+  it("accepts qualifier, currency, language and 8 offerings", () => {
+    const r = validatePriceAssetInput({
+      type: "PRODUCT_TIERS",
+      priceQualifier: "FROM",
+      currencyCode: "usd",
+      languageCode: "zh-CN",
+      offerings: Array.from({ length: 8 }, (_, i) => offering(i)),
+    });
+    expect(r).toEqual({ valid: true, errors: [] });
+  });
+
+  it("enforces 3-8 offerings", () => {
+    expect(validatePriceAssetInput({ ...base, offerings: [offering(0), offering(1)] }).valid).toBe(false);
+    expect(validatePriceAssetInput({ ...base, offerings: Array.from({ length: 9 }, (_, i) => offering(i)) }).valid).toBe(false);
+  });
+
+  it("rejects bad type / qualifier / unit enums", () => {
+    expect(validatePriceAssetInput({ ...base, type: "MENU" }).valid).toBe(false);
+    expect(validatePriceAssetInput({ ...base, priceQualifier: "ABOUT" }).valid).toBe(false);
+    expect(validatePriceAssetInput({ ...base, offerings: [{ ...offering(0), unit: "PER_MINUTE" }, offering(1), offering(2)] }).valid).toBe(false);
+  });
+
+  it("validates offering texts: required, ≤25 chars, unique headers", () => {
+    expect(validatePriceAssetInput({ ...base, offerings: [{ ...offering(0), header: "" }, offering(1), offering(2)] }).valid).toBe(false);
+    expect(validatePriceAssetInput({ ...base, offerings: [{ ...offering(0), header: "x".repeat(26) }, offering(1), offering(2)] }).valid).toBe(false);
+    expect(validatePriceAssetInput({ ...base, offerings: [{ ...offering(1), header: "plan 1" }, offering(1), offering(2)] }).valid).toBe(false);
+  });
+
+  it("validates prices and URLs per offering", () => {
+    expect(validatePriceAssetInput({ ...base, offerings: [{ ...offering(0), price: 0 }, offering(1), offering(2)] }).valid).toBe(false);
+    expect(validatePriceAssetInput({ ...base, offerings: [{ ...offering(0), finalUrl: "www.x.com" }, offering(1), offering(2)] }).valid).toBe(false);
   });
 });

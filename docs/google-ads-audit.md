@@ -766,7 +766,16 @@ Completes the bid-modifier trio (device ✅, location ✅, schedule ✅) — "+2
 - ⏰ card: interval chips now colored by adjustment (+green/−amber) with the % inline; new "% Adjust bids" mode listing intervals with one % input each.
 - 5 new test cases. i18n: 2 keys × 4 locales.
 
-### 2026-07-03 — weekly digest email (this PR)
+### 2026-07-03 — price extensions (this PR)
+
+The final member of the extensions family: a price menu ("Basic $29.99/month · Pro $59.99/month · …") under search ads, each row deep-linking to its own landing page.
+
+- `lib/google-ads.ts` — `createCampaignPriceAsset()` on the same assets:mutate → campaignAssets:mutate pipeline (fieldType PRICE); detach regex extended. Pure `validatePriceAssetInput()`: type/qualifier/unit against the v20 enums (`PRICE_TYPES`/`PRICE_QUALIFIERS`/`PRICE_UNITS`), 3-8 offerings (Google's hard limits), header/description ≤25 chars with unique headers, price > 0 (sent as micros), per-offering http(s) finalUrl, shared ISO-4217 currency + BCP-47 language. `fetchCampaignDetail()` returns `prices` with offerings mapped back to currency units.
+- `extensions` route gains `kind: "price"` — same gates, no new write surface.
+- Detail page: 💲 sky chips listing the menu inline + a row-based form (3 rows to start, add up to 8, remove above 3), client pre-check mirrors the server validator; languageCode auto-set from UI locale.
+- 6 new test cases. i18n: 8 keys × 4 locales.
+
+### 2026-07-03 — weekly digest email
 
 The owner never has to open the dashboard: every Monday AutoClaw emails a 7-day summary — spend, clicks, conversions, remaining credits, top campaigns, and the stored AI recommendations awaiting one-click approval.
 
