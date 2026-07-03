@@ -37,6 +37,11 @@ const RETRY_INTERVAL_MS = 5000;
 // the tray, so a long-lived process still picks up new releases same-day).
 const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
+// GPU process losses tolerated per session before falling back to software
+// rendering (Chromium restarts a crashed GPU process on its own, so a single
+// crash is survivable).
+const GPU_CRASH_LIMIT = 3;
+
 const isDev = !app.isPackaged;
 let mainWindow = null;
 let tray = null;
@@ -48,6 +53,7 @@ let saveStateTimer = null; // debounce for persisting window bounds
 let autoUpdater = null; // set by initAutoUpdater() on builds that can self-update
 let updateReadyVersion = null; // version string once an update is downloaded
 let manualUpdateCheck = false; // menu-triggered check → surface result dialogs
+let gpuCrashCount = 0; // GPU process losses this session (see GPU_CRASH_LIMIT)
 
 // Default window geometry; also the fallback when no saved state exists.
 const DEFAULT_BOUNDS = { width: 1280, height: 860 };
@@ -90,6 +96,107 @@ function saveWindowState() {
 function scheduleSaveWindowState() {
   if (saveStateTimer) clearTimeout(saveStateTimer);
   saveStateTimer = setTimeout(saveWindowState, 400);
+}
+
+// ---------------------------------------------------------------------------
+// Graphics-acceleration fallback. On machines with broken GPU drivers or
+// compositors (old/odd Windows GPUs, remote desktops, WSLg) hardware
+// compositing can produce a black or never-shown window while the process
+// runs fine. Three escape hatches:
+//   - AUTOCLAW_DISABLE_GPU=1 env var (Chromium's own --disable-gpu flag also
+//     works) for a single launch,
+//   - a persisted "Disable Graphics Acceleration" menu toggle,
+//   - automatic fallback when the GPU process keeps dying within one session.
+
+function gpuStateFile() {
+  return path.join(app.getPath("userData"), "gpu-state.json");
+}
+
+function readGpuDisabled() {
+  try {
+    const raw = fs.readFileSync(gpuStateFile(), "utf8");
+    return JSON.parse(raw).disableHardwareAcceleration === true;
+  } catch {
+    return false;
+  }
+}
+
+// Returns false when the flag can't be persisted (e.g. read-only portable
+// drive) so callers don't promise that a restart will change anything.
+function writeGpuDisabled(disabled) {
+  try {
+    fs.writeFileSync(
+      gpuStateFile(),
+      JSON.stringify({ disableHardwareAcceleration: disabled }),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Must run after configurePortableDataDir() (the flag lives in userData) and
+// before app `ready` (Chromium locks in GPU switches at startup). Returns
+// whether this launch runs without hardware acceleration.
+function applyGpuFallback() {
+  const disabled =
+    process.env.AUTOCLAW_DISABLE_GPU === "1" || readGpuDisabled();
+  if (disabled) {
+    // Both calls, to match a real `--disable-gpu` launch: on some drivers
+    // disableHardwareAcceleration() alone still spawns a GPU process, which
+    // is exactly the part that's broken on machines needing this fallback.
+    app.disableHardwareAcceleration();
+    app.commandLine.appendSwitch("disable-gpu");
+  }
+  return disabled;
+}
+
+function restartApp() {
+  // Flag the real quit first so the close-to-tray handler lets the window go.
+  isQuitting = true;
+  saveWindowState();
+  app.relaunch();
+  app.exit(0);
+}
+
+function promptRestartForGpuChange(message, type) {
+  // A GPU crash loop before the first window exists leaves nothing on screen
+  // to anchor a dialog, so restart silently. The persisted flag makes the
+  // relaunched process start in software rendering, so this cannot loop.
+  if (!app.isReady()) {
+    restartApp();
+    return;
+  }
+  const choice = dialog.showMessageBoxSync({
+    type: type || "info",
+    buttons: ["Restart Now", "Later"],
+    defaultId: 0,
+    cancelId: 1,
+    title: "AutoClaw",
+    message,
+    detail: "The change is applied the next time AutoClaw starts.",
+  });
+  if (choice === 0) restartApp();
+}
+
+// Menu toggle handler. `menuItem.checked` has already flipped to the new
+// value by the time click fires.
+function toggleGpuFallback(menuItem) {
+  if (!writeGpuDisabled(menuItem.checked)) {
+    menuItem.checked = !menuItem.checked;
+    dialog.showMessageBox({
+      type: "warning",
+      title: "AutoClaw",
+      message: "Could not save the setting.",
+      detail: "The app data folder is not writable.",
+    });
+    return;
+  }
+  promptRestartForGpuChange(
+    menuItem.checked
+      ? "Graphics acceleration is now off."
+      : "Graphics acceleration is now on.",
+  );
 }
 
 // USB / portable build: keep all app state (login session, cookies, cache) in a
@@ -300,6 +407,15 @@ function buildMenu() {
         { role: "resetZoom" },
         { role: "zoomIn" },
         { role: "zoomOut" },
+        { type: "separator" },
+        // Escape hatch for machines where GPU compositing shows a black or
+        // invisible window (see the graphics-acceleration fallback block).
+        {
+          type: "checkbox",
+          label: "Disable Graphics Acceleration",
+          checked: gpuDisabled,
+          click: toggleGpuFallback,
+        },
         { type: "separator" },
         ...(isDev ? [{ role: "toggleDevTools" }, { type: "separator" }] : []),
         ...(updaterSupported()
@@ -519,6 +635,9 @@ function showMainWindow() {
 // Redirect app state to the drive for portable builds. Must run before `ready`.
 configurePortableDataDir();
 
+// Apply the persisted/env graphics fallback — also must run before `ready`.
+const gpuDisabled = applyGpuFallback();
+
 // Single-instance lock: focus the existing window instead of opening a second.
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -532,6 +651,24 @@ if (!gotLock) {
   // knows whether to hide or actually close.
   app.on("before-quit", () => {
     isQuitting = true;
+  });
+
+  // GPU process crash loop → fall back to software rendering. A session that
+  // keeps losing its GPU process usually means a broken driver and ends as a
+  // black window, so persist the fallback and offer a restart (silent restart
+  // when it happens before the first window is up).
+  app.on("child-process-gone", (_event, details) => {
+    if (gpuDisabled || details.type !== "GPU") return;
+    const fatal = ["crashed", "abnormal-exit", "launch-failed", "killed"];
+    if (!fatal.includes(details.reason)) return;
+    gpuCrashCount += 1;
+    // Strict equality so the dialog shows once, not on every crash after it.
+    if (gpuCrashCount !== GPU_CRASH_LIMIT) return;
+    if (!writeGpuDisabled(true)) return;
+    promptRestartForGpuChange(
+      "Graphics acceleration has been turned off because the display driver keeps failing.",
+      "warning",
+    );
   });
 
   app.whenReady().then(() => {
