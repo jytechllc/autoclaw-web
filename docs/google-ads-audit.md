@@ -693,3 +693,12 @@ Completes the bid-modifier pass: device (shipped) + location (this PR); ad-sched
 - `app/api/google-ads/campaigns/[id]/location-modifiers/route.ts` — `POST { modifiers[] }`, read-only-gated like everything else post-`fix/google-ads-readonly-enforcement`.
 - Detail page: "📍 Location Bid Adjustments" card (only shown when campaign-level locations exist) — chips with ±% coloring, editor with one % input per location.
 - `lib/google-ads.test.ts` — 7 new test cases. i18n: 1 key × 4 locales.
+
+### 2026-07-03 — AI-generated sitelinks + callouts (this PR)
+
+Extends the ad-copy generator to fill the new extension forms. Anti-hallucination design: **the LLM may not invent sitelink URLs** — real internal links are extracted from the fetched landing page and the model can only pick from that list; anything else is dropped server-side.
+
+- `app/api/google-ads/ad-copy/extensions.ts` — pure `extractInternalLinks()` (absolutize, same-host only, strips fragments/assets/mailto/js, dedupes incl. trailing-slash variants, skips the landing page itself since Google rejects self-referencing sitelinks) + `sanitizeGeneratedExtensions()` (clips ≤25/≤35, both-or-neither descriptions, case-insensitive dedupe, caps 10 callouts / 6 sitelinks, drops URLs outside the allowed list).
+- `ad-copy/generate/route.ts` — new `mode: "extensions"` returning `{ callouts, sitelinks }`; reuses the existing page fetch, JSON extraction, and read-only gating. `channel` not required in this mode.
+- Detail page: "✨ Generate from site" in both the sitelink form and the callout form — uses the owner project's website, pre-fills the form for review (never auto-submits).
+- `ad-copy/extensions.test.ts` — 9 new test cases. i18n: 4 keys × 4 locales.
