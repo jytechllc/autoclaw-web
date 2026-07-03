@@ -34,8 +34,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ credits: { balance_cents: 0, reserved_cents: 0, currency: "USD" }, transactions: [] });
   }
 
+  // Optional ?limit= for exports (default 20 for the on-page table, cap 500).
+  const rawLimit = Number(req.nextUrl.searchParams.get("limit") || 20);
+  const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(Math.trunc(rawLimit), 1), 500) : 20;
+
   const credits = await getCredits(sql, orgId);
-  const transactions = await getRecentTransactions(sql, orgId, 20);
+  const transactions = await getRecentTransactions(sql, orgId, limit);
 
   // Include the user's org role so the UI can hide write actions for viewers.
   const [mem] = await sql`
