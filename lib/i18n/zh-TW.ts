@@ -1575,6 +1575,7 @@ const zhTW: typeof en = {
     schedPresetBusiness: "週一至週五 9–18",
     schedClear: "清空(全天候放送)",
     schedAddInterval: "新增時段",
+    exportCsv: "匯出 CSV",
     assetGroupsSection: "Asset Groups",
     assetGroupStrength: "廣告強度",
     pmaxReadOnlyNote: "Performance Max 用的是 asset group(不是 ad group)。AutoClaw 這邊只讀顯示 — 要編輯 asset、受眾訊號、暫停單一 asset group,請至 Google Ads 後台操作。",
