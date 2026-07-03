@@ -1575,6 +1575,7 @@ const en = {
     recsApplyBid: "Switch bid strategy to",
     recsApplyNegKw: "Add negative keywords",
     recsApplyPause: "Pause this campaign",
+    recsCronBadge: "Nightly auto-analysis",
     convTitle: "Conversion Tracking",
     convSubtitle: "Define what counts as a conversion, install the tag on your site, and smart bidding starts learning.",
     convCreate: "New Conversion Action",

@@ -766,7 +766,18 @@ Completes the bid-modifier trio (device ✅, location ✅, schedule ✅) — "+2
 - ⏰ card: interval chips now colored by adjustment (+green/−amber) with the % inline; new "% Adjust bids" mode listing intervals with one % input each.
 - 5 new test cases. i18n: 2 keys × 4 locales.
 
-### 2026-07-03 — PMax quick-start wizard (this PR)
+### 2026-07-03 — nightly AI recommendation digests (this PR)
+
+**Closes the loop on the product directive: AI keeps watching, the owner just approves.** Until now recommendations existed only if the owner thought to click "Generate". Now a daily cron analyzes the highest-spend ENABLED campaigns and stores the digest — the owner opens the campaign page and the analysis (with one-click apply buttons) is already waiting.
+
+- New table `campaign_recommendations` (schema.sql + self-healing `CREATE TABLE IF NOT EXISTS` in the cron — the repo has no migration runner; cron-owned table creation is the established repo pattern and runs a handful of times per day, not per request). Latest-only per campaign (`UNIQUE(campaign_id)`, upsert); history stays in the audit log.
+- Generation pipeline extracted from the route into `recommendations/generate.ts` (`generateCampaignRecommendations()` + `persistDigest()`) — the user route and the cron now share one code path, so sanitization (incl. `sanitizeAutoAction` guardrails) can never drift between manual and automatic generation.
+- New `/api/cron/google-ads-recommendations` (daily 05:15 UTC, after reconcile so spend data is fresh): D-10 time budget + day-seeded org rotation, plus **LLM cost bounds** — max 3 campaigns/org (highest lifetime spend first) and max 25 LLM calls/run. Pure `selectCampaignsForDigest()`/`isDigestStale()` (20h freshness window) unit-tested.
+- `GET /campaigns/[id]/recommendations` returns the stored digest. Deliberately readable by read-only accounts (pure read; generation/apply stay gated). Missing table on fresh deploys degrades to "no digest".
+- Manual "Generate" now also persists (source `manual`) so results survive reloads. Detail page auto-loads the stored digest on mount; cron-generated ones get a 🌙 badge.
+- Known limitation: cron digests are generated in English (no per-org locale exists in the schema); the owner can regenerate in their own language with one click. i18n: 1 key × 4 locales. 8 new test cases.
+
+### 2026-07-03 — PMax quick-start wizard
 
 **The PMax-first novice onboarding flow the product directive asked for.** A small-business owner who knows nothing about Google Ads enters two things — their website URL and a budget — and AI drafts the entire Performance Max campaign. One approval click creates everything (PAUSED; enabling stays an explicit human act).
 

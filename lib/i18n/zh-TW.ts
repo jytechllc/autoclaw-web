@@ -1550,6 +1550,7 @@ const zhTW: typeof en = {
     recsApplyBid: "將出價策略切換為",
     recsApplyNegKw: "新增排除關鍵字",
     recsApplyPause: "暫停該廣告活動",
+    recsCronBadge: "每晚自動分析",
     convTitle: "轉換追蹤",
     convSubtitle: "定義什麼算一次轉換,把代碼裝到網站上,智慧出價就開始學習了。",
     convCreate: "新增轉換動作",

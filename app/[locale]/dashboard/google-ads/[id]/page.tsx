@@ -1367,6 +1367,31 @@ export default function CampaignDetailPage() {
   const [recsLoading, setRecsLoading] = useState(false);
   const [recsError, setRecsError] = useState("");
   const [recsGeneratedAt, setRecsGeneratedAt] = useState<string | null>(null);
+  const [recsSource, setRecsSource] = useState<"cron" | "manual" | null>(null);
+
+  // Load the stored digest (nightly cron / previous manual run) on mount so
+  // the owner opens the page and the analysis is already waiting.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const qs = activeOrg ? `?orgId=${activeOrg.id}` : "";
+        const res = await fetch(`/api/google-ads/campaigns/${campaignId}/recommendations${qs}`);
+        const data = await res.json();
+        if (!cancelled && res.ok && data.success && data.digest) {
+          setRecs(Array.isArray(data.digest.recommendations) ? data.digest.recommendations : []);
+          setRecsGeneratedAt(data.digest.generatedAt || null);
+          setRecsSource(data.digest.source === "cron" ? "cron" : "manual");
+        }
+      } catch {
+        /* stored digest is a bonus — never block the page on it */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campaignId, activeOrg?.id]);
 
   async function handleGenerateRecommendations() {
     setRecsLoading(true);
@@ -1381,6 +1406,7 @@ export default function CampaignDetailPage() {
       if (res.ok && data.success) {
         setRecs(data.recommendations || []);
         setRecsGeneratedAt(data.generatedAt || null);
+        setRecsSource("manual");
       } else {
         setRecsError(data.error || "Failed to generate recommendations");
       }
@@ -1956,7 +1982,12 @@ export default function CampaignDetailPage() {
                 </div>
               ))}
               {recsGeneratedAt && (
-                <p className="text-[11px] text-gray-400">{t.recsGeneratedAt || "Generated"}: {new Date(recsGeneratedAt).toLocaleString()}</p>
+                <p className="text-[11px] text-gray-400">
+                  {recsSource === "cron" && (
+                    <span className="mr-1.5 px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded-full">🌙 {t.recsCronBadge || "Nightly auto-analysis"}</span>
+                  )}
+                  {t.recsGeneratedAt || "Generated"}: {new Date(recsGeneratedAt).toLocaleString()}
+                </p>
               )}
             </div>
           )}
