@@ -1323,7 +1323,46 @@ export default function CampaignDetailPage() {
   }
 
   // AI optimization recommendations (PR #2 follow-up)
-  type Rec = { category: string; priority: string; title: string; rationale: string; action: string; metric?: string };
+  type RecAutoAction = { kind: string; params: Record<string, unknown> };
+  type Rec = { category: string; priority: string; title: string; rationale: string; action: string; metric?: string; autoAction?: RecAutoAction };
+  const [applyingRec, setApplyingRec] = useState<number | null>(null);
+
+  function describeAutoAction(a: RecAutoAction): string {
+    switch (a.kind) {
+      case "SET_DAILY_BUDGET": return `${t.recsApplyBudget || "Set daily budget to"} $${Number(a.params.dailyBudget).toFixed(2)}`;
+      case "SET_BID_STRATEGY": return `${t.recsApplyBid || "Switch bid strategy to"} ${String(a.params.type)}${a.params.targetCpa ? ` (tCPA $${a.params.targetCpa})` : ""}${a.params.targetRoas ? ` (tROAS ${Number(a.params.targetRoas) * 100}%)` : ""}`;
+      case "ADD_NEGATIVE_KEYWORDS": return `${t.recsApplyNegKw || "Add negative keywords"}: ${(a.params.keywords as Array<{ text: string }> || []).map((k) => k.text).join(", ")}`;
+      case "PAUSE_CAMPAIGN": return t.recsApplyPause || "Pause this campaign";
+      default: return a.kind;
+    }
+  }
+
+  async function handleApplyRecommendation(index: number, a: RecAutoAction) {
+    if (!confirm(`${describeAutoAction(a)}\n\n${t.recsApplyConfirm || "Apply this change now?"}`)) return;
+    setApplyingRec(index);
+    try {
+      const res = await fetch(`/api/google-ads/campaigns/${campaignId}/recommendations/apply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: a, orgId: activeOrg?.id }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setToast(t.recsApplied || "Applied ✓");
+        // Mark this recommendation as done locally (strip its button).
+        setRecs((prev) => prev ? prev.map((r, i) => i === index ? { ...r, autoAction: undefined, action: `✓ ${r.action}` } : r) : prev);
+        fetchData();
+        setTimeout(() => setToast(""), 4000);
+      } else {
+        setToast(typeof data.details === "string" ? data.details : (data.error || "Apply failed"));
+        setTimeout(() => setToast(""), 5000);
+      }
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Apply failed");
+      setTimeout(() => setToast(""), 3000);
+    }
+    setApplyingRec(null);
+  }
   const [recs, setRecs] = useState<Rec[] | null>(null);
   const [recsLoading, setRecsLoading] = useState(false);
   const [recsError, setRecsError] = useState("");
@@ -1901,7 +1940,19 @@ export default function CampaignDetailPage() {
                     <span className="font-medium text-gray-800 text-sm">{r.title}</span>
                   </div>
                   <p className="text-xs text-gray-600 mb-1">{r.rationale}</p>
-                  <p className="text-xs text-gray-800">▸ <span className="font-medium">{t.recsAction || "Action"}:</span> {r.action}</p>
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-xs text-gray-800">▸ <span className="font-medium">{t.recsAction || "Action"}:</span> {r.action}</p>
+                    {r.autoAction && canEdit && (
+                      <button
+                        onClick={() => handleApplyRecommendation(i, r.autoAction!)}
+                        disabled={applyingRec !== null}
+                        className="text-xs px-3 py-1 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 cursor-pointer whitespace-nowrap shrink-0"
+                        title={describeAutoAction(r.autoAction)}
+                      >
+                        {applyingRec === i ? "…" : `✅ ${t.recsApply || "Approve & Apply"}`}
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
               {recsGeneratedAt && (

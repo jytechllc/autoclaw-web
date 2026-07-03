@@ -765,3 +765,14 @@ Completes the bid-modifier trio (device ✅, location ✅, schedule ✅) — "+2
 - `POST /campaigns/[id]/schedule-modifiers` — read-only-gated + double ownership check per criterion.
 - ⏰ card: interval chips now colored by adjustment (+green/−amber) with the % inline; new "% Adjust bids" mode listing intervals with one % input each.
 - 5 new test cases. i18n: 2 keys × 4 locales.
+
+### 2026-07-03 — one-click apply for AI recommendations (this PR)
+
+**Answers audit open question #4 with the actual product directive** (relayed by Shui Lin from leadership): target user is the novice SMB owner; the core interaction is *AI recommends → owner taps approve → platform executes and keeps tuning*. This PR builds the approve-and-execute half.
+
+- `recommendations/prompt.ts` — `Recommendation.autoAction`: a machine-executable action alongside the human-readable one, emitted by the model ONLY when the fix maps to a whitelisted operation: `SET_DAILY_BUDGET`, `SET_BID_STRATEGY`, `ADD_NEGATIVE_KEYWORDS` (≤10, from the wasteful list), `PAUSE_CAMPAIGN`. Everything else (targeting, ad copy, conversion setup) stays advisory. Pure `sanitizeAutoAction()` clamps params.
+- **Money guardrail:** a single one-click apply may move the daily budget by at most **±50% of the current value** — enforced at generation time AND re-enforced at apply time against the current DB value (never against what the model saw, never trusting the client payload). Total cap is untouchable via this path.
+- `recommendations/apply/route.ts` — `POST { action }`: independent re-sanitize → dispatch through the existing lib functions (which carry their own channel/enum validation) → DB sync where needed → audit-logged as `apply_recommendation` with full params.
+- Detail page: applicable cards get a green "✅ Approve & Apply" button (read-only-gated) with a plain-language confirm dialog; applied cards flip to ✓ locally and data refreshes.
+- 6 new test cases for the sanitizer (guardrail boundaries, unknown kinds, param stripping). i18n: 8 keys × 4 locales.
+- Next steps on this track (per directive): PMax-first novice onboarding wizard; scheduled auto-recommendations (cron-generated, owner approves from a digest).
