@@ -75,7 +75,7 @@ interface Detail {
   optimizationScore?: number;
   metrics: { impressions: number; clicks: number; costMicros: number; conversions: number; ctr: number; avgCpcMicros: number };
   dailyMetrics?: Array<{ date: string; impressions: number; clicks: number; costMicros: number; conversions: number }>;
-  locations: Array<{ id: string; name: string }>;
+  locations: Array<{ id: string; name: string; bidModifier?: number }>;
   audiences: Array<{ category: string; label: string; negative: boolean; adGroupName: string; apiType: string; value: string }>;
   adGroups: Array<{ resourceName: string; name: string; status: string; cpcBidMicros: number }>;
   assetGroups?: Array<{ resourceName: string; name: string; status: string; adStrength: string; primaryStatus: string; primaryStatusReasons: string[]; finalUrls: string[] }>;
@@ -1061,6 +1061,54 @@ export default function CampaignDetailPage() {
       setTimeout(() => setToast(""), 3000);
     }
     setAddingNegTerm(null);
+  }
+
+  // Location bid adjustments
+  type LocModRow = { geoId: string; name: string; percent: number };
+  const [editingLocMods, setEditingLocMods] = useState(false);
+  const [locModRows, setLocModRows] = useState<LocModRow[]>([]);
+  const [savingLocMods, setSavingLocMods] = useState(false);
+  const [locModError, setLocModError] = useState("");
+
+  function campaignLevelLocations() {
+    return (detail?.locations || []).filter((l) => l.bidModifier !== undefined);
+  }
+
+  function openLocModEditor() {
+    setLocModRows(campaignLevelLocations().map((l) => ({
+      geoId: l.id,
+      name: l.name,
+      percent: Math.round(((l.bidModifier ?? 1) - 1) * 100),
+    })));
+    setLocModError("");
+    setEditingLocMods(true);
+  }
+
+  async function handleSaveLocMods() {
+    setSavingLocMods(true);
+    setLocModError("");
+    try {
+      const res = await fetch(`/api/google-ads/campaigns/${campaignId}/location-modifiers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          modifiers: locModRows.map((r) => ({ geoId: r.geoId, percent: r.percent })),
+          orgId: activeOrg?.id,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setToast(t.updated || "Updated");
+        setEditingLocMods(false);
+        fetchData();
+        setTimeout(() => setToast(""), 4000);
+      } else {
+        setLocModError(typeof data.details === "string" ? data.details : (data.error || "Update failed"));
+      }
+    } catch (e) {
+      setLocModError(e instanceof Error ? e.message : "Update failed");
+    }
+    setSavingLocMods(false);
   }
 
   // Callouts + structured snippets
@@ -3017,6 +3065,73 @@ export default function CampaignDetailPage() {
                     {extSubmitting ? (t.creating || "Adding...") : (t.extAddSnippet || "Add Snippet")}
                   </button>
                   <button onClick={() => setExtFormOpen(null)} className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 cursor-pointer">{t.cancel || "Cancel"}</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Location bid adjustments — campaign-level criteria only */}
+        {detail && DEVICE_MOD_CHANNELS.has(detail.channelType) && campaignLevelLocations().length > 0 && (
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-gray-700">📍 {t.locModSection || "Location Bid Adjustments"}</h2>
+              {canEdit && !editingLocMods && (
+                <button
+                  onClick={openLocModEditor}
+                  className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer"
+                >
+                  ✏️ {t.schedEdit || "Edit"}
+                </button>
+              )}
+            </div>
+
+            {!editingLocMods && (
+              <div className="flex flex-wrap gap-1.5">
+                {campaignLevelLocations().map((l) => {
+                  const pct = Math.round(((l.bidModifier ?? 1) - 1) * 100);
+                  return (
+                    <span
+                      key={l.id}
+                      className={`px-2 py-0.5 text-xs rounded-full ${
+                        pct > 0 ? "bg-green-50 text-green-700" :
+                        pct < 0 ? "bg-amber-50 text-amber-700" :
+                        "bg-gray-100 text-gray-600"
+                      }`}
+                    >
+                      {l.name}{pct !== 0 ? ` ${pct > 0 ? "+" : ""}${pct}%` : ""}
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+
+            {editingLocMods && (
+              <div className="space-y-3">
+                {locModRows.map((row, i) => (
+                  <div key={row.geoId} className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-gray-700 min-w-32">{row.name}</span>
+                    <input
+                      type="number" min="-90" max="900" step="1"
+                      value={row.percent}
+                      onChange={(e) => setLocModRows(locModRows.map((r, j) => j === i ? { ...r, percent: Number(e.target.value) } : r))}
+                      className="text-xs px-2 py-1 border border-gray-300 rounded outline-none w-20"
+                    />
+                    <span className="text-xs text-gray-400">% (−90 … +900, 0 = {t.devDefault || "default"})</span>
+                  </div>
+                ))}
+                {locModError && <pre className="text-xs text-red-600 bg-red-50 p-2 rounded whitespace-pre-wrap break-all">{locModError}</pre>}
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleSaveLocMods}
+                    disabled={savingLocMods}
+                    className="bg-red-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-900 disabled:opacity-50 cursor-pointer"
+                  >
+                    {savingLocMods ? (t.creating || "Saving...") : (t.save || "Save")}
+                  </button>
+                  <button onClick={() => setEditingLocMods(false)} className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 cursor-pointer">
+                    {t.cancel || "Cancel"}
+                  </button>
                 </div>
               </div>
             )}

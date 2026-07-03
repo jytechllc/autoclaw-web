@@ -682,3 +682,14 @@ Closes a real permissions gap: `0e6b9be` hid spend data from read-only (viewer/s
 
 - **D-2 fully closed**: deleted the deprecated `ensureAdCreditsTables()` from `lib/credits.ts`. It was kept as a one-release safety net after the schema lift; four desktop releases have shipped since with zero call sites. `lib/schema.sql` is now the only place ad tables are defined. Comment in `campaigns/route.ts` updated.
 - **typecheck workflow: Node 20 → 22.** The Electron 42 toolchain (`@electron/rebuild`, `@electron/get`, `electron` itself) requires Node ≥22.12; `npm ci` on Node 20 trips EBADENGINE. Suspected cause of the perpetually failing third PR check ("2 of 3 checks passed" on every PR since the desktop packaging landed) — to be confirmed on this PR's own check run.
+
+### 2026-07-03 — location bid adjustments (this PR)
+
+Completes the bid-modifier pass: device (shipped) + location (this PR); ad-schedule interval modifiers remain deferred.
+
+- `lib/google-ads.ts` — `setCampaignLocationModifiers()`: **updates** `bid_modifier` on existing campaign-level LOCATION criteria (matched by geo id; geo ids not targeted are rejected with a clear error). Deliberately does NOT add/remove targeting — that stays with `setCampaignLocations()`, so the two operations can't race each other's replace-all semantics. Percent 0 resets (factor 1.0). Pure `validateLocationModifiers()` (numeric geo id, no duplicates, -90..900).
+- Channel rule aliases the device rule (SEARCH/DISPLAY/SHOPPING): PMax/DemandGen store locations at ad-group level without modifier support.
+- `fetchCampaignDetail().locations` now carries `bidModifier` for campaign-level criteria (undefined = ad-group level), so the UI can distinguish.
+- `app/api/google-ads/campaigns/[id]/location-modifiers/route.ts` — `POST { modifiers[] }`, read-only-gated like everything else post-`fix/google-ads-readonly-enforcement`.
+- Detail page: "📍 Location Bid Adjustments" card (only shown when campaign-level locations exist) — chips with ±% coloring, editor with one % input per location.
+- `lib/google-ads.test.ts` — 7 new test cases. i18n: 1 key × 4 locales.

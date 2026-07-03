@@ -1584,6 +1584,7 @@ const zh: typeof en = {
     devDefault: "默认",
     devAdjust: "调整出价",
     devExclude: "排除",
+    locModSection: "地域出价调整",
     slSection: "站点链接",
     slAdd: "添加站点链接",
     slAddRow: "再加一条",

@@ -15,6 +15,8 @@ import {
   validateStructuredSnippetInput,
   channelSupportsTextExtensions,
   aggregateSearchTermRows,
+  validateLocationModifiers,
+  channelSupportsLocationModifiers,
   type SitelinkInput,
   type CreateAssetGroupInput,
   type CreateConversionActionInput,
@@ -400,6 +402,62 @@ describe("channelSupportsAdSchedule", () => {
     expect(channelSupportsAdSchedule("PERFORMANCE_MAX")).toBe(false);
     expect(channelSupportsAdSchedule("DEMAND_GEN")).toBe(false);
     expect(channelSupportsAdSchedule("")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateLocationModifiers (location bid adjustments)
+// ---------------------------------------------------------------------------
+
+describe("validateLocationModifiers", () => {
+  it("accepts typical modifiers", () => {
+    const result = validateLocationModifiers([
+      { geoId: "2840", percent: 20 },   // US +20%
+      { geoId: "2124", percent: -30 },  // CA -30%
+      { geoId: "2036", percent: 0 },    // AU reset
+    ]);
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("rejects an empty list", () => {
+    expect(validateLocationModifiers([]).valid).toBe(false);
+  });
+
+  it("rejects non-numeric geo ids", () => {
+    expect(validateLocationModifiers([{ geoId: "geoTargetConstants/2840", percent: 10 }]).valid).toBe(false);
+    expect(validateLocationModifiers([{ geoId: "", percent: 10 }]).valid).toBe(false);
+  });
+
+  it("rejects duplicate geo ids", () => {
+    const result = validateLocationModifiers([
+      { geoId: "2840", percent: 10 },
+      { geoId: "2840", percent: 20 },
+    ]);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes("duplicate"))).toBe(true);
+  });
+
+  it("rejects out-of-range percents", () => {
+    expect(validateLocationModifiers([{ geoId: "2840", percent: -91 }]).valid).toBe(false);
+    expect(validateLocationModifiers([{ geoId: "2840", percent: 901 }]).valid).toBe(false);
+    expect(validateLocationModifiers([{ geoId: "2840", percent: NaN }]).valid).toBe(false);
+  });
+
+  it("accepts boundary percents -90 and 900", () => {
+    expect(validateLocationModifiers([{ geoId: "2840", percent: -90 }]).valid).toBe(true);
+    expect(validateLocationModifiers([{ geoId: "2840", percent: 900 }]).valid).toBe(true);
+  });
+});
+
+describe("channelSupportsLocationModifiers", () => {
+  it("mirrors the device rule (SEARCH/DISPLAY/SHOPPING)", () => {
+    for (const ch of ["SEARCH", "DISPLAY", "SHOPPING"]) {
+      expect(channelSupportsLocationModifiers(ch)).toBe(true);
+    }
+    for (const ch of ["VIDEO", "PERFORMANCE_MAX", "DEMAND_GEN", ""]) {
+      expect(channelSupportsLocationModifiers(ch)).toBe(false);
+    }
   });
 });
 

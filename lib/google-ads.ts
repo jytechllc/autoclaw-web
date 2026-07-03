@@ -323,7 +323,8 @@ export interface CampaignDetail {
     costMicros: number;
     conversions: number;
   }>;
-  locations: Array<{ id: string; name: string }>;
+  /** bidModifier present only for campaign-level criteria (undefined = ad-group level / no data). */
+  locations: Array<{ id: string; name: string; bidModifier?: number }>;
   audiences: Array<{
     category: string;
     label: string;
@@ -441,6 +442,8 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
     campaignCriterion: {
       type?: string;
       negative?: boolean;
+      resourceName?: string;
+      bidModifier?: number;
       location?: { geoTargetConstant?: string };
     };
   };
@@ -454,6 +457,7 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
   const [locCritRows, agLocRows] = await Promise.all([
     adsSearchStream(customerId, `
       SELECT campaign_criterion.type, campaign_criterion.negative,
+             campaign_criterion.resource_name, campaign_criterion.bid_modifier,
              campaign_criterion.location.geo_target_constant
       FROM campaign_criterion
       WHERE campaign.id = ${numericCampaignId} AND campaign_criterion.type = LOCATION
@@ -473,20 +477,29 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
     .filter((r) => !r.adGroupCriterion.negative)
     .map((r) => r.adGroupCriterion?.location?.geoTargetConstant)
     .filter(Boolean) as string[];
+  // Campaign-level criteria carry bid modifiers — keep a lookup by geo resource.
+  const critByGeo = new Map<string, { bidModifier: number }>();
+  for (const r of locCritRows as LocCritRow[]) {
+    const geo = r.campaignCriterion?.location?.geoTargetConstant;
+    if (geo && !r.campaignCriterion.negative) {
+      critByGeo.set(geo, { bidModifier: Number(r.campaignCriterion.bidModifier ?? 1) });
+    }
+  }
   // Merge + dedupe
   const locResources = [...new Set([...fromCampaign, ...fromAdGroup])];
-  let locations: Array<{ id: string; name: string }> = [];
+  let locations: Array<{ id: string; name: string; bidModifier?: number }> = [];
   if (locResources.length > 0) {
-    type GeoRow = { geoTargetConstant: { id?: string; name?: string } };
+    type GeoRow = { geoTargetConstant: { resourceName?: string; id?: string; name?: string } };
     const inList = locResources.map((r) => `'${r}'`).join(",");
     const geoRows = await adsSearchStream(customerId, `
-      SELECT geo_target_constant.id, geo_target_constant.name
+      SELECT geo_target_constant.resource_name, geo_target_constant.id, geo_target_constant.name
       FROM geo_target_constant
       WHERE geo_target_constant.resource_name IN (${inList})
     `) as GeoRow[];
     locations = geoRows.map((r) => ({
       id: String(r.geoTargetConstant.id || ""),
       name: String(r.geoTargetConstant.name || ""),
+      bidModifier: critByGeo.get(r.geoTargetConstant.resourceName || "")?.bidModifier,
     }));
   }
 
@@ -2301,6 +2314,104 @@ export async function setCampaignAdSchedule(
   const res = await adsMutate(customerId, "campaignCriteria:mutate", { operations });
   if (res.status !== 200) return { success: false, error: res.data };
   return { success: true };
+}
+
+// ---------------------------------------------------------------------------
+// Location bid adjustments
+// ---------------------------------------------------------------------------
+
+export interface LocationModifierInput {
+  /** Numeric geo target constant id (matches CampaignDetail.locations[].id). */
+  geoId: string;
+  /** Bid adjustment percent: -90..900. 0 = reset to no adjustment. */
+  percent: number;
+}
+
+/** Same channel rule as device modifiers: campaign-criterion-level channels only.
+ *  (PMax/DemandGen store locations at ad-group level with no modifier support.) */
+export function channelSupportsLocationModifiers(channelType: string): boolean {
+  return channelSupportsDeviceModifiers(channelType);
+}
+
+/** Pure validation — unit-tested. */
+export function validateLocationModifiers(modifiers: LocationModifierInput[]): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  if (!Array.isArray(modifiers) || modifiers.length === 0) {
+    return { valid: false, errors: ["At least one modifier is required."] };
+  }
+  const seen = new Set<string>();
+  modifiers.forEach((m, i) => {
+    const label = `modifiers[${i}]`;
+    if (!/^\d+$/.test(String(m.geoId || ""))) {
+      errors.push(`${label}: geoId must be a numeric geo target constant id.`);
+      return;
+    }
+    if (seen.has(m.geoId)) {
+      errors.push(`${label}: duplicate geoId ${m.geoId}.`);
+      return;
+    }
+    seen.add(m.geoId);
+    if (!Number.isFinite(m.percent) || m.percent < -90 || m.percent > 900) {
+      errors.push(`${label}: percent must be between -90 and 900.`);
+    }
+  });
+  return { valid: errors.length === 0, errors };
+}
+
+/** Update bid modifiers on EXISTING campaign-level LOCATION criteria.
+ *  Only geo ids currently targeted can be adjusted (this mutates criteria,
+ *  it does not add/remove targeting — that stays with setCampaignLocations). */
+export async function setCampaignLocationModifiers(
+  campaignResourceName: string,
+  modifiers: LocationModifierInput[]
+): Promise<{ success: boolean; updated: number; error?: unknown }> {
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
+  if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
+
+  const numericCampaignId = campaignResourceName.split("/").pop() || "";
+
+  type ChannelRow = { campaign: { advertisingChannelType?: string } };
+  const channelRows = await adsSearchStream(customerId, `
+    SELECT campaign.advertising_channel_type FROM campaign WHERE campaign.id = ${numericCampaignId}
+  `) as ChannelRow[];
+  const channelType = channelRows[0]?.campaign?.advertisingChannelType || "";
+  if (!channelSupportsLocationModifiers(channelType)) {
+    return { success: false, updated: 0, error: `Location bid adjustments are not supported for ${channelType || "this"} campaigns` };
+  }
+
+  const validation = validateLocationModifiers(modifiers);
+  if (!validation.valid) return { success: false, updated: 0, error: validation.errors.join(" ") };
+
+  // Map geo id → existing criterion resource name
+  type CCRow = { campaignCriterion: { resourceName: string; location?: { geoTargetConstant?: string } } };
+  const existing = await adsSearchStream(customerId, `
+    SELECT campaign_criterion.resource_name, campaign_criterion.location.geo_target_constant
+    FROM campaign_criterion
+    WHERE campaign.id = ${numericCampaignId} AND campaign_criterion.type = LOCATION
+      AND campaign_criterion.negative = FALSE
+  `) as CCRow[];
+  const byGeoId = new Map<string, string>();
+  for (const r of existing) {
+    const geoId = (r.campaignCriterion.location?.geoTargetConstant || "").split("/").pop() || "";
+    if (geoId) byGeoId.set(geoId, r.campaignCriterion.resourceName);
+  }
+
+  const missing = modifiers.filter((m) => !byGeoId.has(m.geoId)).map((m) => m.geoId);
+  if (missing.length > 0) {
+    return { success: false, updated: 0, error: `Not targeted by this campaign: geo id(s) ${missing.join(", ")}` };
+  }
+
+  const operations = modifiers.map((m) => ({
+    update: {
+      resourceName: byGeoId.get(m.geoId),
+      bidModifier: Math.round((1 + m.percent / 100) * 100) / 100,
+    },
+    updateMask: "bid_modifier",
+  }));
+
+  const res = await adsMutate(customerId, "campaignCriteria:mutate", { operations });
+  if (res.status !== 200) return { success: false, updated: 0, error: res.data };
+  return { success: true, updated: operations.length };
 }
 
 // ---------------------------------------------------------------------------
