@@ -85,6 +85,8 @@ interface Detail {
   adSchedules?: Array<{ resourceName: string; dayOfWeek: string; startHour: number; endHour: number }>;
   deviceModifiers?: Array<{ resourceName: string; device: string; bidModifier: number }>;
   sitelinks?: Array<{ resourceName: string; linkText: string; finalUrl: string; description1: string; description2: string }>;
+  callouts?: Array<{ resourceName: string; text: string }>;
+  structuredSnippets?: Array<{ resourceName: string; header: string; values: string[] }>;
   ads: Array<{
     resourceName: string;
     status: string;
@@ -1014,6 +1016,78 @@ export default function CampaignDetailPage() {
       setTimeout(() => setToast(""), 3000);
     }
     setRemovingSitelink(null);
+  }
+
+  // Callouts + structured snippets
+  const SNIPPET_HEADERS = ["Amenities", "Brands", "Courses", "Degree programs", "Destinations", "Featured hotels", "Insurance coverage", "Models", "Neighborhoods", "Service catalog", "Shows", "Styles", "Types"];
+  const [extFormOpen, setExtFormOpen] = useState<"callout" | "snippet" | null>(null);
+  const [calloutText, setCalloutText] = useState("");
+  const [snippetHeader, setSnippetHeader] = useState("Service catalog");
+  const [snippetValues, setSnippetValues] = useState("");
+  const [extSubmitting, setExtSubmitting] = useState(false);
+  const [extError, setExtError] = useState("");
+  const [removingExt, setRemovingExt] = useState<string | null>(null);
+
+  async function handleAddExtension() {
+    if (!extFormOpen) return;
+    setExtSubmitting(true);
+    setExtError("");
+    const body: Record<string, unknown> = { kind: extFormOpen, orgId: activeOrg?.id };
+    if (extFormOpen === "callout") {
+      const texts = calloutText.split("\n").map((s) => s.trim()).filter(Boolean);
+      if (texts.length === 0) { setExtError(t.extCalloutValidation || "Enter at least 1 callout (one per line, ≤25 chars)"); setExtSubmitting(false); return; }
+      body.texts = texts;
+    } else {
+      const values = snippetValues.split("\n").map((s) => s.trim()).filter(Boolean);
+      if (values.length < 3) { setExtError(t.extSnippetValidation || "Enter at least 3 values (one per line, ≤25 chars)"); setExtSubmitting(false); return; }
+      body.header = snippetHeader;
+      body.values = values;
+    }
+    try {
+      const res = await fetch(`/api/google-ads/campaigns/${campaignId}/extensions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setToast(t.updated || "Updated");
+        setExtFormOpen(null);
+        setCalloutText("");
+        setSnippetValues("");
+        fetchData();
+        setTimeout(() => setToast(""), 4000);
+      } else {
+        setExtError(typeof data.details === "string" ? data.details : JSON.stringify(data.details || data.error || "Failed", null, 2));
+      }
+    } catch (e) {
+      setExtError(e instanceof Error ? e.message : "Failed");
+    }
+    setExtSubmitting(false);
+  }
+
+  async function handleRemoveExtension(resourceName: string) {
+    setRemovingExt(resourceName);
+    try {
+      const res = await fetch(`/api/google-ads/campaigns/${campaignId}/extensions`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resourceName, orgId: activeOrg?.id }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setToast(t.updated || "Updated");
+        fetchData();
+        setTimeout(() => setToast(""), 3000);
+      } else {
+        setToast(data.error || "Remove failed");
+        setTimeout(() => setToast(""), 4000);
+      }
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Remove failed");
+      setTimeout(() => setToast(""), 3000);
+    }
+    setRemovingExt(null);
   }
 
   // Device bid adjustments
@@ -2700,6 +2774,126 @@ export default function CampaignDetailPage() {
                   <button onClick={() => { setSitelinkFormOpen(false); setSitelinkError(""); }} className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 cursor-pointer">
                     {t.cancel || "Cancel"}
                   </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Callouts + structured snippets — SEARCH only */}
+        {detail && detail.channelType === "SEARCH" && (
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-gray-700">
+                📣 {t.extSection || "Callouts & Snippets"} ({(detail.callouts?.length || 0) + (detail.structuredSnippets?.length || 0)})
+              </h2>
+              {!campaign.closed && (
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setExtFormOpen(extFormOpen === "callout" ? null : "callout"); setExtError(""); }}
+                    className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer"
+                  >
+                    {extFormOpen === "callout" ? (t.cancel || "Cancel") : `+ ${t.extAddCallout || "Callouts"}`}
+                  </button>
+                  <button
+                    onClick={() => { setExtFormOpen(extFormOpen === "snippet" ? null : "snippet"); setExtError(""); }}
+                    className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer"
+                  >
+                    {extFormOpen === "snippet" ? (t.cancel || "Cancel") : `+ ${t.extAddSnippet || "Snippet"}`}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {(detail.callouts?.length || 0) === 0 && (detail.structuredSnippets?.length || 0) === 0 && !extFormOpen && (
+              <p className="text-xs text-gray-400">{t.extEmpty || "Callouts are short selling points (\"Free shipping\"); snippets list your offerings under a header. Both lift CTR at no extra cost."}</p>
+            )}
+
+            {(detail.callouts?.length || 0) > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {(detail.callouts || []).map((c) => (
+                  <span key={c.resourceName} className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-xs rounded-full inline-flex items-center gap-1">
+                    {c.text}
+                    {!campaign.closed && (
+                      <button
+                        onClick={() => handleRemoveExtension(c.resourceName)}
+                        disabled={removingExt === c.resourceName}
+                        className="text-emerald-400 hover:text-emerald-800 cursor-pointer disabled:opacity-50"
+                      >
+                        {removingExt === c.resourceName ? "…" : "×"}
+                      </button>
+                    )}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {(detail.structuredSnippets?.length || 0) > 0 && (
+              <div className="space-y-1.5">
+                {(detail.structuredSnippets || []).map((s) => (
+                  <div key={s.resourceName} className="flex items-center gap-2 text-xs">
+                    <span className="font-medium text-gray-700">{s.header}:</span>
+                    <span className="text-gray-500 truncate">{s.values.join(" · ")}</span>
+                    {!campaign.closed && (
+                      <button
+                        onClick={() => handleRemoveExtension(s.resourceName)}
+                        disabled={removingExt === s.resourceName}
+                        className="text-gray-300 hover:text-red-600 cursor-pointer disabled:opacity-50"
+                      >
+                        {removingExt === s.resourceName ? "…" : "×"}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {extFormOpen === "callout" && (
+              <div className="mt-4 border-t border-gray-100 pt-4 space-y-3">
+                <label className="block text-xs text-gray-500">{t.extCalloutLabel || "Callouts (one per line, ≤25 chars each)"}</label>
+                <textarea
+                  value={calloutText}
+                  onChange={(e) => setCalloutText(e.target.value)}
+                  rows={3}
+                  placeholder={"Free shipping\n24/7 support\nPrice match"}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-red-500"
+                />
+                {extError && <pre className="text-xs text-red-600 bg-red-50 p-2 rounded whitespace-pre-wrap break-all">{extError}</pre>}
+                <div className="flex gap-2">
+                  <button onClick={handleAddExtension} disabled={extSubmitting} className="bg-red-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-900 disabled:opacity-50 cursor-pointer">
+                    {extSubmitting ? (t.creating || "Adding...") : (t.extAddCallout || "Add Callouts")}
+                  </button>
+                  <button onClick={() => setExtFormOpen(null)} className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 cursor-pointer">{t.cancel || "Cancel"}</button>
+                </div>
+              </div>
+            )}
+
+            {extFormOpen === "snippet" && (
+              <div className="mt-4 border-t border-gray-100 pt-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-gray-500">{t.extSnippetHeader || "Header"}:</label>
+                  <select
+                    value={snippetHeader}
+                    onChange={(e) => setSnippetHeader(e.target.value)}
+                    className="text-xs px-2 py-1 border border-gray-300 rounded outline-none bg-white"
+                  >
+                    {SNIPPET_HEADERS.map((h) => <option key={h} value={h}>{h}</option>)}
+                  </select>
+                </div>
+                <label className="block text-xs text-gray-500">{t.extSnippetLabel || "Values (one per line, 3-10 total, ≤25 chars each)"}</label>
+                <textarea
+                  value={snippetValues}
+                  onChange={(e) => setSnippetValues(e.target.value)}
+                  rows={4}
+                  placeholder={"SEO\nPPC management\nEmail marketing"}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-red-500"
+                />
+                {extError && <pre className="text-xs text-red-600 bg-red-50 p-2 rounded whitespace-pre-wrap break-all">{extError}</pre>}
+                <div className="flex gap-2">
+                  <button onClick={handleAddExtension} disabled={extSubmitting} className="bg-red-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-900 disabled:opacity-50 cursor-pointer">
+                    {extSubmitting ? (t.creating || "Adding...") : (t.extAddSnippet || "Add Snippet")}
+                  </button>
+                  <button onClick={() => setExtFormOpen(null)} className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 cursor-pointer">{t.cancel || "Cancel"}</button>
                 </div>
               </div>
             )}

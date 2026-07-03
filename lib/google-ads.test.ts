@@ -11,6 +11,9 @@ import {
   channelSupportsDeviceModifiers,
   validateSitelinkInput,
   channelSupportsSitelinks,
+  validateCalloutInput,
+  validateStructuredSnippetInput,
+  channelSupportsTextExtensions,
   type SitelinkInput,
   type CreateAssetGroupInput,
   type CreateConversionActionInput,
@@ -468,6 +471,75 @@ describe("channelSupportsSitelinks", () => {
     expect(channelSupportsSitelinks("SEARCH")).toBe(true);
     for (const ch of ["DISPLAY", "SHOPPING", "VIDEO", "PERFORMANCE_MAX", ""]) {
       expect(channelSupportsSitelinks(ch)).toBe(false);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateCalloutInput + validateStructuredSnippetInput (extensions)
+// ---------------------------------------------------------------------------
+
+describe("validateCalloutInput", () => {
+  it("accepts typical callouts", () => {
+    const result = validateCalloutInput(["Free shipping", "24/7 support", "Price match"]);
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("rejects an empty batch", () => {
+    expect(validateCalloutInput([]).valid).toBe(false);
+  });
+
+  it("rejects empty or overlong texts", () => {
+    expect(validateCalloutInput([""]).valid).toBe(false);
+    expect(validateCalloutInput(["x".repeat(26)]).valid).toBe(false);
+  });
+
+  it("rejects duplicates (case-insensitive)", () => {
+    const result = validateCalloutInput(["Free shipping", "free SHIPPING"]);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes("duplicate"))).toBe(true);
+  });
+
+  it("rejects more than 20 callouts", () => {
+    expect(validateCalloutInput(Array.from({ length: 21 }, (_, i) => `Callout ${i}`)).valid).toBe(false);
+  });
+});
+
+describe("validateStructuredSnippetInput", () => {
+  it("accepts a valid snippet", () => {
+    const result = validateStructuredSnippetInput({ header: "Service catalog", values: ["SEO", "PPC", "Email"] });
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("rejects unknown headers", () => {
+    const result = validateStructuredSnippetInput({ header: "Snacks" as never, values: ["a", "b", "c"] });
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes("header must be one of"))).toBe(true);
+  });
+
+  it("rejects fewer than 3 values (blank values don't count)", () => {
+    expect(validateStructuredSnippetInput({ header: "Brands", values: ["a", "b"] }).valid).toBe(false);
+    expect(validateStructuredSnippetInput({ header: "Brands", values: ["a", "b", "  "] }).valid).toBe(false);
+  });
+
+  it("rejects more than 10 values", () => {
+    const values = Array.from({ length: 11 }, (_, i) => `V${i}`);
+    expect(validateStructuredSnippetInput({ header: "Brands", values }).valid).toBe(false);
+  });
+
+  it("rejects overlong or duplicate values", () => {
+    expect(validateStructuredSnippetInput({ header: "Brands", values: ["a", "b", "x".repeat(26)] }).valid).toBe(false);
+    expect(validateStructuredSnippetInput({ header: "Brands", values: ["Acme", "acme", "Other"] }).valid).toBe(false);
+  });
+});
+
+describe("channelSupportsTextExtensions", () => {
+  it("mirrors the sitelink rule (SEARCH only)", () => {
+    expect(channelSupportsTextExtensions("SEARCH")).toBe(true);
+    for (const ch of ["DISPLAY", "SHOPPING", "VIDEO", "PERFORMANCE_MAX", ""]) {
+      expect(channelSupportsTextExtensions(ch)).toBe(false);
     }
   });
 });

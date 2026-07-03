@@ -346,6 +346,10 @@ export interface CampaignDetail {
   deviceModifiers: Array<{ resourceName: string; device: string; bidModifier: number }>;
   /** Sitelink extensions attached to the campaign. resourceName = campaign_asset link (for removal). */
   sitelinks: Array<{ resourceName: string; linkText: string; finalUrl: string; description1: string; description2: string }>;
+  /** Callout extensions. resourceName = campaign_asset link. */
+  callouts: Array<{ resourceName: string; text: string }>;
+  /** Structured snippet extensions. resourceName = campaign_asset link. */
+  structuredSnippets: Array<{ resourceName: string; header: string; values: string[] }>;
   ads: Array<{
     resourceName: string;
     status: string;
@@ -726,6 +730,36 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
     }))
     .filter((s) => s.linkText && s.resourceName);
 
+  // Callout + structured snippet extensions
+  type CalloutRow = { campaignAsset: { resourceName?: string }; asset?: { calloutAsset?: { calloutText?: string } } };
+  const calloutRows = await adsSearchStream(customerId, `
+    SELECT campaign_asset.resource_name, asset.callout_asset.callout_text
+    FROM campaign_asset
+    WHERE campaign.id = ${numericCampaignId} AND campaign_asset.field_type = CALLOUT
+      AND campaign_asset.status != 'REMOVED'
+  `).catch(() => []) as CalloutRow[];
+  const callouts = calloutRows
+    .map((r) => ({
+      resourceName: r.campaignAsset.resourceName || "",
+      text: r.asset?.calloutAsset?.calloutText || "",
+    }))
+    .filter((c) => c.text && c.resourceName);
+
+  type SnippetRow = { campaignAsset: { resourceName?: string }; asset?: { structuredSnippetAsset?: { header?: string; values?: string[] } } };
+  const snippetRows = await adsSearchStream(customerId, `
+    SELECT campaign_asset.resource_name, asset.structured_snippet_asset.header, asset.structured_snippet_asset.values
+    FROM campaign_asset
+    WHERE campaign.id = ${numericCampaignId} AND campaign_asset.field_type = STRUCTURED_SNIPPET
+      AND campaign_asset.status != 'REMOVED'
+  `).catch(() => []) as SnippetRow[];
+  const structuredSnippets = snippetRows
+    .map((r) => ({
+      resourceName: r.campaignAsset.resourceName || "",
+      header: r.asset?.structuredSnippetAsset?.header || "",
+      values: r.asset?.structuredSnippetAsset?.values || [],
+    }))
+    .filter((s) => s.header && s.resourceName);
+
   // Ads — query fields for all common ad types (search / video / demand gen)
   type TextRow = { text: string };
   type AssetRef = { asset: string };
@@ -879,6 +913,8 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
     adSchedules,
     deviceModifiers,
     sitelinks,
+    callouts,
+    structuredSnippets,
     ads,
   };
 }
@@ -2386,6 +2422,138 @@ export async function removeCampaignSitelink(
   if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
 
   if (!/^customers\/\d+\/campaignAssets\/\d+~\d+~SITELINK$/.test(campaignAssetResourceName)) {
+    return { success: false, error: "Invalid campaign asset resource name" };
+  }
+
+  const res = await adsMutate(customerId, "campaignAssets:mutate", {
+    operations: [{ remove: campaignAssetResourceName }],
+  });
+  if (res.status !== 200) return { success: false, error: res.data };
+  return { success: true };
+}
+
+// ---------------------------------------------------------------------------
+// Callout + structured snippet extensions (campaign assets)
+// ---------------------------------------------------------------------------
+
+/** Google's fixed set of structured-snippet headers (API expects the EN text). */
+export const STRUCTURED_SNIPPET_HEADERS = [
+  "Amenities", "Brands", "Courses", "Degree programs", "Destinations",
+  "Featured hotels", "Insurance coverage", "Models", "Neighborhoods",
+  "Service catalog", "Shows", "Styles", "Types",
+] as const;
+export type StructuredSnippetHeader = (typeof STRUCTURED_SNIPPET_HEADERS)[number];
+
+export interface StructuredSnippetInput {
+  header: StructuredSnippetHeader;
+  /** 3-10 values, each ≤25 chars. */
+  values: string[];
+}
+
+/** Callouts and snippets ride the same SEARCH-only rule as sitelinks. */
+export function channelSupportsTextExtensions(channelType: string): boolean {
+  return channelSupportsSitelinks(channelType);
+}
+
+/** Pure validation for callout texts — unit-tested. */
+export function validateCalloutInput(texts: string[]): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  if (!Array.isArray(texts) || texts.length === 0) {
+    return { valid: false, errors: ["At least one callout is required."] };
+  }
+  if (texts.length > 20) errors.push("At most 20 callouts per batch.");
+  const seen = new Set<string>();
+  texts.forEach((raw, i) => {
+    const text = (raw || "").trim();
+    const label = `callouts[${i}]`;
+    if (!text) errors.push(`${label}: text is required.`);
+    else if (text.length > 25) errors.push(`${label}: text must be ≤25 characters.`);
+    else if (seen.has(text.toLowerCase())) errors.push(`${label}: duplicate "${text}".`);
+    else seen.add(text.toLowerCase());
+  });
+  return { valid: errors.length === 0, errors };
+}
+
+/** Pure validation for a structured snippet — unit-tested. */
+export function validateStructuredSnippetInput(input: StructuredSnippetInput): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  if (!STRUCTURED_SNIPPET_HEADERS.includes(input.header)) {
+    errors.push(`header must be one of: ${STRUCTURED_SNIPPET_HEADERS.join(", ")}`);
+  }
+  const values = (input.values || []).map((v) => (v || "").trim()).filter(Boolean);
+  if (values.length < 3) errors.push("At least 3 values required (Google's minimum).");
+  if (values.length > 10) errors.push("At most 10 values allowed.");
+  const seen = new Set<string>();
+  values.forEach((v, i) => {
+    if (v.length > 25) errors.push(`values[${i}]: must be ≤25 characters.`);
+    else if (seen.has(v.toLowerCase())) errors.push(`values[${i}]: duplicate "${v}".`);
+    else seen.add(v.toLowerCase());
+  });
+  return { valid: errors.length === 0, errors };
+}
+
+/** Create callout assets and attach them to a campaign. */
+export async function createCampaignCallouts(
+  campaignResourceName: string,
+  texts: string[]
+): Promise<{ created: number; error?: unknown }> {
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
+  if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
+
+  const validation = validateCalloutInput(texts);
+  if (!validation.valid) return { created: 0, error: validation.errors.join(" ") };
+
+  const assetRes = await adsMutate(customerId, "assets:mutate", {
+    operations: texts.map((t) => ({ create: { calloutAsset: { calloutText: t.trim() } } })),
+  });
+  if (assetRes.status !== 200) return { created: 0, error: assetRes.data };
+  const assetNames = ((assetRes.data as { results?: Array<{ resourceName?: string }> })?.results || [])
+    .map((r) => r.resourceName)
+    .filter(Boolean) as string[];
+
+  const linkRes = await adsMutate(customerId, "campaignAssets:mutate", {
+    operations: assetNames.map((asset) => ({
+      create: { campaign: campaignResourceName, asset, fieldType: "CALLOUT" },
+    })),
+  });
+  if (linkRes.status !== 200) return { created: 0, error: linkRes.data };
+  return { created: assetNames.length };
+}
+
+/** Create one structured-snippet asset and attach it to a campaign. */
+export async function createCampaignStructuredSnippet(
+  campaignResourceName: string,
+  input: StructuredSnippetInput
+): Promise<{ created: number; error?: unknown }> {
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
+  if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
+
+  const validation = validateStructuredSnippetInput(input);
+  if (!validation.valid) return { created: 0, error: validation.errors.join(" ") };
+
+  const values = input.values.map((v) => v.trim()).filter(Boolean);
+  const assetRes = await adsMutate(customerId, "assets:mutate", {
+    operations: [{ create: { structuredSnippetAsset: { header: input.header, values } } }],
+  });
+  if (assetRes.status !== 200) return { created: 0, error: assetRes.data };
+  const assetName = (assetRes.data as { results?: Array<{ resourceName?: string }> })?.results?.[0]?.resourceName;
+  if (!assetName) return { created: 0, error: "Asset created but no resource name returned" };
+
+  const linkRes = await adsMutate(customerId, "campaignAssets:mutate", {
+    operations: [{ create: { campaign: campaignResourceName, asset: assetName, fieldType: "STRUCTURED_SNIPPET" } }],
+  });
+  if (linkRes.status !== 200) return { created: 0, error: linkRes.data };
+  return { created: 1 };
+}
+
+/** Detach a callout or structured-snippet from a campaign (asset kept for reuse). */
+export async function removeCampaignExtensionAsset(
+  campaignAssetResourceName: string
+): Promise<{ success: boolean; error?: unknown }> {
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
+  if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
+
+  if (!/^customers\/\d+\/campaignAssets\/\d+~\d+~(CALLOUT|STRUCTURED_SNIPPET)$/.test(campaignAssetResourceName)) {
     return { success: false, error: "Invalid campaign asset resource name" };
   }
 

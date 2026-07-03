@@ -640,3 +640,13 @@ First slice of the Section 6 "asset library / extensions" gap: sitelinks, the hi
 - Detail page: "🔗 Sitelinks" card (SEARCH campaigns) — list with link text / URL / descriptions and per-row remove, add form seeded with 2 rows (Google needs ≥2 to serve, hint shown when empty).
 - `lib/google-ads.test.ts` — 10 new test cases. i18n: 12 keys × 4 locales.
 - Other extension types (callouts, structured snippets, calls) follow the same asset + campaign_asset pattern — cheap follow-ups now that the plumbing exists.
+
+### 2026-07-03 — callouts + structured snippets (this PR)
+
+The promised cheap follow-up to sitelinks — same asset → campaign_asset plumbing, two more extension types.
+
+- `lib/google-ads.ts` — `createCampaignCallouts()` (callout assets, ≤25 chars, case-insensitive dedupe, ≤20/batch), `createCampaignStructuredSnippet()` (fixed EN header enum from Google's 13 allowed values; 3-10 values ≤25 chars each), `removeCampaignExtensionAsset()` (regex-validated `…~(CALLOUT|STRUCTURED_SNIPPET)`; detach-only, assets kept), `channelSupportsTextExtensions()` (aliases the sitelink SEARCH-only rule). `fetchCampaignDetail()` returns `callouts` + `structuredSnippets`.
+- `app/api/google-ads/campaigns/[id]/extensions/route.ts` — single route, `POST { kind: "callout" | "snippet", … }` / `DELETE { resourceName }`, same double ownership check as sitelinks.
+- Detail page: "📣 Callouts & Snippets" card — callout chips (emerald) + snippet rows (`Header: v1 · v2 · v3`), two add forms (textarea one-per-line for callouts; header select + values textarea for snippets), per-item remove.
+- `lib/google-ads.test.ts` — 11 new test cases. i18n: 10 keys × 4 locales.
+- With sitelinks + callouts + snippets shipped, the high-value half of "extensions" is done; call/price/promotion extensions deferred until user pull.
