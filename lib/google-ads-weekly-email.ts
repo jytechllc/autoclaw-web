@@ -64,7 +64,7 @@ const LABELS = {
     recs: "AI recommendations waiting for your approval",
     recsHint: "Open the campaign and tap “Approve & Apply” — AutoClaw does the rest.",
     cta: "Open dashboard",
-    footer: "You receive this weekly summary because you own this AutoClaw organization.",
+    footer: "You receive this weekly summary because you own this AutoClaw organization. Turn it off anytime from the Google Ads dashboard (Weekly report toggle).",
   },
   zh: {
     subject: (org: string, spend: string, conv: number) =>
@@ -82,7 +82,7 @@ const LABELS = {
     recs: "AI 建议正在等你一键同意",
     recsHint: "打开广告系列，点“同意并应用”，剩下的 AutoClaw 帮你搞定。",
     cta: "打开控制台",
-    footer: "你收到这封周报是因为你是该 AutoClaw 组织的所有者。",
+    footer: "你收到这封周报是因为你是该 AutoClaw 组织的所有者。可随时在谷歌广告控制台用“每周战报”开关关闭。",
   },
 } as const;
 

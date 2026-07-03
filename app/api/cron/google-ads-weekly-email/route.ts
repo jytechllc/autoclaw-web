@@ -53,13 +53,17 @@ export async function GET(req: NextRequest) {
   const senderEmail = process.env.DIGEST_SENDER_EMAIL || "leo.liu@jytech.us";
   const senderName = "AutoClaw Reports";
 
-  // Orgs with google campaigns + their owner's email.
+  // Self-heal the opt-out column (mirrors lib/schema.sql — keep in sync).
+  await sql`ALTER TABLE organizations ADD COLUMN IF NOT EXISTS weekly_ads_digest BOOLEAN DEFAULT TRUE`;
+
+  // Orgs with google campaigns + their owner's email — opted-out orgs excluded.
   const orgRows = await sql`
     SELECT DISTINCT o.id AS org_id, o.name AS org_name, u.email AS owner_email
     FROM campaigns c
     JOIN organizations o ON o.id = c.org_id
     JOIN users u ON u.id = o.created_by
     WHERE c.platform = 'google' AND c.closed = false
+      AND COALESCE(o.weekly_ads_digest, TRUE) = TRUE
   `;
   const byOrg = new Map<number, { name: string; email: string }>();
   for (const r of orgRows) {

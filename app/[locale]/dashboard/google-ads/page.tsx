@@ -87,6 +87,45 @@ export default function GoogleAdsPage() {
   const [syncing, setSyncing] = useState(false);
   const [actioningId, setActioningId] = useState<number | null>(null);
 
+  // Weekly digest email preference (org-level)
+  const [digestEnabled, setDigestEnabled] = useState<boolean | null>(null);
+  const [digestSaving, setDigestSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/google-ads/digest-preference${activeOrg ? `?orgId=${activeOrg.id}` : ""}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancelled && d?.success) setDigestEnabled(Boolean(d.enabled));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeOrg?.id]);
+
+  async function toggleDigest() {
+    if (digestEnabled === null || digestSaving) return;
+    setDigestSaving(true);
+    try {
+      const res = await fetch("/api/google-ads/digest-preference", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: !digestEnabled, orgId: activeOrg?.id }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setDigestEnabled(Boolean(data.enabled));
+        setToast(data.enabled ? (t.digestOnToast || "Weekly report email on") : (t.digestOffToast || "Weekly report email off"));
+        setTimeout(() => setToast(""), 3000);
+      }
+    } catch {
+      /* leave state as-is */
+    }
+    setDigestSaving(false);
+  }
+
   // Import existing
   interface DiscoverCampaign {
     resourceName: string;
@@ -368,6 +407,16 @@ export default function GoogleAdsPage() {
             </Link>
             {!isReadOnly && (
               <>
+                {digestEnabled !== null && (
+                  <button
+                    onClick={toggleDigest}
+                    disabled={digestSaving}
+                    className="border border-gray-300 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition cursor-pointer disabled:opacity-50"
+                    title={t.digestTooltip || "Weekly Google Ads report email to the org owner"}
+                  >
+                    {digestEnabled ? "📧" : "🔕"} {t.digestWeekly || "Weekly report"}: {digestEnabled ? (t.digestOn || "On") : (t.digestOff || "Off")}
+                  </button>
+                )}
                 <Link
                   href={`/${locale}/dashboard/google-ads/wizard`}
                   className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:from-purple-700 hover:to-indigo-700 transition cursor-pointer"

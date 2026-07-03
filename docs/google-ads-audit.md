@@ -766,7 +766,18 @@ Completes the bid-modifier trio (device ✅, location ✅, schedule ✅) — "+2
 - ⏰ card: interval chips now colored by adjustment (+green/−amber) with the % inline; new "% Adjust bids" mode listing intervals with one % input each.
 - 5 new test cases. i18n: 2 keys × 4 locales.
 
-### 2026-07-03 — demographic bid modifiers (this PR)
+### 2026-07-03 — weekly digest opt-out (this PR)
+
+Closes the known limitation from the weekly-digest PR: orgs can now turn the Monday email off.
+
+- `organizations.weekly_ads_digest BOOLEAN DEFAULT TRUE` — in schema.sql (ALTER … IF NOT EXISTS, the file's established pattern) and self-healed by both the cron and the preference route. Cron filters with `COALESCE(weekly_ads_digest, TRUE)` so a missing column / NULL means on (default-on, opt-out).
+- New `GET/POST /api/google-ads/digest-preference` — org-scoped; POST readonly-gated + audit-logged; GET degrades to `enabled: true` if the column doesn't exist yet.
+- List page: 📧/🔕 "Weekly report: On/Off" toggle (hidden for read-only accounts). Email footer now tells the owner where to turn it off — the unsubscribe path is stated in the email itself.
+- No new pure logic → no new unit tests (route glue + one-column toggle). i18n: 6 keys × 4 locales.
+
+**With this, the no-real-account feature backlog is empty.** Everything remaining is externally gated: launch checklist + experiments (real account), asset deletion (product decision), per-org OAuth (leadership).
+
+### 2026-07-03 — demographic bid modifiers
 
 Completes the bid-modifier suite (device ✅, location ✅, schedule ✅, **demographics ✅**) — "+30% for 25-34, -50% for unknown gender" is now expressible.
 
