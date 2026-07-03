@@ -22,6 +22,7 @@ import {
   validateCallAssetInput,
   validatePromotionInput,
   validatePriceAssetInput,
+  validateAudienceModifiers,
   validateScheduleModifiers,
 } from "./google-ads";
 import { orderOrgsForCron } from "./google-ads-sync";
@@ -1017,5 +1018,41 @@ describe("validatePriceAssetInput", () => {
   it("validates prices and URLs per offering", () => {
     expect(validatePriceAssetInput({ ...base, offerings: [{ ...offering(0), price: 0 }, offering(1), offering(2)] }).valid).toBe(false);
     expect(validatePriceAssetInput({ ...base, offerings: [{ ...offering(0), finalUrl: "www.x.com" }, offering(1), offering(2)] }).valid).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateAudienceModifiers (demographic bid modifiers)
+// ---------------------------------------------------------------------------
+
+describe("validateAudienceModifiers", () => {
+  const crit = (n: number) => `customers/123/adGroupCriteria/45${n}~67${n}`;
+
+  it("accepts valid modifiers incl. boundary percents", () => {
+    expect(validateAudienceModifiers([
+      { criterionResourceName: crit(1), percent: -90 },
+      { criterionResourceName: crit(2), percent: 900 },
+      { criterionResourceName: crit(3), percent: 0 },
+    ])).toEqual({ valid: true, errors: [] });
+  });
+
+  it("rejects empty input and >50 modifiers", () => {
+    expect(validateAudienceModifiers([]).valid).toBe(false);
+    const many = Array.from({ length: 51 }, (_, i) => ({ criterionResourceName: crit(i), percent: 10 }));
+    expect(validateAudienceModifiers(many).valid).toBe(false);
+  });
+
+  it("rejects campaign-criterion resource names and malformed ids", () => {
+    expect(validateAudienceModifiers([{ criterionResourceName: "customers/123/campaignCriteria/45~67", percent: 10 }]).valid).toBe(false);
+    expect(validateAudienceModifiers([{ criterionResourceName: "adGroupCriteria/45~67", percent: 10 }]).valid).toBe(false);
+  });
+
+  it("rejects out-of-range percents and duplicates", () => {
+    expect(validateAudienceModifiers([{ criterionResourceName: crit(1), percent: -91 }]).valid).toBe(false);
+    expect(validateAudienceModifiers([{ criterionResourceName: crit(1), percent: 901 }]).valid).toBe(false);
+    expect(validateAudienceModifiers([
+      { criterionResourceName: crit(1), percent: 10 },
+      { criterionResourceName: crit(1), percent: 20 },
+    ]).valid).toBe(false);
   });
 });

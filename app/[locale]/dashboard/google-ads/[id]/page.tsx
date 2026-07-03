@@ -76,7 +76,7 @@ interface Detail {
   metrics: { impressions: number; clicks: number; costMicros: number; conversions: number; ctr: number; avgCpcMicros: number };
   dailyMetrics?: Array<{ date: string; impressions: number; clicks: number; costMicros: number; conversions: number }>;
   locations: Array<{ id: string; name: string; bidModifier?: number }>;
-  audiences: Array<{ category: string; label: string; negative: boolean; adGroupName: string; apiType: string; value: string }>;
+  audiences: Array<{ category: string; label: string; negative: boolean; adGroupName: string; apiType: string; value: string; resourceName: string; bidModifier?: number }>;
   adGroups: Array<{ resourceName: string; name: string; status: string; cpcBidMicros: number }>;
   assetGroups?: Array<{ resourceName: string; name: string; status: string; adStrength: string; primaryStatus: string; primaryStatusReasons: string[]; finalUrls: string[] }>;
   keywords: Array<{ text: string; matchType: string }>;
@@ -387,6 +387,52 @@ export default function CampaignDetailPage() {
 
   // Audiences edit (Phase 1: demographics only — AGE_RANGE / GENDER / PARENTAL_STATUS / INCOME_RANGE)
   const [editingAudiences, setEditingAudiences] = useState(false);
+  // Demographic bid modifiers ("% Adjust bids" mode on the audiences block)
+  const DEMOGRAPHIC_API_TYPES = ["AGE_RANGE", "GENDER", "PARENTAL_STATUS", "INCOME_RANGE"];
+  const [adjustingAudiences, setAdjustingAudiences] = useState(false);
+  const [audienceModRows, setAudienceModRows] = useState<Array<{ resourceName: string; label: string; category: string; adGroupName: string; percent: string }>>([]);
+  const [savingAudienceMods, setSavingAudienceMods] = useState(false);
+  const [audienceModError, setAudienceModError] = useState("");
+
+  function openAudienceAdjust() {
+    const rows = (detail?.audiences || [])
+      .filter((a) => !a.negative && a.resourceName && DEMOGRAPHIC_API_TYPES.includes(a.apiType))
+      .map((a) => ({
+        resourceName: a.resourceName,
+        label: a.label,
+        category: a.category,
+        adGroupName: a.adGroupName,
+        percent: a.bidModifier && a.bidModifier !== 1 ? String(Math.round((a.bidModifier - 1) * 100)) : "0",
+      }));
+    setAudienceModRows(rows);
+    setAudienceModError("");
+    setAdjustingAudiences(true);
+  }
+
+  async function handleSaveAudienceMods() {
+    setSavingAudienceMods(true);
+    setAudienceModError("");
+    const modifiers = audienceModRows.map((r) => ({ criterionResourceName: r.resourceName, percent: Number(r.percent) || 0 }));
+    try {
+      const res = await fetch(`/api/google-ads/campaigns/${campaignId}/audience-modifiers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ modifiers, orgId: activeOrg?.id }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setToast(t.updated || "Updated");
+        setAdjustingAudiences(false);
+        fetchData();
+        setTimeout(() => setToast(""), 4000);
+      } else {
+        setAudienceModError(typeof data.details === "string" ? data.details : (data.error || "Update failed"));
+      }
+    } catch (e) {
+      setAudienceModError(e instanceof Error ? e.message : "Update failed");
+    }
+    setSavingAudienceMods(false);
+  }
   const [editAudiences, setEditAudiences] = useState<DemoCriterion[]>([]);
   const [savingAudiences, setSavingAudiences] = useState(false);
 
@@ -2112,17 +2158,55 @@ export default function CampaignDetailPage() {
               <div className="text-sm pt-2 border-t border-gray-100">
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-gray-500">{t.audiences || "Audiences"}:</span>
-                  {canEdit && !editingAudiences && (
-                    <button
-                      onClick={openAudienceEdit}
-                      className="text-xs text-gray-400 hover:text-gray-700 cursor-pointer"
-                      title="Edit demographic audiences"
-                    >
-                      ✏️ Edit
-                    </button>
+                  {canEdit && !editingAudiences && !adjustingAudiences && (
+                    <span className="flex gap-2">
+                      {["SEARCH", "DISPLAY"].includes(detail?.channelType || "") &&
+                        (detail?.audiences || []).some((a) => !a.negative && a.resourceName && DEMOGRAPHIC_API_TYPES.includes(a.apiType)) && (
+                        <button
+                          onClick={openAudienceAdjust}
+                          className="text-xs text-gray-400 hover:text-gray-700 cursor-pointer"
+                          title={t.audModTooltip || "Adjust demographic bids"}
+                        >
+                          % {t.audModAdjust || "Adjust bids"}
+                        </button>
+                      )}
+                      <button
+                        onClick={openAudienceEdit}
+                        className="text-xs text-gray-400 hover:text-gray-700 cursor-pointer"
+                        title="Edit demographic audiences"
+                      >
+                        ✏️ Edit
+                      </button>
+                    </span>
                   )}
                 </div>
-                {!editingAudiences ? (
+                {adjustingAudiences ? (
+                  <div className="space-y-2 mt-2">
+                    <p className="text-[11px] text-gray-500">{t.audModHint || "Bid more or less when the searcher matches a demographic. -90 to +900; 0 = no adjustment."}</p>
+                    {audienceModRows.map((r, i) => (
+                      <div key={r.resourceName} className="flex items-center gap-2 text-xs flex-wrap">
+                        <span className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full">{r.label}</span>
+                        <span className="text-gray-400">{r.category}{r.adGroupName ? ` · ${r.adGroupName}` : ""}</span>
+                        <input
+                          type="number"
+                          min="-90"
+                          max="900"
+                          value={r.percent}
+                          onChange={(e) => setAudienceModRows((prev) => prev.map((row, j) => j === i ? { ...row, percent: e.target.value } : row))}
+                          className="w-20 px-2 py-1 border border-gray-300 rounded outline-none"
+                        />
+                        <span className="text-gray-400">%</span>
+                      </div>
+                    ))}
+                    {audienceModError && <pre className="text-xs text-red-600 bg-red-50 p-2 rounded whitespace-pre-wrap break-all">{audienceModError}</pre>}
+                    <div className="flex gap-2">
+                      <button onClick={handleSaveAudienceMods} disabled={savingAudienceMods} className="bg-red-800 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-red-900 disabled:opacity-50 cursor-pointer">
+                        {savingAudienceMods ? (t.creating || "Saving...") : (t.save || "Save")}
+                      </button>
+                      <button onClick={() => setAdjustingAudiences(false)} className="px-3 py-1.5 border border-gray-300 rounded-lg text-xs hover:bg-gray-50 cursor-pointer">{t.cancel || "Cancel"}</button>
+                    </div>
+                  </div>
+                ) : !editingAudiences ? (
                   detail?.audiences?.length ? (
                     <div className="space-y-1.5 mt-1">
                       {Object.entries(
@@ -2145,6 +2229,11 @@ export default function CampaignDetailPage() {
                                   title={a.adGroupName ? `Ad group: ${a.adGroupName}` : undefined}
                                 >
                                   {a.label}
+                                  {!a.negative && typeof a.bidModifier === "number" && a.bidModifier !== 1 && (
+                                    <span className={`ml-1 font-medium ${a.bidModifier > 1 ? "text-green-700" : "text-amber-700"}`}>
+                                      {a.bidModifier > 1 ? "+" : ""}{Math.round((a.bidModifier - 1) * 100)}%
+                                    </span>
+                                  )}
                                 </span>
                               ))}
                             </span>
