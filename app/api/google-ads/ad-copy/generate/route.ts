@@ -4,7 +4,7 @@ import { getDb } from "@/lib/db";
 import { isReadOnlyUserId } from "@/lib/roles-server";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { chatWithAI } from "@/lib/ai";
-import { extractInternalLinks, sanitizeGeneratedExtensions } from "../extensions";
+import { extractInternalLinks, sanitizeGeneratedExtensions, extractPageImages, sanitizePmaxCopy } from "../extensions";
 
 export const dynamic = "force-dynamic";
 
@@ -82,8 +82,8 @@ export async function POST(req: NextRequest) {
   if (!/^https?:\/\//i.test(url)) {
     return NextResponse.json({ error: "url must start with http:// or https://" }, { status: 400 });
   }
-  if (mode !== "copy" && mode !== "extensions") {
-    return NextResponse.json({ error: 'mode must be "copy" or "extensions"' }, { status: 400 });
+  if (mode !== "copy" && mode !== "extensions" && mode !== "pmax") {
+    return NextResponse.json({ error: 'mode must be "copy", "extensions", or "pmax"' }, { status: 400 });
   }
   if (mode === "copy" && !["SEARCH", "DISPLAY", "VIDEO"].includes(channel)) {
     return NextResponse.json({ error: "channel must be SEARCH, DISPLAY, or VIDEO" }, { status: 400 });
@@ -174,6 +174,77 @@ Generate the JSON now.`;
       return NextResponse.json({ error: "AI returned no usable extensions", raw: extRaw }, { status: 502 });
     }
     return NextResponse.json({ success: true, ...sanitized, pageTitle });
+  }
+
+  // --- mode "pmax": full asset-group creative bundle for the quick-start wizard ---
+  if (mode === "pmax") {
+    // Anti-hallucination: image URLs come ONLY from the real page — the LLM
+    // never sees or picks them. It only writes text.
+    const images = extractPageImages(html, url, 12);
+
+    const pmaxTargetLanguage = locale.startsWith("zh") ? "Chinese" : locale.startsWith("ko") ? "Korean" : "English";
+    const pmaxSystem = `You write Google Ads Performance Max creative. Output ONLY a single valid JSON object — no commentary, no code fences. Use the language of the landing page primarily; if unclear, use ${pmaxTargetLanguage}.
+
+Shape: { "campaignName": "...", "businessName": "...", "headlines": ["..."], "longHeadlines": ["..."], "descriptions": ["..."] }
+
+Hard constraints:
+- campaignName: ≤60 chars, human-readable, e.g. "<brand> PMax <offer>".
+- businessName: ≤25 chars. The brand/company running the ad.
+- headlines: 8-12 strings, each ≤30 chars, each a different angle (benefit, price/offer, urgency, brand, CTA, audience).
+- longHeadlines: 3-5 strings, each ≤90 chars.
+- descriptions: 4-5 strings, each ≤90 chars, AND at least one ≤60 chars.
+
+Style:
+- Action-oriented, benefit-led. Mirror the page's verifiable offer — never invent claims, prices, or guarantees not on the page.
+- No superlatives without basis, no excessive punctuation, no ALL CAPS words.`;
+    const pmaxUser = `Landing page URL: ${url}
+Page title: ${pageTitle || "(none)"}
+
+Page content (text excerpt):
+${pageText}
+
+Generate the JSON now.`;
+
+    let pmaxResponse;
+    try {
+      pmaxResponse = await chatWithAI(
+        [
+          { role: "system", content: pmaxSystem },
+          { role: "user", content: pmaxUser },
+        ],
+        1500,
+      );
+    } catch (e) {
+      return NextResponse.json({ error: `AI call failed: ${e instanceof Error ? e.message : String(e)}` }, { status: 502 });
+    }
+    const pmaxRaw = (pmaxResponse?.content || "").trim();
+    const pmaxMatch = pmaxRaw.match(/\{[\s\S]*\}/);
+    if (!pmaxMatch) {
+      return NextResponse.json({ error: "AI did not return valid JSON", raw: pmaxRaw }, { status: 502 });
+    }
+    let pmaxParsed: unknown;
+    try {
+      pmaxParsed = JSON.parse(pmaxMatch[0]);
+    } catch {
+      return NextResponse.json({ error: "Failed to parse AI JSON", raw: pmaxRaw }, { status: 502 });
+    }
+    const draft = sanitizePmaxCopy(pmaxParsed, pageTitle);
+
+    // Report Google minimums as warnings — the wizard UI lets the user fix gaps.
+    const pmaxWarnings: string[] = [];
+    if (draft.headlines.length < 3) pmaxWarnings.push("PMax needs at least 3 headlines");
+    if (draft.longHeadlines.length < 1) pmaxWarnings.push("PMax needs at least 1 long headline");
+    if (draft.descriptions.length < 2) pmaxWarnings.push("PMax needs at least 2 descriptions");
+    if (!draft.businessName) pmaxWarnings.push("PMax needs a business name");
+    if (images.length === 0) pmaxWarnings.push("No usable images found on the page");
+
+    return NextResponse.json({
+      success: true,
+      ...draft,
+      images,
+      pageTitle,
+      warnings: pmaxWarnings.length > 0 ? pmaxWarnings : undefined,
+    });
   }
 
   // Channel-specific guidance for the model. We always ask it to return the union of fields;

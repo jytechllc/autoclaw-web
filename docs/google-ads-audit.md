@@ -766,7 +766,19 @@ Completes the bid-modifier trio (device ✅, location ✅, schedule ✅) — "+2
 - ⏰ card: interval chips now colored by adjustment (+green/−amber) with the % inline; new "% Adjust bids" mode listing intervals with one % input each.
 - 5 new test cases. i18n: 2 keys × 4 locales.
 
-### 2026-07-03 — one-click apply for AI recommendations (this PR)
+### 2026-07-03 — PMax quick-start wizard (this PR)
+
+**The PMax-first novice onboarding flow the product directive asked for.** A small-business owner who knows nothing about Google Ads enters two things — their website URL and a budget — and AI drafts the entire Performance Max campaign. One approval click creates everything (PAUSED; enabling stays an explicit human act).
+
+- `ad-copy/generate` gains `mode: "pmax"` — one AI call returns the full asset-group creative bundle (campaignName, businessName, 8-12 headlines, 3-5 long headlines, 4-5 descriptions incl. one ≤60 chars), grounded in the fetched landing page, never inventing claims.
+- **Anti-hallucination for images:** the LLM never sees or picks image URLs. New pure `extractPageImages()` (twin of `extractInternalLinks()`) offers only images that really exist on the page — og:image/twitter:image metas, `<link rel="image_src">`, `<img src/data-src>` — absolutized, http(s)-only, SVG/GIF/ICO/pixel/favicon filtered, deduped, capped at 12. Pure `sanitizePmaxCopy()` clips/dedupes the text bundle (clip-only; Google minimums are reported as warnings, never silently padded).
+- New page `google-ads/wizard`: 3 steps — (1) URL + daily/total budget, (2) editable draft review with image pickers (aspect ratios measured client-side via naturalWidth/Height; 1.6-2.2 → landscape bucket, 0.8-1.25 → square; first qualifying image per bucket pre-selected, off-ratio picks flagged ⚠, manual URL fallback), (3) done screen explaining the PAUSED state.
+- Creation is pure orchestration of EXISTING hardened routes — `POST /campaigns` (credits reserve, markup, 402 insufficient-credits path surfaced with a top-up hint) then `POST /campaigns/[id]/asset-groups` (server-side `validateAssetGroupInput`). No new write surface added. Asset-group failure after campaign creation doesn't dead-end: the warning points the owner at the campaign page to finish there.
+- Read-only accounts are redirected away from the wizard (the underlying routes 403 anyway).
+- List page gets the purple 🚀 entry button. 9 new test cases. i18n: 26 keys × 4 locales.
+- Not in this PR: audience signals in the wizard (Google auto-broadens PMax without them; advisory only), location targeting step (defaults apply — editable on the detail page afterward), scheduled recommendation digests (next on this track).
+
+### 2026-07-03 — one-click apply for AI recommendations
 
 **Answers audit open question #4 with the actual product directive** (relayed by Shui Lin from leadership): target user is the novice SMB owner; the core interaction is *AI recommends → owner taps approve → platform executes and keeps tuning*. This PR builds the approve-and-execute half.
 

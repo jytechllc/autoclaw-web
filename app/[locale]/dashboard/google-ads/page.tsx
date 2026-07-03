@@ -368,6 +368,12 @@ export default function GoogleAdsPage() {
             </Link>
             {!isReadOnly && (
               <>
+                <Link
+                  href={`/${locale}/dashboard/google-ads/wizard`}
+                  className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:from-purple-700 hover:to-indigo-700 transition cursor-pointer"
+                >
+                  🚀 {t.wizardEntry || "PMax Quick Start"}
+                </Link>
                 <button
                   onClick={openImport}
                   className="border border-gray-300 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition cursor-pointer"
