@@ -59,6 +59,33 @@ export interface CampaignSnapshot {
   priorCost: number;
   recentConversions: number;
   priorConversions: number;
+  /** SEARCH only: top spend-without-conversion search terms (30d). Empty elsewhere. */
+  wastefulTerms?: WastefulTerm[];
+}
+
+export interface WastefulTerm {
+  term: string;
+  clicks: number;
+  cost: number;       // currency units
+  conversions: number;
+}
+
+/** Pick the terms burning money without converting: conversions === 0,
+ *  ranked by cost desc, only terms with actual spend. Pure — unit-tested. */
+export function selectWastefulTerms(
+  terms: Array<{ term: string; clicks: number; costMicros: number; conversions: number }>,
+  max = 5
+): WastefulTerm[] {
+  return terms
+    .filter((t) => t.conversions === 0 && t.costMicros > 0)
+    .sort((a, b) => b.costMicros - a.costMicros)
+    .slice(0, Math.max(0, max))
+    .map((t) => ({
+      term: t.term,
+      clicks: t.clicks,
+      cost: t.costMicros / 1_000_000,
+      conversions: 0,
+    }));
 }
 
 function pct(n: number): string {
@@ -99,6 +126,7 @@ Rules:
 - title ≤ 60 chars. rationale ≤ 240 chars, cites the specific metric that motivates it. action ≤ 160 chars, a single concrete step.
 - metric (optional) is the KPI the change should move (e.g. "CTR", "CPA", "Conversions", "CPC").
 - Base advice ONLY on the data given. If conversion tracking looks absent (0 conversions with meaningful clicks), recommend setting up conversion tracking rather than guessing at CPA.
+- If wasteful search terms are listed, include a KEYWORD recommendation naming the worst offenders and advising to add them as negative keywords (the UI has a one-click button for this).
 - Never invent competitor data, auction insights, or numbers not provided.
 - Write titles, rationale and action in ${targetLanguage}.`;
 
@@ -126,7 +154,10 @@ Structure:
 - Ads: ${s.adCount}
 - Locations targeted: ${s.locationCount}
 - Audience signals: ${s.audienceCount}
-
+${s.wastefulTerms && s.wastefulTerms.length > 0 ? `
+Wasteful search terms (30d, spend with ZERO conversions — candidates for negative keywords):
+${s.wastefulTerms.map((w) => `- "${w.term}": ${w.clicks} clicks, ${money(w.cost, s.currency)}, 0 conversions`).join("\n")}
+` : ""}
 Generate the JSON now.`;
 
   return { system, user };

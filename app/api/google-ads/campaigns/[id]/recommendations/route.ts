@@ -3,11 +3,12 @@ import { auth0 } from "@/lib/auth0";
 import { getDb } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { fetchCampaignDetail } from "@/lib/google-ads";
+import { fetchCampaignDetail, fetchSearchTerms } from "@/lib/google-ads";
 import { resolveOrgId } from "@/lib/credits";
 import { chatWithAI } from "@/lib/ai";
 import {
   buildRecommendationsPrompt,
+  selectWastefulTerms,
   RECOMMENDATION_CATEGORIES,
   RECOMMENDATION_PRIORITIES,
   type CampaignSnapshot,
@@ -127,6 +128,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     recentConversions: sumSlice(daily, daily.length - 7, daily.length, "conversions"),
     priorConversions: sumSlice(daily, daily.length - 14, daily.length - 7, "conversions"),
   };
+
+  // SEARCH campaigns: surface money-burning search terms so KEYWORD advice
+  // can name real offenders. Best-effort — the report must not block recs.
+  if ((snapshot.channel || "").toUpperCase() === "SEARCH") {
+    try {
+      const terms = await fetchSearchTerms(c.platform_campaign_id as string, 100);
+      snapshot.wastefulTerms = selectWastefulTerms(terms, 5);
+    } catch {
+      /* search_term_view can be slow/unavailable — proceed without it */
+    }
+  }
 
   const { system, user } = buildRecommendationsPrompt(snapshot, locale);
 
