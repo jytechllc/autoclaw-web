@@ -1600,6 +1600,8 @@ const en = {
     schedPresetBusiness: "Mon–Fri 9–18",
     schedClear: "Clear (run at all times)",
     schedAddInterval: "Add interval",
+    schedModBids: "Adjust bids",
+    schedModHint: "Note: editing the schedule intervals themselves resets these adjustments.",
     exportCsv: "Export CSV",
     devSection: "Device Bid Adjustments",
     devDefault: "default",

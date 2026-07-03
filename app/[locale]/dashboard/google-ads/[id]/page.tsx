@@ -82,7 +82,7 @@ interface Detail {
   keywords: Array<{ text: string; matchType: string }>;
   bidding?: { strategyType: string; targetCpaMicros: number; targetRoas: number };
   negativeKeywords?: Array<{ resourceName: string; text: string; matchType: string }>;
-  adSchedules?: Array<{ resourceName: string; dayOfWeek: string; startHour: number; endHour: number }>;
+  adSchedules?: Array<{ resourceName: string; dayOfWeek: string; startHour: number; endHour: number; bidModifier: number }>;
   deviceModifiers?: Array<{ resourceName: string; device: string; bidModifier: number }>;
   sitelinks?: Array<{ resourceName: string; linkText: string; finalUrl: string; description1: string; description2: string }>;
   callouts?: Array<{ resourceName: string; text: string }>;
@@ -1110,6 +1110,50 @@ export default function CampaignDetailPage() {
       setLocModError(e instanceof Error ? e.message : "Update failed");
     }
     setSavingLocMods(false);
+  }
+
+  // Ad-schedule interval bid modifiers
+  type SchedModRow = { resourceName: string; label: string; percent: number };
+  const [editingSchedMods, setEditingSchedMods] = useState(false);
+  const [schedModRows, setSchedModRows] = useState<SchedModRow[]>([]);
+  const [savingSchedMods, setSavingSchedMods] = useState(false);
+  const [schedModError, setSchedModError] = useState("");
+
+  function openSchedModEditor() {
+    setSchedModRows((detail?.adSchedules || []).map((s) => ({
+      resourceName: s.resourceName,
+      label: `${DAY_SHORT[s.dayOfWeek] || s.dayOfWeek} ${fmtHour(s.startHour)}–${fmtHour(s.endHour)}`,
+      percent: Math.round(((s.bidModifier ?? 1) - 1) * 100),
+    })));
+    setSchedModError("");
+    setEditingSchedMods(true);
+  }
+
+  async function handleSaveSchedMods() {
+    setSavingSchedMods(true);
+    setSchedModError("");
+    try {
+      const res = await fetch(`/api/google-ads/campaigns/${campaignId}/schedule-modifiers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          modifiers: schedModRows.map((r) => ({ criterionResourceName: r.resourceName, percent: r.percent })),
+          orgId: activeOrg?.id,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setToast(t.updated || "Updated");
+        setEditingSchedMods(false);
+        fetchData();
+        setTimeout(() => setToast(""), 4000);
+      } else {
+        setSchedModError(typeof data.details === "string" ? data.details : (data.error || "Update failed"));
+      }
+    } catch (e) {
+      setSchedModError(e instanceof Error ? e.message : "Update failed");
+    }
+    setSavingSchedMods(false);
   }
 
   // AI generation for sitelinks + callouts (uses the owner project's website)
@@ -2733,28 +2777,77 @@ export default function CampaignDetailPage() {
               <h2 className="text-sm font-semibold text-gray-700">
                 ⏰ {t.schedSection || "Ad Schedule"} {(detail.adSchedules?.length || 0) > 0 ? `(${detail.adSchedules?.length})` : ""}
               </h2>
-              {canEdit && !editingSchedule && (
-                <button
-                  onClick={openScheduleEditor}
-                  className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer"
-                >
-                  ✏️ {t.schedEdit || "Edit"}
-                </button>
+              {canEdit && !editingSchedule && !editingSchedMods && (
+                <div className="flex gap-2">
+                  {(detail.adSchedules?.length || 0) > 0 && (
+                    <button
+                      onClick={openSchedModEditor}
+                      className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer"
+                    >
+                      % {t.schedModBids || "Adjust bids"}
+                    </button>
+                  )}
+                  <button
+                    onClick={openScheduleEditor}
+                    className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer"
+                  >
+                    ✏️ {t.schedEdit || "Edit"}
+                  </button>
+                </div>
               )}
             </div>
 
-            {!editingSchedule && (
+            {!editingSchedule && !editingSchedMods && (
               (detail.adSchedules?.length || 0) === 0 ? (
                 <p className="text-xs text-gray-400">{t.schedAllTimes || "Running at all times. Add intervals to only serve on specific days/hours."}</p>
               ) : (
                 <div className="flex flex-wrap gap-1.5">
-                  {(detail.adSchedules || []).map((s) => (
-                    <span key={s.resourceName} className="px-2 py-0.5 bg-sky-50 text-sky-700 text-xs rounded-full">
-                      {DAY_SHORT[s.dayOfWeek] || s.dayOfWeek} {fmtHour(s.startHour)}–{fmtHour(s.endHour)}
-                    </span>
-                  ))}
+                  {(detail.adSchedules || []).map((s) => {
+                    const pct = Math.round(((s.bidModifier ?? 1) - 1) * 100);
+                    return (
+                      <span
+                        key={s.resourceName}
+                        className={`px-2 py-0.5 text-xs rounded-full ${
+                          pct > 0 ? "bg-green-50 text-green-700" : pct < 0 ? "bg-amber-50 text-amber-700" : "bg-sky-50 text-sky-700"
+                        }`}
+                      >
+                        {DAY_SHORT[s.dayOfWeek] || s.dayOfWeek} {fmtHour(s.startHour)}–{fmtHour(s.endHour)}{pct !== 0 ? ` ${pct > 0 ? "+" : ""}${pct}%` : ""}
+                      </span>
+                    );
+                  })}
                 </div>
               )
+            )}
+
+            {editingSchedMods && (
+              <div className="space-y-3">
+                <p className="text-xs text-gray-400">{t.schedModHint || "Note: editing the schedule intervals themselves resets these adjustments."}</p>
+                {schedModRows.map((row, i) => (
+                  <div key={row.resourceName} className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-gray-700 min-w-32">{row.label}</span>
+                    <input
+                      type="number" min="-90" max="900" step="1"
+                      value={row.percent}
+                      onChange={(e) => setSchedModRows(schedModRows.map((r, j) => j === i ? { ...r, percent: Number(e.target.value) } : r))}
+                      className="text-xs px-2 py-1 border border-gray-300 rounded outline-none w-20"
+                    />
+                    <span className="text-xs text-gray-400">% (−90 … +900, 0 = {t.devDefault || "default"})</span>
+                  </div>
+                ))}
+                {schedModError && <pre className="text-xs text-red-600 bg-red-50 p-2 rounded whitespace-pre-wrap break-all">{schedModError}</pre>}
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleSaveSchedMods}
+                    disabled={savingSchedMods}
+                    className="bg-red-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-900 disabled:opacity-50 cursor-pointer"
+                  >
+                    {savingSchedMods ? (t.creating || "Saving...") : (t.save || "Save")}
+                  </button>
+                  <button onClick={() => setEditingSchedMods(false)} className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 cursor-pointer">
+                    {t.cancel || "Cancel"}
+                  </button>
+                </div>
+              </div>
             )}
 
             {editingSchedule && (
