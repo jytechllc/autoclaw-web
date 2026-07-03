@@ -737,3 +737,7 @@ Slice 2's safe half: attaching an existing asset to another campaign (the whole 
 - `POST /api/google-ads/assets/attach` — read-only-gated, campaign ownership + same-customer asset check, SEARCH-channel campaigns only (same rule as extensions).
 - Asset library page: per-asset "+ Attach" (attachable types only, hidden for viewers) with an open-SEARCH-campaign picker; usage counts refresh after attach.
 - `lib/google-ads.test.ts` — 2 new test cases. i18n: 4 keys × 4 locales.
+
+### 2026-07-03 — launch verification checklist (this PR)
+
+Docs only, but it IS the critical path: every Google Ads API call from this sprint was written against docs and verified by unit tests — none has executed against a live account. `docs/google-ads-launch-checklist.md` is the end-to-end acceptance script (env prerequisites, connectivity smoke, per-feature steps with expected results on both AutoClaw and Google UI sides, permission probes incl. direct-API 403 checks, cron/ledger observation incl. watching auto-pause fire once on real spend). Flags the two likeliest live-mismatch spots (Smart Bidding oneof update masks, structured-snippet header strings). Expected outcome of running it: 2–5 small `fix:` PRs, then launch.
