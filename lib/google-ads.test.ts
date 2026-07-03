@@ -9,6 +9,9 @@ import {
   channelSupportsAdSchedule,
   validateDeviceModifiers,
   channelSupportsDeviceModifiers,
+  validateSitelinkInput,
+  channelSupportsSitelinks,
+  type SitelinkInput,
   type CreateAssetGroupInput,
   type CreateConversionActionInput,
 } from "./google-ads";
@@ -393,6 +396,79 @@ describe("channelSupportsAdSchedule", () => {
     expect(channelSupportsAdSchedule("PERFORMANCE_MAX")).toBe(false);
     expect(channelSupportsAdSchedule("DEMAND_GEN")).toBe(false);
     expect(channelSupportsAdSchedule("")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateSitelinkInput (sitelink extensions)
+// ---------------------------------------------------------------------------
+
+function validSitelink(overrides: Partial<SitelinkInput> = {}): SitelinkInput {
+  return { linkText: "Pricing", finalUrl: "https://acme.example.com/pricing", ...overrides };
+}
+
+describe("validateSitelinkInput", () => {
+  it("accepts a minimal sitelink", () => {
+    const result = validateSitelinkInput([validSitelink()]);
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("accepts paired descriptions", () => {
+    const result = validateSitelinkInput([
+      validSitelink({ description1: "See all plans", description2: "Free tier available" }),
+    ]);
+    expect(result.valid).toBe(true);
+  });
+
+  it("rejects an empty batch", () => {
+    expect(validateSitelinkInput([]).valid).toBe(false);
+  });
+
+  it("rejects missing or overlong link text", () => {
+    expect(validateSitelinkInput([validSitelink({ linkText: "" })]).valid).toBe(false);
+    expect(validateSitelinkInput([validSitelink({ linkText: "x".repeat(26) })]).valid).toBe(false);
+  });
+
+  it("rejects duplicate link text (case-insensitive)", () => {
+    const result = validateSitelinkInput([
+      validSitelink({ linkText: "Pricing" }),
+      validSitelink({ linkText: "pricing", finalUrl: "https://other.example.com" }),
+    ]);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes("duplicate"))).toBe(true);
+  });
+
+  it("rejects non-http(s) URLs", () => {
+    expect(validateSitelinkInput([validSitelink({ finalUrl: "ftp://x.com" })]).valid).toBe(false);
+    expect(validateSitelinkInput([validSitelink({ finalUrl: "" })]).valid).toBe(false);
+  });
+
+  it("rejects a lone description", () => {
+    const result = validateSitelinkInput([validSitelink({ description1: "only one" })]);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes("both or neither"))).toBe(true);
+  });
+
+  it("rejects overlong descriptions", () => {
+    const result = validateSitelinkInput([
+      validSitelink({ description1: "x".repeat(36), description2: "ok" }),
+    ]);
+    expect(result.valid).toBe(false);
+  });
+
+  it("rejects more than 20 sitelinks", () => {
+    const batch = Array.from({ length: 21 }, (_, i) => validSitelink({ linkText: `Link ${i}` }));
+    expect(validateSitelinkInput(batch).valid).toBe(false);
+  });
+});
+
+describe("channelSupportsSitelinks", () => {
+  it("allows SEARCH only", () => {
+    expect(channelSupportsSitelinks("SEARCH")).toBe(true);
+    for (const ch of ["DISPLAY", "SHOPPING", "VIDEO", "PERFORMANCE_MAX", ""]) {
+      expect(channelSupportsSitelinks(ch)).toBe(false);
+    }
   });
 });
 

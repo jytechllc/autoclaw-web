@@ -344,6 +344,8 @@ export interface CampaignDetail {
   adSchedules: Array<{ resourceName: string; dayOfWeek: string; startHour: number; endHour: number }>;
   /** Device bid adjustments. bidModifier 0 = excluded; empty = defaults. */
   deviceModifiers: Array<{ resourceName: string; device: string; bidModifier: number }>;
+  /** Sitelink extensions attached to the campaign. resourceName = campaign_asset link (for removal). */
+  sitelinks: Array<{ resourceName: string; linkText: string; finalUrl: string; description1: string; description2: string }>;
   ads: Array<{
     resourceName: string;
     status: string;
@@ -702,6 +704,28 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
     }))
     .filter((d) => d.device);
 
+  // Sitelink extensions (campaign assets)
+  type SitelinkRow = {
+    campaignAsset: { resourceName?: string };
+    asset?: { finalUrls?: string[]; sitelinkAsset?: { linkText?: string; description1?: string; description2?: string } };
+  };
+  const sitelinkRows = await adsSearchStream(customerId, `
+    SELECT campaign_asset.resource_name, asset.final_urls,
+           asset.sitelink_asset.link_text, asset.sitelink_asset.description1, asset.sitelink_asset.description2
+    FROM campaign_asset
+    WHERE campaign.id = ${numericCampaignId} AND campaign_asset.field_type = SITELINK
+      AND campaign_asset.status != 'REMOVED'
+  `).catch(() => []) as SitelinkRow[];
+  const sitelinks = sitelinkRows
+    .map((r) => ({
+      resourceName: r.campaignAsset.resourceName || "",
+      linkText: r.asset?.sitelinkAsset?.linkText || "",
+      finalUrl: r.asset?.finalUrls?.[0] || "",
+      description1: r.asset?.sitelinkAsset?.description1 || "",
+      description2: r.asset?.sitelinkAsset?.description2 || "",
+    }))
+    .filter((s) => s.linkText && s.resourceName);
+
   // Ads — query fields for all common ad types (search / video / demand gen)
   type TextRow = { text: string };
   type AssetRef = { asset: string };
@@ -854,6 +878,7 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
     negativeKeywords,
     adSchedules,
     deviceModifiers,
+    sitelinks,
     ads,
   };
 }
@@ -2238,6 +2263,135 @@ export async function setCampaignAdSchedule(
   if (operations.length === 0) return { success: true };
 
   const res = await adsMutate(customerId, "campaignCriteria:mutate", { operations });
+  if (res.status !== 200) return { success: false, error: res.data };
+  return { success: true };
+}
+
+// ---------------------------------------------------------------------------
+// Sitelink extensions (campaign assets)
+// ---------------------------------------------------------------------------
+
+export interface SitelinkInput {
+  /** Visible link text, 1-25 chars. */
+  linkText: string;
+  finalUrl: string;
+  /** Optional description lines — Google requires both or neither, ≤35 chars each. */
+  description1?: string;
+  description2?: string;
+}
+
+/** Sitelinks are a Search feature (PMax consumes them via asset groups — deferred). */
+const SITELINK_CHANNELS = new Set(["SEARCH"]);
+
+export function channelSupportsSitelinks(channelType: string): boolean {
+  return SITELINK_CHANNELS.has(channelType);
+}
+
+/** Pure validation — unit-tested. Google serves sitelinks only when a campaign
+ *  has ≥2, so we enforce that on create batches too. */
+export function validateSitelinkInput(sitelinks: SitelinkInput[]): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  if (!Array.isArray(sitelinks) || sitelinks.length === 0) {
+    return { valid: false, errors: ["At least one sitelink is required."] };
+  }
+  if (sitelinks.length > 20) errors.push("At most 20 sitelinks per campaign.");
+
+  const seen = new Set<string>();
+  sitelinks.forEach((s, i) => {
+    const label = `sitelinks[${i}]`;
+    const text = (s.linkText || "").trim();
+    if (!text) errors.push(`${label}: linkText is required.`);
+    else if (text.length > 25) errors.push(`${label}: linkText must be ≤25 characters.`);
+    else if (seen.has(text.toLowerCase())) errors.push(`${label}: duplicate linkText "${text}".`);
+    else seen.add(text.toLowerCase());
+
+    if (!s.finalUrl || !/^https?:\/\//i.test(s.finalUrl)) {
+      errors.push(`${label}: finalUrl must start with http:// or https://.`);
+    }
+
+    const d1 = (s.description1 || "").trim();
+    const d2 = (s.description2 || "").trim();
+    if ((d1 && !d2) || (!d1 && d2)) {
+      errors.push(`${label}: descriptions must be provided together (both or neither).`);
+    }
+    if (d1.length > 35) errors.push(`${label}: description1 must be ≤35 characters.`);
+    if (d2.length > 35) errors.push(`${label}: description2 must be ≤35 characters.`);
+  });
+
+  return { valid: errors.length === 0, errors };
+}
+
+export interface CreateSitelinksResult {
+  created: number;
+  errors: Array<{ linkText: string; details: unknown }>;
+}
+
+/** Create sitelink assets and attach them to a campaign (two-step:
+ *  assets:mutate → campaignAssets:mutate with fieldType SITELINK). */
+export async function createCampaignSitelinks(
+  campaignResourceName: string,
+  sitelinks: SitelinkInput[]
+): Promise<CreateSitelinksResult> {
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
+  if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
+
+  const out: CreateSitelinksResult = { created: 0, errors: [] };
+
+  const validation = validateSitelinkInput(sitelinks);
+  if (!validation.valid) {
+    out.errors.push({ linkText: "(batch)", details: validation.errors.join(" ") });
+    return out;
+  }
+
+  // Step 1: create the sitelink assets
+  const assetOps = sitelinks.map((s) => {
+    const sitelinkAsset: Record<string, unknown> = { linkText: s.linkText.trim() };
+    const d1 = (s.description1 || "").trim();
+    const d2 = (s.description2 || "").trim();
+    if (d1 && d2) {
+      sitelinkAsset.description1 = d1;
+      sitelinkAsset.description2 = d2;
+    }
+    return { create: { sitelinkAsset, finalUrls: [s.finalUrl] } };
+  });
+  const assetRes = await adsMutate(customerId, "assets:mutate", { operations: assetOps });
+  if (assetRes.status !== 200) {
+    out.errors.push({ linkText: "(assets)", details: assetRes.data });
+    return out;
+  }
+  const assetNames = ((assetRes.data as { results?: Array<{ resourceName?: string }> })?.results || [])
+    .map((r) => r.resourceName)
+    .filter(Boolean) as string[];
+
+  // Step 2: link them to the campaign
+  const linkOps = assetNames.map((asset) => ({
+    create: { campaign: campaignResourceName, asset, fieldType: "SITELINK" },
+  }));
+  const linkRes = await adsMutate(customerId, "campaignAssets:mutate", { operations: linkOps });
+  if (linkRes.status !== 200) {
+    out.errors.push({ linkText: "(campaign link)", details: linkRes.data });
+    return out;
+  }
+
+  out.created = assetNames.length;
+  return out;
+}
+
+/** Detach a sitelink from a campaign (removes the campaign_asset link;
+ *  the underlying asset stays in the account for reuse). */
+export async function removeCampaignSitelink(
+  campaignAssetResourceName: string
+): Promise<{ success: boolean; error?: unknown }> {
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
+  if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
+
+  if (!/^customers\/\d+\/campaignAssets\/\d+~\d+~SITELINK$/.test(campaignAssetResourceName)) {
+    return { success: false, error: "Invalid campaign asset resource name" };
+  }
+
+  const res = await adsMutate(customerId, "campaignAssets:mutate", {
+    operations: [{ remove: campaignAssetResourceName }],
+  });
   if (res.status !== 200) return { success: false, error: res.data };
   return { success: true };
 }
