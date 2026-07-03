@@ -1579,6 +1579,8 @@ const zh: typeof en = {
     schedPresetBusiness: "周一至周五 9–18",
     schedClear: "清空(全天候投放)",
     schedAddInterval: "添加时段",
+    schedModBids: "调整出价",
+    schedModHint: "注意:修改时段本身(增删/改时间)会重置这些出价系数。",
     exportCsv: "导出 CSV",
     devSection: "设备出价调整",
     devDefault: "默认",

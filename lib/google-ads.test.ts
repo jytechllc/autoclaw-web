@@ -20,6 +20,7 @@ import {
   normalizeAssetRows,
   assetTypeToFieldType,
   validateCallAssetInput,
+  validateScheduleModifiers,
 } from "./google-ads";
 import { orderOrgsForCron } from "./google-ads-sync";
 import {
@@ -453,6 +454,48 @@ describe("normalizeAssetRows", () => {
     ], new Map());
     expect(result).toHaveLength(1);
     expect(result[0].label).toBe("Callout");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateScheduleModifiers (ad-schedule interval bid modifiers)
+// ---------------------------------------------------------------------------
+
+describe("validateScheduleModifiers", () => {
+  const rn = (id: string) => `customers/1/campaignCriteria/99~${id}`;
+
+  it("accepts valid modifiers incl. reset-to-zero", () => {
+    const result = validateScheduleModifiers([
+      { criterionResourceName: rn("1"), percent: 25 },
+      { criterionResourceName: rn("2"), percent: -50 },
+      { criterionResourceName: rn("3"), percent: 0 },
+    ]);
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("rejects an empty list", () => {
+    expect(validateScheduleModifiers([]).valid).toBe(false);
+  });
+
+  it("rejects malformed resource names", () => {
+    for (const bad of ["", "99~1", "customers/1/campaigns/99", "customers/1/campaignCriteria/99"]) {
+      expect(validateScheduleModifiers([{ criterionResourceName: bad, percent: 10 }]).valid).toBe(false);
+    }
+  });
+
+  it("rejects duplicates and out-of-range percents", () => {
+    expect(validateScheduleModifiers([
+      { criterionResourceName: rn("1"), percent: 10 },
+      { criterionResourceName: rn("1"), percent: 20 },
+    ]).valid).toBe(false);
+    expect(validateScheduleModifiers([{ criterionResourceName: rn("1"), percent: -91 }]).valid).toBe(false);
+    expect(validateScheduleModifiers([{ criterionResourceName: rn("1"), percent: 901 }]).valid).toBe(false);
+  });
+
+  it("accepts boundary percents", () => {
+    expect(validateScheduleModifiers([{ criterionResourceName: rn("1"), percent: -90 }]).valid).toBe(true);
+    expect(validateScheduleModifiers([{ criterionResourceName: rn("1"), percent: 900 }]).valid).toBe(true);
   });
 });
 

@@ -341,8 +341,8 @@ export interface CampaignDetail {
   bidding: { strategyType: string; targetCpaMicros: number; targetRoas: number };
   /** Campaign-level negative keywords. resourceName is needed for removal. */
   negativeKeywords: Array<{ resourceName: string; text: string; matchType: string }>;
-  /** Day-parting intervals. Empty = runs at all times. */
-  adSchedules: Array<{ resourceName: string; dayOfWeek: string; startHour: number; endHour: number }>;
+  /** Day-parting intervals. Empty = runs at all times. bidModifier 1 = none. */
+  adSchedules: Array<{ resourceName: string; dayOfWeek: string; startHour: number; endHour: number; bidModifier: number }>;
   /** Device bid adjustments. bidModifier 0 = excluded; empty = defaults. */
   deviceModifiers: Array<{ resourceName: string; device: string; bidModifier: number }>;
   /** Sitelink extensions attached to the campaign. resourceName = campaign_asset link (for removal). */
@@ -692,9 +692,10 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
     .filter((k) => k.text && k.resourceName);
 
   // Ad schedule (day parting) criteria
-  type SchedRow = { campaignCriterion: { resourceName?: string; adSchedule?: { dayOfWeek?: string; startHour?: number; endHour?: number } } };
+  type SchedRow = { campaignCriterion: { resourceName?: string; bidModifier?: number; adSchedule?: { dayOfWeek?: string; startHour?: number; endHour?: number } } };
   const schedRows = await adsSearchStream(customerId, `
-    SELECT campaign_criterion.resource_name, campaign_criterion.ad_schedule.day_of_week,
+    SELECT campaign_criterion.resource_name, campaign_criterion.bid_modifier,
+           campaign_criterion.ad_schedule.day_of_week,
            campaign_criterion.ad_schedule.start_hour, campaign_criterion.ad_schedule.end_hour
     FROM campaign_criterion
     WHERE campaign.id = ${numericCampaignId} AND campaign_criterion.type = AD_SCHEDULE
@@ -705,6 +706,7 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
       dayOfWeek: r.campaignCriterion.adSchedule?.dayOfWeek || "",
       startHour: Number(r.campaignCriterion.adSchedule?.startHour ?? 0),
       endHour: Number(r.campaignCriterion.adSchedule?.endHour ?? 24),
+      bidModifier: Number(r.campaignCriterion.bidModifier ?? 1),
     }))
     .filter((s) => s.dayOfWeek);
 
@@ -3081,6 +3083,97 @@ export async function setCampaignDeviceModifiers(
   const res = await adsMutate(customerId, "campaignCriteria:mutate", { operations });
   if (res.status !== 200) return { success: false, error: res.data };
   return { success: true };
+}
+
+// ---------------------------------------------------------------------------
+// Ad-schedule interval bid modifiers
+// ---------------------------------------------------------------------------
+
+export interface ScheduleModifierInput {
+  /** The AD_SCHEDULE campaign criterion resource name (from CampaignDetail.adSchedules). */
+  criterionResourceName: string;
+  /** Bid adjustment percent: -90..900. 0 = reset to no adjustment. */
+  percent: number;
+}
+
+/** Same channel rule as the other campaign-criterion modifiers. */
+export function channelSupportsScheduleModifiers(channelType: string): boolean {
+  return channelSupportsDeviceModifiers(channelType);
+}
+
+/** Pure validation — unit-tested. */
+export function validateScheduleModifiers(modifiers: ScheduleModifierInput[]): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  if (!Array.isArray(modifiers) || modifiers.length === 0) {
+    return { valid: false, errors: ["At least one modifier is required."] };
+  }
+  const seen = new Set<string>();
+  modifiers.forEach((m, i) => {
+    const label = `modifiers[${i}]`;
+    if (!/^customers\/\d+\/campaignCriteria\/\d+~\d+$/.test(m.criterionResourceName || "")) {
+      errors.push(`${label}: criterionResourceName must be a campaign criterion resource name.`);
+      return;
+    }
+    if (seen.has(m.criterionResourceName)) {
+      errors.push(`${label}: duplicate criterion.`);
+      return;
+    }
+    seen.add(m.criterionResourceName);
+    if (!Number.isFinite(m.percent) || m.percent < -90 || m.percent > 900) {
+      errors.push(`${label}: percent must be between -90 and 900.`);
+    }
+  });
+  return { valid: errors.length === 0, errors };
+}
+
+/** Update bid modifiers on EXISTING ad-schedule criteria. Note: the
+ *  replace-all schedule editor recreates criteria, which resets modifiers —
+ *  callers should surface that (documented on the ⏰ card + checklist). */
+export async function setCampaignScheduleModifiers(
+  campaignResourceName: string,
+  modifiers: ScheduleModifierInput[]
+): Promise<{ success: boolean; updated: number; error?: unknown }> {
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
+  if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
+
+  const numericCampaignId = campaignResourceName.split("/").pop() || "";
+
+  type ChannelRow = { campaign: { advertisingChannelType?: string } };
+  const channelRows = await adsSearchStream(customerId, `
+    SELECT campaign.advertising_channel_type FROM campaign WHERE campaign.id = ${numericCampaignId}
+  `) as ChannelRow[];
+  const channelType = channelRows[0]?.campaign?.advertisingChannelType || "";
+  if (!channelSupportsScheduleModifiers(channelType)) {
+    return { success: false, updated: 0, error: `Schedule bid adjustments are not supported for ${channelType || "this"} campaigns` };
+  }
+
+  const validation = validateScheduleModifiers(modifiers);
+  if (!validation.valid) return { success: false, updated: 0, error: validation.errors.join(" ") };
+
+  // Every criterion must be an AD_SCHEDULE criterion of THIS campaign.
+  type CCRow = { campaignCriterion: { resourceName: string } };
+  const existing = await adsSearchStream(customerId, `
+    SELECT campaign_criterion.resource_name
+    FROM campaign_criterion
+    WHERE campaign.id = ${numericCampaignId} AND campaign_criterion.type = AD_SCHEDULE
+  `) as CCRow[];
+  const valid = new Set(existing.map((r) => r.campaignCriterion.resourceName));
+  const unknown = modifiers.filter((m) => !valid.has(m.criterionResourceName));
+  if (unknown.length > 0) {
+    return { success: false, updated: 0, error: `Not ad-schedule criteria of this campaign: ${unknown.map((m) => m.criterionResourceName).join(", ")}` };
+  }
+
+  const operations = modifiers.map((m) => ({
+    update: {
+      resourceName: m.criterionResourceName,
+      bidModifier: Math.round((1 + m.percent / 100) * 100) / 100,
+    },
+    updateMask: "bid_modifier",
+  }));
+
+  const res = await adsMutate(customerId, "campaignCriteria:mutate", { operations });
+  if (res.status !== 200) return { success: false, updated: 0, error: res.data };
+  return { success: true, updated: operations.length };
 }
 
 // ---------------------------------------------------------------------------

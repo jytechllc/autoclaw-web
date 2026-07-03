@@ -1575,6 +1575,8 @@ const zhTW: typeof en = {
     schedPresetBusiness: "週一至週五 9–18",
     schedClear: "清空(全天候放送)",
     schedAddInterval: "新增時段",
+    schedModBids: "調整出價",
+    schedModHint: "注意:修改時段本身(增刪/改時間)會重置這些出價係數。",
     exportCsv: "匯出 CSV",
     devSection: "裝置出價調整",
     devDefault: "預設",

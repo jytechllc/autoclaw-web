@@ -755,3 +755,13 @@ Third extension type on the shared asset plumbing.
 ### 2026-07-03 — A/B experiments design proposal (this PR)
 
 `docs/google-ads-experiments-design.md` — design-first for the last major Section 6 item, because experiments break two assumptions every previous feature relied on: mutations are synchronous (scheduleExperiment is an LRO), and every spending campaign lives in our `campaigns` table (Google creates the treatment campaign). The second is a **ledger-safety conflict**: untracked treatment spend = drift, the exact failure mode D-1 guarded against. Core design decision: treatment campaigns become first-class `campaigns` rows with a zero-sum reserve split from the base campaign, so hourly sync / auto-pause / reconcile all work unchanged (plus an arm-cascade on pause). 3-PR implementation plan; exp-1 explicitly gated on live-account access since LRO behavior can't be desk-checked.
+
+### 2026-07-03 — ad-schedule interval bid modifiers (this PR)
+
+Completes the bid-modifier trio (device ✅, location ✅, schedule ✅) — "+25% weekday mornings" is now expressible.
+
+- `lib/google-ads.ts` — `setCampaignScheduleModifiers()`: updates `bid_modifier` on EXISTING AD_SCHEDULE criteria (addressed by criterion resource name, since intervals have no natural key), verifying each criterion belongs to this campaign server-side. Pure `validateScheduleModifiers()` (resource-name format, no dupes, -90..900). `adSchedules` in `fetchCampaignDetail()` now carries `bidModifier`.
+- Known interaction, surfaced in the UI: the schedule editor is replace-all, so editing intervals recreates criteria and **resets modifiers** — hint shown in the adjust-bids mode, and a checklist item exists for it.
+- `POST /campaigns/[id]/schedule-modifiers` — read-only-gated + double ownership check per criterion.
+- ⏰ card: interval chips now colored by adjustment (+green/−amber) with the % inline; new "% Adjust bids" mode listing intervals with one % input each.
+- 5 new test cases. i18n: 2 keys × 4 locales.

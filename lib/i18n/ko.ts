@@ -1569,6 +1569,8 @@ const ko = {
     schedPresetBusiness: "월–금 9–18",
     schedClear: "비우기 (상시 게재)",
     schedAddInterval: "시간대 추가",
+    schedModBids: "입찰가 조정",
+    schedModHint: "참고: 시간대 자체를 수정(추가/삭제/시간 변경)하면 이 조정값이 초기화됩니다.",
     exportCsv: "CSV 내보내기",
     devSection: "기기별 입찰가 조정",
     devDefault: "기본",
