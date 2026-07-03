@@ -2433,6 +2433,69 @@ export async function removeCampaignSitelink(
 }
 
 // ---------------------------------------------------------------------------
+// Search terms report
+// ---------------------------------------------------------------------------
+
+export interface SearchTermStat {
+  term: string;
+  /** Whether the term is already added/excluded/none, per Google. */
+  status: string;
+  impressions: number;
+  clicks: number;
+  costMicros: number;
+  conversions: number;
+}
+
+export interface SearchTermRawRow {
+  searchTermView?: { searchTerm?: string; status?: string };
+  metrics?: { impressions?: string; clicks?: string; costMicros?: string; conversions?: number };
+}
+
+/** Aggregate raw search_term_view rows (may repeat per segment) into unique
+ *  terms sorted by impressions desc. Pure — unit-tested. */
+export function aggregateSearchTermRows(rows: SearchTermRawRow[], limit = 100): SearchTermStat[] {
+  const byTerm = new Map<string, SearchTermStat>();
+  for (const r of rows) {
+    const term = (r.searchTermView?.searchTerm || "").trim();
+    if (!term) continue;
+    const existing = byTerm.get(term.toLowerCase()) || {
+      term,
+      status: r.searchTermView?.status || "",
+      impressions: 0,
+      clicks: 0,
+      costMicros: 0,
+      conversions: 0,
+    };
+    existing.impressions += Number(r.metrics?.impressions || 0);
+    existing.clicks += Number(r.metrics?.clicks || 0);
+    existing.costMicros += Number(r.metrics?.costMicros || 0);
+    existing.conversions += Number(r.metrics?.conversions || 0);
+    byTerm.set(term.toLowerCase(), existing);
+  }
+  return [...byTerm.values()]
+    .sort((a, b) => b.impressions - a.impressions)
+    .slice(0, Math.max(1, limit));
+}
+
+/** Last-30-days search terms for a campaign, aggregated and ranked. */
+export async function fetchSearchTerms(campaignResourceName: string, limit = 100): Promise<SearchTermStat[]> {
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
+  if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
+
+  const numericCampaignId = campaignResourceName.split("/").pop() || "";
+  const rows = await adsSearchStream(customerId, `
+    SELECT search_term_view.search_term, search_term_view.status,
+           metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions
+    FROM search_term_view
+    WHERE campaign.id = ${numericCampaignId} AND segments.date DURING LAST_30_DAYS
+    ORDER BY metrics.impressions DESC
+    LIMIT 500
+  `) as SearchTermRawRow[];
+
+  return aggregateSearchTermRows(rows, limit);
+}
+
+// ---------------------------------------------------------------------------
 // Callout + structured snippet extensions (campaign assets)
 // ---------------------------------------------------------------------------
 
