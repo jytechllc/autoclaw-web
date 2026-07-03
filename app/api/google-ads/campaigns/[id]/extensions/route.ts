@@ -12,6 +12,7 @@ import {
   type StructuredSnippetHeader,
 } from "@/lib/google-ads";
 import { resolveOrgId } from "@/lib/credits";
+import { isReadOnlyUserId } from "@/lib/roles-server";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +41,9 @@ async function loadCampaign(
   const users = await sql`SELECT id FROM users WHERE email = ${userEmail}`;
   if (users.length === 0) return { error: NextResponse.json({ error: "User not found" }, { status: 404 }) };
   const userId = users[0].id as number;
+  if (await isReadOnlyUserId(sql, userId)) {
+    return { error: NextResponse.json({ error: "Read-only account — writes are disabled" }, { status: 403 }) };
+  }
 
   const requestedOrgId = body.orgId ? Number(body.orgId) : undefined;
   const orgId = await resolveOrgId(sql, userId, requestedOrgId);

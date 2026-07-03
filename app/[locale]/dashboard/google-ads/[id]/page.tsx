@@ -238,7 +238,7 @@ export default function CampaignDetailPage() {
   const campaignId = params.id as string;
   const dict = getDictionary(locale);
   const t = dict.googleAdsPage;
-  const { activeOrg } = useOrg();
+  const { activeOrg, isReadOnly } = useOrg();
 
   const [campaign, setCampaign] = useState<CampaignRow | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
@@ -1390,6 +1390,9 @@ export default function CampaignDetailPage() {
     );
   }
 
+  // closed campaigns and read-only (sandbox/viewer) accounts get a view-only page
+  const canEdit = !campaign.closed && !isReadOnly;
+
   const cap = Number(campaign.total_budget_cents || 0);
   const spent = Number(campaign.spent_cents || 0);
   const pct = cap > 0 ? Math.min(100, (spent / cap) * 100) : 0;
@@ -1410,7 +1413,7 @@ export default function CampaignDetailPage() {
         <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6">
           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
             <div className="flex-1 min-w-0">
-              {editingName && !campaign.closed ? (
+              {editingName && canEdit ? (
                 <div className="flex items-center gap-2">
                   <input
                     autoFocus
@@ -1440,7 +1443,7 @@ export default function CampaignDetailPage() {
               ) : (
                 <div className="flex items-center gap-2 group">
                   <h1 className="text-2xl font-bold text-gray-900">{campaign.campaign_name}</h1>
-                  {!campaign.closed && (
+                  {canEdit && (
                     <button
                       onClick={() => { setNameInput(campaign.campaign_name); setEditingName(true); }}
                       className="text-xs text-gray-400 hover:text-gray-700 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
@@ -1487,7 +1490,7 @@ export default function CampaignDetailPage() {
                   detail?.startDate && (
                     <span className="text-gray-500 inline-flex items-center gap-1">
                       📅 {detail.startDate}{detail.endDate && detail.endDate !== "9999-12-31" ? ` → ${detail.endDate}` : ` → ${t.noEndDate || "no end"}`}
-                      {!campaign.closed && (
+                      {canEdit && (
                         <button
                           onClick={() => { setFieldInputA(detail.startDate || ""); setFieldInputB(detail.endDate && detail.endDate !== "9999-12-31" ? detail.endDate : ""); setEditingField("schedule"); }}
                           className="text-gray-400 hover:text-gray-700 cursor-pointer"
@@ -1525,7 +1528,7 @@ export default function CampaignDetailPage() {
                   detail?.bidding?.strategyType && (
                     <span className="px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 border border-sky-200 inline-flex items-center gap-1" title={t.bidStrategyLabel || "Bid strategy"}>
                       🎯 {describeBidding(detail.bidding)}
-                      {!campaign.closed && (
+                      {canEdit && (
                         <button onClick={openBidEditor} className="text-sky-400 hover:text-sky-700 cursor-pointer">✏️</button>
                       )}
                     </span>
@@ -1534,7 +1537,7 @@ export default function CampaignDetailPage() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {!campaign.closed && (
+              {canEdit && (
                 <>
                   {campaign.status === "PAUSED" ? (
                     <button onClick={() => handleAction("enable")} disabled={actioning} className="text-xs px-3 py-1.5 border border-green-200 text-green-700 rounded-lg hover:bg-green-50 disabled:opacity-50 cursor-pointer">{t.action_enable || "Enable"}</button>
@@ -1605,7 +1608,7 @@ export default function CampaignDetailPage() {
             <div>
               <div className="text-xs text-gray-500 mb-0.5 flex items-center gap-1">
                 {t.dailyBudget}
-                {!campaign.closed && editingField !== "dailyBudget" && (
+                {canEdit && editingField !== "dailyBudget" && (
                   <button
                     onClick={() => { setFieldInputA(String(Number(campaign.daily_budget))); setEditingField("dailyBudget"); }}
                     className="text-gray-400 hover:text-gray-700 cursor-pointer"
@@ -1648,7 +1651,7 @@ export default function CampaignDetailPage() {
             <div>
               <div className="text-xs text-gray-500 mb-0.5 flex items-center gap-1">
                 {t.totalBudget || "Cap"}
-                {!campaign.closed && editingField !== "totalBudget" && (
+                {canEdit && editingField !== "totalBudget" && (
                   <button
                     onClick={() => { setFieldInputA(String((Number(campaign.total_budget_cents) || 0) / 100)); setEditingField("totalBudget"); }}
                     className="text-gray-400 hover:text-gray-700 cursor-pointer"
@@ -1721,17 +1724,19 @@ export default function CampaignDetailPage() {
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-gray-700">✨ {t.recsSection || "AI Optimization Recommendations"}</h2>
-            <button
-              onClick={handleGenerateRecommendations}
-              disabled={recsLoading}
-              className="text-xs px-3 py-1.5 border border-purple-200 text-purple-700 rounded-lg hover:bg-purple-50 disabled:opacity-50 cursor-pointer"
-            >
-              {recsLoading
-                ? (t.recsGenerating || "Analyzing…")
-                : recs
-                  ? (t.recsRegenerate || "Regenerate")
-                  : (t.recsGenerate || "Generate")}
-            </button>
+            {!isReadOnly && (
+              <button
+                onClick={handleGenerateRecommendations}
+                disabled={recsLoading}
+                className="text-xs px-3 py-1.5 border border-purple-200 text-purple-700 rounded-lg hover:bg-purple-50 disabled:opacity-50 cursor-pointer"
+              >
+                {recsLoading
+                  ? (t.recsGenerating || "Analyzing…")
+                  : recs
+                    ? (t.recsRegenerate || "Regenerate")
+                    : (t.recsGenerate || "Generate")}
+              </button>
+            )}
           </div>
           {!recs && !recsLoading && !recsError && (
             <p className="text-xs text-gray-400">{t.recsEmptyHint || "Analyzes this campaign's 30-day performance and suggests ranked, concrete optimizations."}</p>
@@ -1766,7 +1771,7 @@ export default function CampaignDetailPage() {
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-gray-700">{t.targetingSection || "Targeting"}</h2>
-            {!campaign.closed && !editingLocations && (
+            {canEdit && !editingLocations && (
               <button
                 onClick={openLocationEdit}
                 className="text-xs text-gray-400 hover:text-gray-700 cursor-pointer"
@@ -1796,7 +1801,7 @@ export default function CampaignDetailPage() {
               <div className="text-sm pt-2 border-t border-gray-100">
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-gray-500">{t.audiences || "Audiences"}:</span>
-                  {!campaign.closed && !editingAudiences && (
+                  {canEdit && !editingAudiences && (
                     <button
                       onClick={openAudienceEdit}
                       className="text-xs text-gray-400 hover:text-gray-700 cursor-pointer"
@@ -2010,7 +2015,7 @@ export default function CampaignDetailPage() {
                 {detail?.assetGroups && ` (${detail.assetGroups.length})`}
               </h2>
               <div className="flex items-center gap-3">
-                {!campaign.closed && (
+                {canEdit && (
                   <button
                     onClick={() => { setShowAssetForm(!showAssetForm); setAssetError(""); }}
                     className="text-xs px-3 py-1.5 bg-red-800 text-white rounded-lg hover:bg-red-900 cursor-pointer"
@@ -2178,7 +2183,7 @@ export default function CampaignDetailPage() {
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-gray-700">{t.adGroupsSection || "Ad Groups"} {detail?.adGroups && `(${detail.adGroups.length})`}</h2>
-            {!campaign.closed && (
+            {canEdit && (
               <button
                 onClick={() => { setShowAgForm(!showAgForm); setAgError(""); }}
                 className="text-xs px-3 py-1.5 bg-red-800 text-white rounded-lg hover:bg-red-900 cursor-pointer"
@@ -2246,7 +2251,7 @@ export default function CampaignDetailPage() {
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="text-xs text-gray-500">CPC ${(ag.cpcBidMicros / 1_000_000).toFixed(2)}</span>
-                      {!campaign.closed && campaign.channel === "SEARCH" && (
+                      {canEdit && campaign.channel === "SEARCH" && (
                         <button
                           onClick={() => {
                             setKwFormFor(kwFormFor === ag.resourceName ? null : ag.resourceName);
@@ -2257,7 +2262,7 @@ export default function CampaignDetailPage() {
                           {kwFormFor === ag.resourceName ? (t.cancel || "Cancel") : `+ ${t.addKeywords || "Add Keywords"}`}
                         </button>
                       )}
-                      {!campaign.closed && (
+                      {canEdit && (
                         <button
                           onClick={() => {
                             setAdFormFor(adFormFor === ag.resourceName ? null : ag.resourceName);
@@ -2628,7 +2633,7 @@ export default function CampaignDetailPage() {
               <h2 className="text-sm font-semibold text-gray-700">
                 ⏰ {t.schedSection || "Ad Schedule"} {(detail.adSchedules?.length || 0) > 0 ? `(${detail.adSchedules?.length})` : ""}
               </h2>
-              {!campaign.closed && !editingSchedule && (
+              {canEdit && !editingSchedule && (
                 <button
                   onClick={openScheduleEditor}
                   className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer"
@@ -2723,7 +2728,7 @@ export default function CampaignDetailPage() {
               <h2 className="text-sm font-semibold text-gray-700">
                 🔗 {t.slSection || "Sitelinks"} ({detail.sitelinks?.length || 0})
               </h2>
-              {!campaign.closed && (
+              {canEdit && (
                 <button
                   onClick={() => { setSitelinkFormOpen(!sitelinkFormOpen); setSitelinkError(""); }}
                   className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer"
@@ -2748,7 +2753,7 @@ export default function CampaignDetailPage() {
                         <p className="text-xs text-gray-500 truncate">{[s.description1, s.description2].filter(Boolean).join(" · ")}</p>
                       )}
                     </div>
-                    {!campaign.closed && (
+                    {canEdit && (
                       <button
                         onClick={() => handleRemoveSitelink(s.resourceName)}
                         disabled={removingSitelink === s.resourceName}
@@ -2857,7 +2862,7 @@ export default function CampaignDetailPage() {
                       <th className="text-right py-1.5 px-2">{t.metricClicks || "Clicks"}</th>
                       <th className="text-right py-1.5 px-2">{t.metricCost || "Cost"}</th>
                       <th className="text-right py-1.5 px-2">{t.metricConversions || "Conversions"}</th>
-                      {!campaign.closed && <th className="py-1.5 pl-2"></th>}
+                      {canEdit && <th className="py-1.5 pl-2"></th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -2872,7 +2877,7 @@ export default function CampaignDetailPage() {
                           <td className="py-1.5 px-2 text-right text-gray-600">{st.clicks.toLocaleString()}</td>
                           <td className="py-1.5 px-2 text-right text-gray-600">${(st.costMicros / 1_000_000).toFixed(2)}</td>
                           <td className="py-1.5 px-2 text-right text-gray-600">{st.conversions}</td>
-                          {!campaign.closed && (
+                          {canEdit && (
                             <td className="py-1.5 pl-2 text-right">
                               {alreadyNegative ? (
                                 <span className="text-gray-300">{t.termsAlreadyNeg || "excluded"}</span>
@@ -2905,7 +2910,7 @@ export default function CampaignDetailPage() {
               <h2 className="text-sm font-semibold text-gray-700">
                 📣 {t.extSection || "Callouts & Snippets"} ({(detail.callouts?.length || 0) + (detail.structuredSnippets?.length || 0)})
               </h2>
-              {!campaign.closed && (
+              {canEdit && (
                 <div className="flex gap-2">
                   <button
                     onClick={() => { setExtFormOpen(extFormOpen === "callout" ? null : "callout"); setExtError(""); }}
@@ -2932,7 +2937,7 @@ export default function CampaignDetailPage() {
                 {(detail.callouts || []).map((c) => (
                   <span key={c.resourceName} className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-xs rounded-full inline-flex items-center gap-1">
                     {c.text}
-                    {!campaign.closed && (
+                    {canEdit && (
                       <button
                         onClick={() => handleRemoveExtension(c.resourceName)}
                         disabled={removingExt === c.resourceName}
@@ -2952,7 +2957,7 @@ export default function CampaignDetailPage() {
                   <div key={s.resourceName} className="flex items-center gap-2 text-xs">
                     <span className="font-medium text-gray-700">{s.header}:</span>
                     <span className="text-gray-500 truncate">{s.values.join(" · ")}</span>
-                    {!campaign.closed && (
+                    {canEdit && (
                       <button
                         onClick={() => handleRemoveExtension(s.resourceName)}
                         disabled={removingExt === s.resourceName}
@@ -3023,7 +3028,7 @@ export default function CampaignDetailPage() {
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-semibold text-gray-700">📱 {t.devSection || "Device Bid Adjustments"}</h2>
-              {!campaign.closed && !editingDevices && (
+              {canEdit && !editingDevices && (
                 <button
                   onClick={openDeviceEditor}
                   className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer"
@@ -3103,7 +3108,7 @@ export default function CampaignDetailPage() {
               <h2 className="text-sm font-semibold text-gray-700">
                 {t.negKwSection || "Negative Keywords"} ({detail.negativeKeywords?.length || 0})
               </h2>
-              {!campaign.closed && (
+              {canEdit && (
                 <button
                   onClick={() => { setNegKwFormOpen(!negKwFormOpen); setNegKwError(""); }}
                   className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer"
@@ -3119,7 +3124,7 @@ export default function CampaignDetailPage() {
               {(detail.negativeKeywords || []).map((kw) => (
                 <span key={kw.resourceName} className="px-2 py-0.5 bg-red-50 text-red-700 text-xs rounded-full inline-flex items-center gap-1">
                   {kw.text} <span className="text-red-400">[{kw.matchType}]</span>
-                  {!campaign.closed && (
+                  {canEdit && (
                     <button
                       onClick={() => handleRemoveNegativeKeyword(kw.resourceName)}
                       disabled={removingNegKw === kw.resourceName}

@@ -12,6 +12,7 @@ import {
   type ConversionCountingType,
 } from "@/lib/google-ads";
 import { resolveOrgId } from "@/lib/credits";
+import { isReadOnlyUserId } from "@/lib/roles-server";
 
 export const dynamic = "force-dynamic";
 
@@ -73,6 +74,9 @@ export async function POST(req: NextRequest) {
   const auth = await requireOrgMember(body);
   if ("error" in auth) return auth.error;
   const { userId, userEmail } = auth;
+  if (await isReadOnlyUserId(getDb(), userId)) {
+    return NextResponse.json({ error: "Read-only account — writes are disabled" }, { status: 403 });
+  }
 
   const name = String(body.name || "").trim();
   const category = String(body.category || "").toUpperCase() as ConversionActionCategory;
