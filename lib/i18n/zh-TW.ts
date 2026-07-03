@@ -1580,6 +1580,7 @@ const zhTW: typeof en = {
     devDefault: "預設",
     devAdjust: "調整出價",
     devExclude: "排除",
+    locModSection: "地區出價調整",
     slSection: "網站連結",
     slAdd: "新增網站連結",
     slAddRow: "再加一條",

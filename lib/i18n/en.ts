@@ -1605,6 +1605,7 @@ const en = {
     devDefault: "default",
     devAdjust: "adjust bid",
     devExclude: "exclude",
+    locModSection: "Location Bid Adjustments",
     slSection: "Sitelinks",
     slAdd: "Add Sitelinks",
     slAddRow: "Add another",

@@ -1574,6 +1574,7 @@ const ko = {
     devDefault: "기본",
     devAdjust: "입찰가 조정",
     devExclude: "제외",
+    locModSection: "위치별 입찰가 조정",
     slSection: "사이트링크",
     slAdd: "사이트링크 추가",
     slAddRow: "하나 더 추가",
