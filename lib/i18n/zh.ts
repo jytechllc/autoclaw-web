@@ -1554,6 +1554,7 @@ const zh: typeof en = {
     recsApplyBid: "将出价策略切换为",
     recsApplyNegKw: "添加否定关键词",
     recsApplyPause: "暂停该广告系列",
+    recsCronBadge: "每晚自动分析",
     convTitle: "转化跟踪",
     convSubtitle: "定义什么算一次转化,把代码装到网站上,智能出价就开始学习了。",
     convCreate: "新建转化操作",

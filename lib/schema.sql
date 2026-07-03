@@ -700,6 +700,22 @@ CREATE TABLE IF NOT EXISTS assets (
 CREATE INDEX IF NOT EXISTS idx_assets_group ON assets(asset_group_id);
 CREATE INDEX IF NOT EXISTS idx_assets_field_type ON assets(asset_group_id, field_type);
 
+-- Latest AI optimization digest per campaign (cron-generated nightly or
+-- refreshed manually from the detail page). Latest-only by design — history
+-- lives in the audit log. See docs/google-ads-audit.md changelog 2026-07-03.
+CREATE TABLE IF NOT EXISTS campaign_recommendations (
+  id SERIAL PRIMARY KEY,
+  campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  org_id INTEGER NOT NULL,
+  source VARCHAR(10) NOT NULL DEFAULT 'cron',   -- 'cron' | 'manual'
+  recommendations JSONB NOT NULL,               -- sanitized Recommendation[]
+  provider VARCHAR(40),
+  model VARCHAR(80),
+  generated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(campaign_id)
+);
+CREATE INDEX IF NOT EXISTS idx_campaign_recommendations_org ON campaign_recommendations(org_id);
+
 -- ============================================================================
 -- Workflows (cold outreach + multi-stage follow-up automation)
 -- ============================================================================

@@ -1544,6 +1544,7 @@ const ko = {
     recsApplyBid: "입찰 전략을 다음으로 전환",
     recsApplyNegKw: "제외 키워드 추가",
     recsApplyPause: "이 캠페인 일시중지",
+    recsCronBadge: "야간 자동 분석",
     convTitle: "전환 추적",
     convSubtitle: "전환의 기준을 정의하고 사이트에 태그를 설치하면 스마트 자동입찰이 학습을 시작합니다.",
     convCreate: "새 전환 액션",
