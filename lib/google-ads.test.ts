@@ -18,6 +18,7 @@ import {
   validateLocationModifiers,
   channelSupportsLocationModifiers,
   normalizeAssetRows,
+  assetTypeToFieldType,
 } from "./google-ads";
 import { orderOrgsForCron } from "./google-ads-sync";
 import {
@@ -451,6 +452,24 @@ describe("normalizeAssetRows", () => {
     ], new Map());
     expect(result).toHaveLength(1);
     expect(result[0].label).toBe("Callout");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// assetTypeToFieldType (asset attach)
+// ---------------------------------------------------------------------------
+
+describe("assetTypeToFieldType", () => {
+  it("maps attachable extension types", () => {
+    expect(assetTypeToFieldType("SITELINK")).toBe("SITELINK");
+    expect(assetTypeToFieldType("CALLOUT")).toBe("CALLOUT");
+    expect(assetTypeToFieldType("STRUCTURED_SNIPPET")).toBe("STRUCTURED_SNIPPET");
+  });
+
+  it("returns null for ad-level and unknown types", () => {
+    for (const type of ["IMAGE", "YOUTUBE_VIDEO", "TEXT", "LEAD_FORM", "", "sitelink"]) {
+      expect(assetTypeToFieldType(type)).toBeNull();
+    }
   });
 });
 

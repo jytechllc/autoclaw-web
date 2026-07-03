@@ -2407,6 +2407,58 @@ export function normalizeAssetRows(rows: RawAssetRow[], usage: Map<string, numbe
   return out.sort((x, y) => y.campaignCount - x.campaignCount || x.type.localeCompare(y.type));
 }
 
+/** Map an asset type to the campaign_asset field type it attaches as.
+ *  Returns null for types that don't attach at campaign level (images/videos
+ *  ride on ads, not campaign assets). Pure — unit-tested. */
+export function assetTypeToFieldType(assetType: string): "SITELINK" | "CALLOUT" | "STRUCTURED_SNIPPET" | null {
+  switch (assetType) {
+    case "SITELINK": return "SITELINK";
+    case "CALLOUT": return "CALLOUT";
+    case "STRUCTURED_SNIPPET": return "STRUCTURED_SNIPPET";
+    default: return null;
+  }
+}
+
+/** Attach an EXISTING asset to a campaign (the reuse half of the asset
+ *  library). Field type is derived from the asset's actual type server-side —
+ *  never trusted from the client. Duplicate links are treated as success. */
+export async function attachAssetToCampaign(
+  campaignResourceName: string,
+  assetResourceName: string
+): Promise<{ success: boolean; alreadyAttached?: boolean; error?: unknown }> {
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
+  if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
+
+  if (!/^customers\/\d+\/assets\/\d+$/.test(assetResourceName)) {
+    return { success: false, error: "Invalid asset resource name" };
+  }
+
+  // Look up the asset's real type.
+  type AssetRow = { asset: { type?: string } };
+  const escaped = assetResourceName.replace(/'/g, "''");
+  const assetRows = await adsSearchStream(customerId, `
+    SELECT asset.type FROM asset WHERE asset.resource_name = '${escaped}'
+  `) as AssetRow[];
+  if (assetRows.length === 0) return { success: false, error: "Asset not found" };
+  const fieldType = assetTypeToFieldType(assetRows[0].asset.type || "");
+  if (!fieldType) {
+    return { success: false, error: `Asset type ${assetRows[0].asset.type || "UNKNOWN"} cannot be attached at campaign level` };
+  }
+
+  const res = await adsMutate(customerId, "campaignAssets:mutate", {
+    operations: [{ create: { campaign: campaignResourceName, asset: assetResourceName, fieldType } }],
+  });
+  if (res.status !== 200) {
+    // Google rejects duplicate campaign_asset links — that's the desired end state anyway.
+    const detail = JSON.stringify(res.data || "");
+    if (/DUPLICATE|ALREADY_EXISTS/i.test(detail)) {
+      return { success: true, alreadyAttached: true };
+    }
+    return { success: false, error: res.data };
+  }
+  return { success: true };
+}
+
 /** List account assets with per-asset campaign usage counts. */
 export async function fetchAccountAssets(limit = 200): Promise<AccountAsset[]> {
   const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;

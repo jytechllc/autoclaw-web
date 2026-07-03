@@ -29,18 +29,71 @@ const TYPE_BADGES: Record<string, string> = {
   TEXT: "bg-gray-100 text-gray-600",
 };
 
+const ATTACHABLE_TYPES = new Set(["SITELINK", "CALLOUT", "STRUCTURED_SNIPPET"]);
+
+interface CampaignOption {
+  id: number;
+  campaign_name: string;
+  channel: string;
+  closed: boolean;
+}
+
 export default function GoogleAdsAssetsPage() {
   const { user } = useUser();
   const params = useParams();
   const locale = (params.locale as Locale) || "en";
   const dict = getDictionary(locale);
   const t = dict.googleAdsPage;
-  const { activeOrg } = useOrg();
+  const { activeOrg, isReadOnly } = useOrg();
 
   const [assets, setAssets] = useState<AccountAsset[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [filter, setFilter] = useState<(typeof TYPE_FILTERS)[number]>("ALL");
+  const [toast, setToast] = useState("");
+
+  // Attach-to-campaign
+  const [campaignOptions, setCampaignOptions] = useState<CampaignOption[]>([]);
+  const [attachingFor, setAttachingFor] = useState<string | null>(null); // asset resourceName with open picker
+  const [attachTarget, setAttachTarget] = useState<number | "">("");
+  const [attachSubmitting, setAttachSubmitting] = useState(false);
+
+  useEffect(() => {
+    // Load SEARCH campaigns once for the attach picker (cheap DB list).
+    (async () => {
+      try {
+        const res = await fetch(`/api/google-ads/campaigns${activeOrg ? `?org_id=${activeOrg.id}` : ""}`);
+        const data = await res.json();
+        const list: CampaignOption[] = Array.isArray(data.campaigns) ? data.campaigns : [];
+        setCampaignOptions(list.filter((c) => c.channel === "SEARCH" && !c.closed));
+      } catch { /* picker just stays empty */ }
+    })();
+  }, [activeOrg]);
+
+  async function handleAttach(assetResourceName: string) {
+    if (!attachTarget) return;
+    setAttachSubmitting(true);
+    try {
+      const res = await fetch("/api/google-ads/assets/attach", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assetResourceName, campaignId: attachTarget, orgId: activeOrg?.id }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setToast(data.alreadyAttached ? (t.assetsAlreadyAttached || "Already attached to that campaign") : (t.assetsAttached || "Asset attached"));
+        setAttachingFor(null);
+        setAttachTarget("");
+        fetchAssets();
+      } else {
+        setToast(typeof data.details === "string" ? data.details : (data.error || "Attach failed"));
+      }
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Attach failed");
+    }
+    setAttachSubmitting(false);
+    setTimeout(() => setToast(""), 4000);
+  }
 
   const fetchAssets = useCallback(async () => {
     setLoading(true);
@@ -125,9 +178,46 @@ export default function GoogleAdsAssetsPage() {
                   </div>
                   <p className="text-sm font-medium text-gray-800 truncate mt-1" title={a.label}>{a.label}</p>
                   {a.detail && <p className="text-xs text-gray-400 truncate" title={a.detail}>{a.detail}</p>}
+                  {!isReadOnly && ATTACHABLE_TYPES.has(a.type) && campaignOptions.length > 0 && (
+                    attachingFor === a.resourceName ? (
+                      <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                        <select
+                          value={attachTarget}
+                          onChange={(e) => setAttachTarget(e.target.value ? Number(e.target.value) : "")}
+                          className="text-xs px-2 py-1 border border-gray-300 rounded outline-none bg-white max-w-40"
+                        >
+                          <option value="">{t.assetsPickCampaign || "Pick a campaign…"}</option>
+                          {campaignOptions.map((c) => (
+                            <option key={c.id} value={c.id}>{c.campaign_name}</option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() => handleAttach(a.resourceName)}
+                          disabled={attachSubmitting || !attachTarget}
+                          className="text-xs px-2 py-1 bg-red-800 text-white rounded hover:bg-red-900 disabled:opacity-50 cursor-pointer"
+                        >
+                          {attachSubmitting ? "…" : (t.assetsAttach || "Attach")}
+                        </button>
+                        <button onClick={() => { setAttachingFor(null); setAttachTarget(""); }} className="text-xs px-1 text-gray-400 cursor-pointer">×</button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => { setAttachingFor(a.resourceName); setAttachTarget(""); }}
+                        className="text-[11px] mt-2 px-2 py-0.5 border border-gray-200 rounded hover:bg-gray-50 cursor-pointer text-gray-500"
+                      >
+                        + {t.assetsAttach || "Attach"}
+                      </button>
+                    )
+                  )}
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {toast && (
+          <div className="fixed top-4 right-4 z-50 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg text-sm">
+            {toast}
           </div>
         )}
       </div>
