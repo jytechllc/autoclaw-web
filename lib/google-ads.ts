@@ -342,6 +342,8 @@ export interface CampaignDetail {
   negativeKeywords: Array<{ resourceName: string; text: string; matchType: string }>;
   /** Day-parting intervals. Empty = runs at all times. */
   adSchedules: Array<{ resourceName: string; dayOfWeek: string; startHour: number; endHour: number }>;
+  /** Device bid adjustments. bidModifier 0 = excluded; empty = defaults. */
+  deviceModifiers: Array<{ resourceName: string; device: string; bidModifier: number }>;
   ads: Array<{
     resourceName: string;
     status: string;
@@ -685,6 +687,21 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
     }))
     .filter((s) => s.dayOfWeek);
 
+  // Device bid adjustment criteria
+  type DevRow = { campaignCriterion: { resourceName?: string; bidModifier?: number; device?: { type?: string } } };
+  const devRows = await adsSearchStream(customerId, `
+    SELECT campaign_criterion.resource_name, campaign_criterion.bid_modifier, campaign_criterion.device.type
+    FROM campaign_criterion
+    WHERE campaign.id = ${numericCampaignId} AND campaign_criterion.type = DEVICE
+  `).catch(() => []) as DevRow[];
+  const deviceModifiers = devRows
+    .map((r) => ({
+      resourceName: r.campaignCriterion.resourceName || "",
+      device: r.campaignCriterion.device?.type || "",
+      bidModifier: Number(r.campaignCriterion.bidModifier ?? 1),
+    }))
+    .filter((d) => d.device);
+
   // Ads — query fields for all common ad types (search / video / demand gen)
   type TextRow = { text: string };
   type AssetRef = { asset: string };
@@ -836,6 +853,7 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
     },
     negativeKeywords,
     adSchedules,
+    deviceModifiers,
     ads,
   };
 }
@@ -2216,6 +2234,110 @@ export async function setCampaignAdSchedule(
         },
       },
     })),
+  ];
+  if (operations.length === 0) return { success: true };
+
+  const res = await adsMutate(customerId, "campaignCriteria:mutate", { operations });
+  if (res.status !== 200) return { success: false, error: res.data };
+  return { success: true };
+}
+
+// ---------------------------------------------------------------------------
+// Device bid adjustments
+// ---------------------------------------------------------------------------
+
+export const DEVICE_TYPES = ["MOBILE", "DESKTOP", "TABLET"] as const;
+export type DeviceType = (typeof DEVICE_TYPES)[number];
+
+export interface DeviceModifierInput {
+  device: DeviceType;
+  /** Bid adjustment percent: -90..900. 0 = no adjustment. Use `exclude` to opt out entirely. */
+  percent: number;
+  /** true = don't serve on this device at all (Google: bid_modifier 0). */
+  exclude?: boolean;
+}
+
+/** Channels supporting campaign-level device bid modifiers. VIDEO allows only
+ *  -100% (exclusion) semantics and PMax/DemandGen none — kept out for now. */
+const DEVICE_MODIFIER_CHANNELS = new Set(["SEARCH", "DISPLAY", "SHOPPING"]);
+
+export function channelSupportsDeviceModifiers(channelType: string): boolean {
+  return DEVICE_MODIFIER_CHANNELS.has(channelType);
+}
+
+/** Pure validation — unit-tested. */
+export function validateDeviceModifiers(modifiers: DeviceModifierInput[]): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  if (!Array.isArray(modifiers)) return { valid: false, errors: ["modifiers must be an array."] };
+
+  const seen = new Set<string>();
+  modifiers.forEach((m, i) => {
+    const label = `modifiers[${i}]`;
+    if (!DEVICE_TYPES.includes(m.device)) {
+      errors.push(`${label}: device must be one of ${DEVICE_TYPES.join(", ")}.`);
+      return;
+    }
+    if (seen.has(m.device)) {
+      errors.push(`${label}: duplicate device ${m.device}.`);
+      return;
+    }
+    seen.add(m.device);
+    if (m.exclude) return; // percent ignored when excluding
+    if (!Number.isFinite(m.percent) || m.percent < -90 || m.percent > 900) {
+      errors.push(`${label}: percent must be between -90 and 900 (Google's bid modifier range).`);
+    }
+  });
+
+  if (modifiers.length > 0 && modifiers.every((m) => m.exclude)) {
+    errors.push("At least one device must remain enabled.");
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+/** Replace ALL device criteria on a campaign. Empty list = no adjustments
+ *  (all devices, default bids). percent→factor: factor = 1 + percent/100;
+ *  exclude → bid_modifier 0 (Google's device opt-out). */
+export async function setCampaignDeviceModifiers(
+  campaignResourceName: string,
+  modifiers: DeviceModifierInput[]
+): Promise<{ success: boolean; error?: unknown }> {
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
+  if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
+
+  const numericCampaignId = campaignResourceName.split("/").pop() || "";
+
+  type ChannelRow = { campaign: { advertisingChannelType?: string } };
+  const channelRows = await adsSearchStream(customerId, `
+    SELECT campaign.advertising_channel_type FROM campaign WHERE campaign.id = ${numericCampaignId}
+  `) as ChannelRow[];
+  const channelType = channelRows[0]?.campaign?.advertisingChannelType || "";
+  if (!channelSupportsDeviceModifiers(channelType)) {
+    return { success: false, error: `Device bid adjustments are not supported for ${channelType || "this"} campaigns` };
+  }
+
+  const validation = validateDeviceModifiers(modifiers);
+  if (!validation.valid) return { success: false, error: validation.errors.join(" ") };
+
+  type CCRow = { campaignCriterion: { resourceName: string } };
+  const existing = await adsSearchStream(customerId, `
+    SELECT campaign_criterion.resource_name
+    FROM campaign_criterion
+    WHERE campaign.id = ${numericCampaignId} AND campaign_criterion.type = DEVICE
+  `) as CCRow[];
+
+  const operations: Record<string, unknown>[] = [
+    ...existing.map((r) => ({ remove: r.campaignCriterion.resourceName })),
+    ...modifiers
+      // percent 0 without exclude = default behavior → no criterion needed
+      .filter((m) => m.exclude || m.percent !== 0)
+      .map((m) => ({
+        create: {
+          campaign: campaignResourceName,
+          device: { type: m.device },
+          bidModifier: m.exclude ? 0 : Math.round((1 + m.percent / 100) * 100) / 100,
+        },
+      })),
   ];
   if (operations.length === 0) return { success: true };
 

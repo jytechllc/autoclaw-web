@@ -620,3 +620,13 @@ Chips away at the Section 6 "Reporting/export" gap with client-side CSV exports 
 - Detail page: "⬇ Export CSV" on the Performance header — the 30-day daily series (date/impressions/clicks/cost/conversions), filename slugged from the campaign name.
 - `lib/csv.test.ts` — 8 test cases. i18n: 1 key × 4 locales.
 - PDF/scheduled email reports deferred; CSV covers the "pull numbers into a spreadsheet/deck" workflow that sales asked for.
+
+### 2026-07-03 — device bid adjustments (this PR)
+
+Delivers the device half of the bid-modifier pass promised in the day-parting changelog entry.
+
+- `lib/google-ads.ts` — `setCampaignDeviceModifiers()` (replace-all DEVICE campaign criteria; percent → factor `1 + pct/100` rounded to 2dp; `exclude` → `bid_modifier: 0`, Google's device opt-out; percent 0 without exclude emits no criterion = default), `channelSupportsDeviceModifiers()` (SEARCH/DISPLAY/SHOPPING — VIDEO only supports exclusion semantics and PMax/DemandGen none, kept out), pure `validateDeviceModifiers()` (device enum, no duplicates, -90..900, can't exclude every device). `fetchCampaignDetail()` returns `deviceModifiers`.
+- `app/api/google-ads/campaigns/[id]/device-modifiers/route.ts` — `POST { modifiers[] }`, replace-all, standard checks, audit-logged.
+- Detail page: "📱 Device Bid Adjustments" card — chips (green boost / amber reduction / red strikethrough exclusion / gray default), editor with per-device mode select (default / adjust ± % / exclude).
+- `lib/google-ads.test.ts` — 9 new test cases. i18n: 4 keys × 4 locales.
+- Remaining bid-modifier surface (location, ad-schedule interval, demographics) deferred until there's user pull.

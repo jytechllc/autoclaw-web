@@ -83,6 +83,7 @@ interface Detail {
   bidding?: { strategyType: string; targetCpaMicros: number; targetRoas: number };
   negativeKeywords?: Array<{ resourceName: string; text: string; matchType: string }>;
   adSchedules?: Array<{ resourceName: string; dayOfWeek: string; startHour: number; endHour: number }>;
+  deviceModifiers?: Array<{ resourceName: string; device: string; bidModifier: number }>;
   ads: Array<{
     resourceName: string;
     status: string;
@@ -199,6 +200,23 @@ const DAY_SHORT: Record<string, string> = {
 };
 function fmtHour(h: number): string {
   return `${String(h).padStart(2, "0")}:00`;
+}
+
+/** Channels supporting device bid adjustments (mirrors lib). */
+const DEVICE_MOD_CHANNELS = new Set(["SEARCH", "DISPLAY", "SHOPPING"]);
+const DEVICE_LIST = ["MOBILE", "DESKTOP", "TABLET"] as const;
+type DeviceName = (typeof DEVICE_LIST)[number];
+const DEVICE_ICON: Record<DeviceName, string> = { MOBILE: "📱", DESKTOP: "🖥️", TABLET: "📲" };
+type DeviceModRow = { device: DeviceName; mode: "default" | "adjust" | "exclude"; percent: number };
+
+function deviceRowsFromDetail(mods: Array<{ device: string; bidModifier: number }> | undefined): DeviceModRow[] {
+  return DEVICE_LIST.map((d) => {
+    const found = (mods || []).find((m) => m.device === d);
+    if (!found) return { device: d, mode: "default" as const, percent: 0 };
+    if (found.bidModifier === 0) return { device: d, mode: "exclude" as const, percent: 0 };
+    const pct = Math.round((found.bidModifier - 1) * 100);
+    return { device: d, mode: pct === 0 ? ("default" as const) : ("adjust" as const), percent: pct };
+  });
 }
 
 function formatUsd(cents: number | string | null | undefined): string {
@@ -924,6 +942,49 @@ export default function CampaignDetailPage() {
       setScheduleError(e instanceof Error ? e.message : "Update failed");
     }
     setSavingSchedule(false);
+  }
+
+  // Device bid adjustments
+  const [editingDevices, setEditingDevices] = useState(false);
+  const [deviceRows, setDeviceRows] = useState<DeviceModRow[]>([]);
+  const [savingDevices, setSavingDevices] = useState(false);
+  const [deviceError, setDeviceError] = useState("");
+
+  function openDeviceEditor() {
+    setDeviceRows(deviceRowsFromDetail(detail?.deviceModifiers));
+    setDeviceError("");
+    setEditingDevices(true);
+  }
+
+  async function handleSaveDevices() {
+    setSavingDevices(true);
+    setDeviceError("");
+    const modifiers = deviceRows
+      .filter((r) => r.mode !== "default")
+      .map((r) => ({
+        device: r.device,
+        percent: r.mode === "adjust" ? r.percent : 0,
+        exclude: r.mode === "exclude",
+      }));
+    try {
+      const res = await fetch(`/api/google-ads/campaigns/${campaignId}/device-modifiers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ modifiers, orgId: activeOrg?.id }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setToast(t.updated || "Updated");
+        setEditingDevices(false);
+        fetchData();
+        setTimeout(() => setToast(""), 4000);
+      } else {
+        setDeviceError(typeof data.details === "string" ? data.details : (data.error || "Update failed"));
+      }
+    } catch (e) {
+      setDeviceError(e instanceof Error ? e.message : "Update failed");
+    }
+    setSavingDevices(false);
   }
 
   // AI optimization recommendations (PR #2 follow-up)
@@ -2456,6 +2517,84 @@ export default function CampaignDetailPage() {
                     {savingSchedule ? (t.creating || "Saving...") : (t.save || "Save")}
                   </button>
                   <button onClick={() => setEditingSchedule(false)} className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 cursor-pointer">
+                    {t.cancel || "Cancel"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Device bid adjustments */}
+        {detail && DEVICE_MOD_CHANNELS.has(detail.channelType) && (
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-gray-700">📱 {t.devSection || "Device Bid Adjustments"}</h2>
+              {!campaign.closed && !editingDevices && (
+                <button
+                  onClick={openDeviceEditor}
+                  className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer"
+                >
+                  ✏️ {t.schedEdit || "Edit"}
+                </button>
+              )}
+            </div>
+
+            {!editingDevices && (
+              <div className="flex flex-wrap gap-1.5">
+                {deviceRowsFromDetail(detail.deviceModifiers).map((r) => (
+                  <span
+                    key={r.device}
+                    className={`px-2 py-0.5 text-xs rounded-full ${
+                      r.mode === "exclude" ? "bg-red-50 text-red-700 line-through" :
+                      r.mode === "adjust" ? (r.percent > 0 ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700") :
+                      "bg-gray-100 text-gray-600"
+                    }`}
+                  >
+                    {DEVICE_ICON[r.device]} {r.device}
+                    {r.mode === "adjust" ? ` ${r.percent > 0 ? "+" : ""}${r.percent}%` : r.mode === "exclude" ? "" : ` ${t.devDefault || "default"}`}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {editingDevices && (
+              <div className="space-y-3">
+                {deviceRows.map((row, i) => (
+                  <div key={row.device} className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-gray-700 w-24">{DEVICE_ICON[row.device]} {row.device}</span>
+                    <select
+                      value={row.mode}
+                      onChange={(e) => setDeviceRows(deviceRows.map((r, j) => j === i ? { ...r, mode: e.target.value as DeviceModRow["mode"] } : r))}
+                      className="text-xs px-2 py-1 border border-gray-300 rounded outline-none bg-white"
+                    >
+                      <option value="default">{t.devDefault || "default"}</option>
+                      <option value="adjust">{t.devAdjust || "adjust bid"}</option>
+                      <option value="exclude">{t.devExclude || "exclude"}</option>
+                    </select>
+                    {row.mode === "adjust" && (
+                      <>
+                        <input
+                          type="number" min="-90" max="900" step="1"
+                          value={row.percent}
+                          onChange={(e) => setDeviceRows(deviceRows.map((r, j) => j === i ? { ...r, percent: Number(e.target.value) } : r))}
+                          className="text-xs px-2 py-1 border border-gray-300 rounded outline-none w-20"
+                        />
+                        <span className="text-xs text-gray-400">% (−90 … +900)</span>
+                      </>
+                    )}
+                  </div>
+                ))}
+                {deviceError && <pre className="text-xs text-red-600 bg-red-50 p-2 rounded whitespace-pre-wrap break-all">{deviceError}</pre>}
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleSaveDevices}
+                    disabled={savingDevices}
+                    className="bg-red-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-900 disabled:opacity-50 cursor-pointer"
+                  >
+                    {savingDevices ? (t.creating || "Saving...") : (t.save || "Save")}
+                  </button>
+                  <button onClick={() => setEditingDevices(false)} className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 cursor-pointer">
                     {t.cancel || "Cancel"}
                   </button>
                 </div>

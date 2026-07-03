@@ -7,6 +7,8 @@ import {
   validateConversionActionInput,
   validateAdScheduleInput,
   channelSupportsAdSchedule,
+  validateDeviceModifiers,
+  channelSupportsDeviceModifiers,
   type CreateAssetGroupInput,
   type CreateConversionActionInput,
 } from "./google-ads";
@@ -391,6 +393,81 @@ describe("channelSupportsAdSchedule", () => {
     expect(channelSupportsAdSchedule("PERFORMANCE_MAX")).toBe(false);
     expect(channelSupportsAdSchedule("DEMAND_GEN")).toBe(false);
     expect(channelSupportsAdSchedule("")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateDeviceModifiers (device bid adjustments)
+// ---------------------------------------------------------------------------
+
+describe("validateDeviceModifiers", () => {
+  it("accepts an empty list (default bids)", () => {
+    expect(validateDeviceModifiers([]).valid).toBe(true);
+  });
+
+  it("accepts typical adjustments", () => {
+    const result = validateDeviceModifiers([
+      { device: "MOBILE", percent: 20 },
+      { device: "DESKTOP", percent: 0 },
+      { device: "TABLET", percent: -50 },
+    ]);
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("accepts boundary percents -90 and 900", () => {
+    expect(validateDeviceModifiers([{ device: "MOBILE", percent: -90 }]).valid).toBe(true);
+    expect(validateDeviceModifiers([{ device: "MOBILE", percent: 900 }]).valid).toBe(true);
+  });
+
+  it("accepts an exclusion (percent ignored)", () => {
+    const result = validateDeviceModifiers([
+      { device: "TABLET", percent: 9999, exclude: true },
+      { device: "MOBILE", percent: 10 },
+    ]);
+    expect(result.valid).toBe(true);
+  });
+
+  it("rejects unknown devices", () => {
+    const result = validateDeviceModifiers([{ device: "SMART_FRIDGE" as never, percent: 10 }]);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes("device must be one of"))).toBe(true);
+  });
+
+  it("rejects duplicate devices", () => {
+    const result = validateDeviceModifiers([
+      { device: "MOBILE", percent: 10 },
+      { device: "MOBILE", percent: 20 },
+    ]);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes("duplicate"))).toBe(true);
+  });
+
+  it("rejects out-of-range percents", () => {
+    expect(validateDeviceModifiers([{ device: "MOBILE", percent: -91 }]).valid).toBe(false);
+    expect(validateDeviceModifiers([{ device: "MOBILE", percent: 901 }]).valid).toBe(false);
+    expect(validateDeviceModifiers([{ device: "MOBILE", percent: NaN }]).valid).toBe(false);
+  });
+
+  it("rejects excluding every device", () => {
+    const result = validateDeviceModifiers([
+      { device: "MOBILE", percent: 0, exclude: true },
+      { device: "DESKTOP", percent: 0, exclude: true },
+      { device: "TABLET", percent: 0, exclude: true },
+    ]);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes("At least one device"))).toBe(true);
+  });
+});
+
+describe("channelSupportsDeviceModifiers", () => {
+  it("allows SEARCH / DISPLAY / SHOPPING, rejects VIDEO / PMax / Demand Gen", () => {
+    for (const ch of ["SEARCH", "DISPLAY", "SHOPPING"]) {
+      expect(channelSupportsDeviceModifiers(ch)).toBe(true);
+    }
+    for (const ch of ["VIDEO", "PERFORMANCE_MAX", "DEMAND_GEN", ""]) {
+      expect(channelSupportsDeviceModifiers(ch)).toBe(false);
+    }
   });
 });
 
