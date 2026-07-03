@@ -766,7 +766,15 @@ Completes the bid-modifier trio (device ✅, location ✅, schedule ✅) — "+2
 - ⏰ card: interval chips now colored by adjustment (+green/−amber) with the % inline; new "% Adjust bids" mode listing intervals with one % input each.
 - 5 new test cases. i18n: 2 keys × 4 locales.
 
-### 2026-07-03 — printable campaign report page (this PR)
+### 2026-07-03 — weekly digest email (this PR)
+
+The owner never has to open the dashboard: every Monday AutoClaw emails a 7-day summary — spend, clicks, conversions, remaining credits, top campaigns, and the stored AI recommendations awaiting one-click approval.
+
+- Pure composition module `lib/google-ads-weekly-email.ts` — `composeWeeklyDigestEmail()` turns numbers into subject + inline-styled HTML, fully unit-tested (totals, sorting, HTML escaping of campaign names / rec titles, no-spend state, rec cap of 5, URL normalization). Bilingual en/zh via `GOOGLE_ADS_DIGEST_LOCALE` env (orgs carry no locale — same limitation as the nightly digest).
+- New `/api/cron/google-ads-weekly-email` (Mon 06:00 UTC, after the nightly digest refresh): **zero LLM calls at send time** — recommendations come from the `campaign_recommendations` table; one `fetchCampaignSpend(…, "LAST_7_DAYS")` GAQL call per org (the function gained an optional date-range param, default unchanged). Sends via Brevo with the same env→org-5-stored-key fallback as the outreach dispatcher; recipient = org creator. D-10 time budget + week-seeded rotation.
+- Known limitations, documented deliberately: no per-org opt-out toggle yet (follow-up — one boolean on organizations), and a manual workflow_dispatch re-run re-sends (acceptable: deliberate act, weekly cadence).
+
+### 2026-07-03 — printable campaign report page
 
 The "send it to my accountant / boss" artifact: `google-ads/[id]/report` renders a clean single-page report — open, Cmd/Ctrl+P, save as PDF.
 

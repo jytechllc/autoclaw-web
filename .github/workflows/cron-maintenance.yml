@@ -15,6 +15,7 @@ on:
     - cron: "40 * * * *"      # hourly :40  - google-ads-sync
     - cron: "45 3 * * *"      # daily 03:45 - google-ads-reconcile
     - cron: "15 5 * * *"      # daily 05:15 - google-ads-recommendations (after reconcile so spend is fresh)
+    - cron: "0 6 * * 1"       # Mon 06:00   - google-ads-weekly-email (after the nightly digest refresh)
   workflow_dispatch:
     inputs:
       task:
@@ -35,6 +36,7 @@ on:
           - google-ads-sync
           - google-ads-reconcile
           - google-ads-recommendations
+          - google-ads-weekly-email
 
 jobs:
   cron:
@@ -179,3 +181,13 @@ jobs:
           curl --fail --show-error --silent \
             -H "Authorization: Bearer ${CRON_SECRET}" \
             "${AUTOCLAW_BASE_URL}/api/cron/google-ads-recommendations"
+
+      - name: Run google-ads-weekly-email
+        if: (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'google-ads-weekly-email') || (github.event_name == 'schedule' && github.event.schedule == '0 6 * * 1')
+        env:
+          AUTOCLAW_BASE_URL: ${{ vars.AUTOCLAW_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl --fail --show-error --silent \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${AUTOCLAW_BASE_URL}/api/cron/google-ads-weekly-email"
