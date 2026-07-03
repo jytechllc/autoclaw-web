@@ -728,3 +728,12 @@ First slice of the Section 6 "Asset library" gap — the read side. Assets alrea
 - `/dashboard/google-ads/assets` — new page (per D-3, monoliths don't grow): type filter chips with counts, thumbnail cards, per-asset "used in N campaigns". Entry link (🗂️) on the list-page header.
 - `lib/google-ads.test.ts` — 3 new test cases. i18n: 5 keys × 4 locales.
 - Slice 2 (write side — attach an existing asset to a campaign, delete unused assets) deferred; the API surface for attach already exists per-type via the extension endpoints.
+
+### 2026-07-03 — asset library, attach/reuse (this PR)
+
+Slice 2's safe half: attaching an existing asset to another campaign (the whole point of a library). Deleting assets stays deferred — it has product implications (historical stats) that need a decision.
+
+- `lib/google-ads.ts` — `attachAssetToCampaign()`: looks up the asset's REAL type server-side and derives the `campaign_asset` field type from it (never trusted from the client); only SITELINK / CALLOUT / STRUCTURED_SNIPPET attach at campaign level (images/videos ride on ads → clear error). Google's duplicate-link rejection is normalized to `{ success, alreadyAttached: true }` — the desired end state, not an error. Pure `assetTypeToFieldType()` unit-tested.
+- `POST /api/google-ads/assets/attach` — read-only-gated, campaign ownership + same-customer asset check, SEARCH-channel campaigns only (same rule as extensions).
+- Asset library page: per-asset "+ Attach" (attachable types only, hidden for viewers) with an open-SEARCH-campaign picker; usage counts refresh after attach.
+- `lib/google-ads.test.ts` — 2 new test cases. i18n: 4 keys × 4 locales.
