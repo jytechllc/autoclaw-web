@@ -10,6 +10,7 @@ import { chatWithAI } from "@/lib/ai";
 import {
   buildRecommendationsPrompt,
   selectWastefulTerms,
+  sanitizeAutoAction,
   RECOMMENDATION_CATEGORIES,
   RECOMMENDATION_PRIORITIES,
   type CampaignSnapshot,
@@ -199,6 +200,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         rationale,
         action,
         metric: o.metric ? clip(String(o.metric), 40) : undefined,
+        autoAction: sanitizeAutoAction(o.autoAction, snapshot.dailyBudget) ?? undefined,
       };
     })
     .filter((r): r is Recommendation => r !== null);

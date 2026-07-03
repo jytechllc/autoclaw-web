@@ -2,8 +2,53 @@ import { describe, it, expect } from "vitest";
 import {
   selectWastefulTerms,
   buildRecommendationsPrompt,
+  sanitizeAutoAction,
   type CampaignSnapshot,
 } from "./prompt";
+
+describe("sanitizeAutoAction", () => {
+  it("accepts a budget change within ±50% of current", () => {
+    expect(sanitizeAutoAction({ kind: "SET_DAILY_BUDGET", params: { dailyBudget: 12 } }, 10)).toEqual({
+      kind: "SET_DAILY_BUDGET", params: { dailyBudget: 12 },
+    });
+  });
+
+  it("rejects budget moves beyond the ±50% guardrail", () => {
+    expect(sanitizeAutoAction({ kind: "SET_DAILY_BUDGET", params: { dailyBudget: 16 } }, 10)).toBeNull();  // +60%
+    expect(sanitizeAutoAction({ kind: "SET_DAILY_BUDGET", params: { dailyBudget: 4 } }, 10)).toBeNull();   // -60%
+    expect(sanitizeAutoAction({ kind: "SET_DAILY_BUDGET", params: { dailyBudget: 0 } }, 10)).toBeNull();
+    expect(sanitizeAutoAction({ kind: "SET_DAILY_BUDGET", params: { dailyBudget: -5 } }, 10)).toBeNull();
+  });
+
+  it("accepts valid bid strategies and requires targets when applicable", () => {
+    expect(sanitizeAutoAction({ kind: "SET_BID_STRATEGY", params: { type: "MAXIMIZE_CONVERSIONS" } }, 10)).toMatchObject({ kind: "SET_BID_STRATEGY" });
+    expect(sanitizeAutoAction({ kind: "SET_BID_STRATEGY", params: { type: "TARGET_CPA", targetCpa: 5 } }, 10)).toMatchObject({ params: { type: "TARGET_CPA", targetCpa: 5 } });
+    expect(sanitizeAutoAction({ kind: "SET_BID_STRATEGY", params: { type: "TARGET_CPA" } }, 10)).toBeNull();
+    expect(sanitizeAutoAction({ kind: "SET_BID_STRATEGY", params: { type: "YOLO" } }, 10)).toBeNull();
+  });
+
+  it("clamps negative keywords to 10 valid entries, defaults to EXACT", () => {
+    const result = sanitizeAutoAction({
+      kind: "ADD_NEGATIVE_KEYWORDS",
+      params: { keywords: [...Array.from({ length: 12 }, (_, i) => `kw ${i}`), "", "x".repeat(81)] },
+    }, 10);
+    expect(result).not.toBeNull();
+    const kws = (result!.params.keywords as Array<{ text: string; matchType: string }>);
+    expect(kws).toHaveLength(10);
+    expect(kws[0].matchType).toBe("EXACT");
+  });
+
+  it("rejects unknown kinds and garbage", () => {
+    expect(sanitizeAutoAction({ kind: "DELETE_ACCOUNT", params: {} }, 10)).toBeNull();
+    expect(sanitizeAutoAction(null, 10)).toBeNull();
+    expect(sanitizeAutoAction("PAUSE_CAMPAIGN", 10)).toBeNull();
+    expect(sanitizeAutoAction({ kind: "ADD_NEGATIVE_KEYWORDS", params: { keywords: [] } }, 10)).toBeNull();
+  });
+
+  it("passes PAUSE_CAMPAIGN through with empty params", () => {
+    expect(sanitizeAutoAction({ kind: "PAUSE_CAMPAIGN", params: { sneaky: 1 } }, 10)).toEqual({ kind: "PAUSE_CAMPAIGN", params: {} });
+  });
+});
 
 const term = (t: string, costMicros: number, conversions = 0, clicks = 1) => ({
   term: t, clicks, costMicros, conversions,
