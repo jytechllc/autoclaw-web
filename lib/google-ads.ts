@@ -2317,6 +2317,131 @@ export async function setCampaignAdSchedule(
 }
 
 // ---------------------------------------------------------------------------
+// Asset library (read-only, slice 1)
+// ---------------------------------------------------------------------------
+
+export interface AccountAsset {
+  resourceName: string;
+  id: string;
+  type: string;
+  /** Human-readable primary label (link text, callout text, video title, …). */
+  label: string;
+  /** Secondary detail (URL, snippet values, video id, …). */
+  detail: string;
+  /** Thumbnail/image URL when available. */
+  imageUrl?: string;
+  /** Number of campaigns this asset is attached to (campaign_asset links). */
+  campaignCount: number;
+}
+
+export interface RawAssetRow {
+  asset?: {
+    resourceName?: string;
+    id?: string;
+    type?: string;
+    name?: string;
+    finalUrls?: string[];
+    imageAsset?: { fullSize?: { url?: string; widthPixels?: number; heightPixels?: number } };
+    textAsset?: { text?: string };
+    sitelinkAsset?: { linkText?: string; description1?: string };
+    calloutAsset?: { calloutText?: string };
+    structuredSnippetAsset?: { header?: string; values?: string[] };
+    youtubeVideoAsset?: { youtubeVideoId?: string; youtubeVideoTitle?: string };
+  };
+}
+
+/** Normalize raw GAQL asset rows into display-ready entries. Pure — unit-tested. */
+export function normalizeAssetRows(rows: RawAssetRow[], usage: Map<string, number>): AccountAsset[] {
+  const out: AccountAsset[] = [];
+  for (const r of rows) {
+    const a = r.asset;
+    if (!a?.resourceName) continue;
+    const type = a.type || "UNKNOWN";
+    let label = a.name || "";
+    let detail = "";
+    let imageUrl: string | undefined;
+    switch (type) {
+      case "IMAGE":
+        imageUrl = a.imageAsset?.fullSize?.url;
+        detail = a.imageAsset?.fullSize?.widthPixels && a.imageAsset?.fullSize?.heightPixels
+          ? `${a.imageAsset.fullSize.widthPixels}×${a.imageAsset.fullSize.heightPixels}`
+          : "";
+        label = label || "Image";
+        break;
+      case "SITELINK":
+        label = a.sitelinkAsset?.linkText || label || "Sitelink";
+        detail = a.finalUrls?.[0] || a.sitelinkAsset?.description1 || "";
+        break;
+      case "CALLOUT":
+        label = a.calloutAsset?.calloutText || label || "Callout";
+        break;
+      case "STRUCTURED_SNIPPET":
+        label = a.structuredSnippetAsset?.header || label || "Snippet";
+        detail = (a.structuredSnippetAsset?.values || []).join(" · ");
+        break;
+      case "YOUTUBE_VIDEO":
+        label = a.youtubeVideoAsset?.youtubeVideoTitle || label || "YouTube video";
+        detail = a.youtubeVideoAsset?.youtubeVideoId || "";
+        if (a.youtubeVideoAsset?.youtubeVideoId) {
+          imageUrl = `https://i.ytimg.com/vi/${a.youtubeVideoAsset.youtubeVideoId}/default.jpg`;
+        }
+        break;
+      case "TEXT":
+        label = a.textAsset?.text || label || "Text";
+        break;
+      default:
+        label = label || type;
+    }
+    if (!label) continue;
+    out.push({
+      resourceName: a.resourceName,
+      id: String(a.id || ""),
+      type,
+      label,
+      detail,
+      imageUrl,
+      campaignCount: usage.get(a.resourceName) || 0,
+    });
+  }
+  // Most-used first, then by type for stable grouping.
+  return out.sort((x, y) => y.campaignCount - x.campaignCount || x.type.localeCompare(y.type));
+}
+
+/** List account assets with per-asset campaign usage counts. */
+export async function fetchAccountAssets(limit = 200): Promise<AccountAsset[]> {
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
+  if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
+
+  const rows = await adsSearchStream(customerId, `
+    SELECT asset.resource_name, asset.id, asset.type, asset.name, asset.final_urls,
+           asset.image_asset.full_size.url, asset.image_asset.full_size.width_pixels, asset.image_asset.full_size.height_pixels,
+           asset.text_asset.text,
+           asset.sitelink_asset.link_text, asset.sitelink_asset.description1,
+           asset.callout_asset.callout_text,
+           asset.structured_snippet_asset.header, asset.structured_snippet_asset.values,
+           asset.youtube_video_asset.youtube_video_id, asset.youtube_video_asset.youtube_video_title
+    FROM asset
+    WHERE asset.type IN (IMAGE, SITELINK, CALLOUT, STRUCTURED_SNIPPET, YOUTUBE_VIDEO, TEXT)
+    LIMIT ${Math.min(Math.max(limit, 1), 500)}
+  `) as RawAssetRow[];
+
+  // Usage: count campaign_asset links per asset (non-removed).
+  type LinkRow = { campaignAsset: { asset?: string } };
+  const linkRows = await adsSearchStream(customerId, `
+    SELECT campaign_asset.asset
+    FROM campaign_asset
+    WHERE campaign_asset.status != 'REMOVED'
+  `).catch(() => []) as LinkRow[];
+  const usage = new Map<string, number>();
+  for (const l of linkRows) {
+    const key = l.campaignAsset?.asset;
+    if (key) usage.set(key, (usage.get(key) || 0) + 1);
+  }
+
+  return normalizeAssetRows(rows, usage);
+}
+
+// ---------------------------------------------------------------------------
 // Location bid adjustments
 // ---------------------------------------------------------------------------
 

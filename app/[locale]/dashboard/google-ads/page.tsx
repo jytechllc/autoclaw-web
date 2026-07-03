@@ -355,6 +355,12 @@ export default function GoogleAdsPage() {
           </div>
           <div className="flex flex-wrap gap-2 self-start">
             <Link
+              href={`/${locale}/dashboard/google-ads/assets`}
+              className="border border-gray-300 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition cursor-pointer"
+            >
+              🗂️ {t.assetsTitle || "Assets"}
+            </Link>
+            <Link
               href={`/${locale}/dashboard/google-ads/conversions`}
               className="border border-gray-300 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition cursor-pointer"
             >
