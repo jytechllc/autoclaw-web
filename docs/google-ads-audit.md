@@ -669,3 +669,11 @@ The "someday" from the previous entry, done the next hour. The recommendations e
 - `recommendations/route.ts` — for SEARCH campaigns, fetches the last-30d search terms best-effort inside a try/catch: `search_term_view` being slow or empty must never block recommendations.
 - `recommendations/prompt.test.ts` — new test file, 5 cases (selection rules, cap, prompt inclusion/omission). First tests for the recommendations module.
 - No UI/i18n changes — the existing recommendations card just gets sharper output.
+
+### 2026-07-03 — read-only role enforcement, server-side (this PR)
+
+Closes a real permissions gap: `0e6b9be` hid spend data from read-only (viewer/sandbox) accounts in the UI, but **no Google Ads route ever checked the role server-side** — any org member, including viewers, could create campaigns, change budgets, or add keywords by calling the API directly. Client-side gating was also missing entirely on the detail page.
+
+- **Server**: all 22 Google Ads mutation surfaces now reject read-only accounts with 403 via `isReadOnlyUserId()` (lib/roles-server.ts): campaign create/actions/import/sync, ad-groups, ads (search/display/video), keywords, locations, audiences, asset-groups, bid-strategy, negative-keywords, ad-schedule, device-modifiers, sitelinks, extensions, conversion-actions (create/status), plus the two LLM-cost endpoints (recommendations, ad-copy/generate — viewers must not burn tokens). Read endpoints (lists, detail, search-terms, diagnose, geo) stay open to viewers.
+- **Client**: detail page pulls `isReadOnly` from OrgContext; all 24 edit affordances now gate on `canEdit = !campaign.closed && !isReadOnly` (rename, schedule, bid chip, pause/enable/close, budgets, locations, audiences, ad/keyword forms, negative keywords, ad schedule, device modifiers, sitelinks, callouts/snippets, search-term one-click negative). The recommendations Generate button is hidden too. Viewers keep the full read experience.
+- No i18n/DB changes. Follow-up worth considering: finer-grained roles (operator vs member) per audit D-5's auth-consolidation idea.

@@ -4,6 +4,7 @@ import { getDb } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { createCampaign } from "@/lib/google-ads";
+import { isReadOnlyUserId } from "@/lib/roles-server";
 import {
   reserveForCampaign,
   attachReserveReference,
@@ -120,6 +121,9 @@ export async function POST(req: NextRequest) {
   const userEmail = session.user.email as string;
   const userId = await getUserId(sql, userEmail);
   if (!userId) return NextResponse.json({ error: "User not found" }, { status: 401 });
+  if (await isReadOnlyUserId(sql, userId)) {
+    return NextResponse.json({ error: "Read-only account — writes are disabled" }, { status: 403 });
+  }
 
   const requestedOrgId = body.orgId ? Number(body.orgId) : undefined;
   const orgId = await resolveOrgId(sql, userId, requestedOrgId);

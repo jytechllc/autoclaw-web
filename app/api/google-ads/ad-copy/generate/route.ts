@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth0 } from "@/lib/auth0";
+import { getDb } from "@/lib/db";
+import { isReadOnlyUserId } from "@/lib/roles-server";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { chatWithAI } from "@/lib/ai";
 
@@ -58,6 +60,16 @@ export async function POST(req: NextRequest) {
   }
   const session = await auth0.getSession();
   if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // Read-only (sandbox/viewer) accounts must not burn LLM tokens.
+  {
+    const sql = getDb();
+    const users = await sql`SELECT id FROM users WHERE email = ${session.user.email as string}`;
+    if (users.length === 0) return NextResponse.json({ error: "User not found" }, { status: 404 });
+    if (await isReadOnlyUserId(sql, users[0].id as number)) {
+      return NextResponse.json({ error: "Read-only account — writes are disabled" }, { status: 403 });
+    }
+  }
 
   const body = await req.json().catch(() => ({}));
   const url = String(body.url || "").trim();

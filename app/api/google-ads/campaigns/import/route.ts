@@ -11,6 +11,7 @@ import {
   applyPlatformMarkup,
   InsufficientCreditsError,
 } from "@/lib/credits";
+import { isReadOnlyUserId } from "@/lib/roles-server";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +43,9 @@ export async function POST(req: NextRequest) {
   const users = await sql`SELECT id FROM users WHERE email = ${userEmail}`;
   if (users.length === 0) return NextResponse.json({ error: "User not found" }, { status: 401 });
   const userId = users[0].id as number;
+  if (await isReadOnlyUserId(sql, userId)) {
+    return NextResponse.json({ error: "Read-only account — writes are disabled" }, { status: 403 });
+  }
 
   const requestedOrgId = body.orgId ? Number(body.orgId) : undefined;
   const orgId = await resolveOrgId(sql, userId, requestedOrgId);
