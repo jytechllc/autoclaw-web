@@ -710,3 +710,11 @@ Small accounting quality-of-life: the ledger is the module's differentiator, so 
 - `GET /api/credits` accepts `?limit=` (default 20 for the on-page table, clamped 1-500).
 - Budget page: "⬇ Export CSV" on the transaction-history header — fetches the most recent 500 entries (not just the 20 on screen) and downloads Date / Type / Amount / Balance After / Reserved After / Reference / Note. ISO dates; reuses `lib/csv` (BOM, RFC 4180).
 - No new i18n (reuses `exportCsv`), no schema changes.
+
+### 2026-07-03 — cron time budgets (this PR)
+
+Closes audit **D-10**: both Google Ads crons iterated orgs sequentially with no timeout budget — once the org list outgrows `maxDuration`, the function is killed mid-run and whichever orgs sort last never sync (silent, permanent starvation).
+
+- Both crons now stop starting new orgs after `maxDuration - 30s`, report `orgsSkipped` / `skippedOrgIds` / `elapsedMs` in the response, and `console.warn` on budget hit so it shows in function logs.
+- New pure `orderOrgsForCron(orgIds, seed)` in `lib/google-ads-sync.ts`: deterministic rotation of the processing order (sync seeds by hour, reconcile by day) so a skipped tail is a *different* tail next run — bounded starvation instead of permanent. 4 unit tests.
+- No behavior change while the org list fits in budget (it currently does — this is a scale guard, not a hotfix).

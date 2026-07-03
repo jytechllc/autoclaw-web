@@ -17,6 +17,9 @@ import {
   aggregateSearchTermRows,
   validateLocationModifiers,
   channelSupportsLocationModifiers,
+} from "./google-ads";
+import { orderOrgsForCron } from "./google-ads-sync";
+import {
   type SitelinkInput,
   type CreateAssetGroupInput,
   type CreateConversionActionInput,
@@ -402,6 +405,37 @@ describe("channelSupportsAdSchedule", () => {
     expect(channelSupportsAdSchedule("PERFORMANCE_MAX")).toBe(false);
     expect(channelSupportsAdSchedule("DEMAND_GEN")).toBe(false);
     expect(channelSupportsAdSchedule("")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// orderOrgsForCron (cron time-budget rotation, audit D-10)
+// ---------------------------------------------------------------------------
+
+describe("orderOrgsForCron", () => {
+  it("rotates the start index by seed", () => {
+    expect(orderOrgsForCron([3, 1, 2], 0)).toEqual([1, 2, 3]);
+    expect(orderOrgsForCron([3, 1, 2], 1)).toEqual([2, 3, 1]);
+    expect(orderOrgsForCron([3, 1, 2], 2)).toEqual([3, 1, 2]);
+    expect(orderOrgsForCron([3, 1, 2], 3)).toEqual([1, 2, 3]); // wraps
+  });
+
+  it("covers every org across consecutive seeds (bounded starvation)", () => {
+    const ids = [10, 20, 30, 40];
+    const firstPositions = new Set(Array.from({ length: 4 }, (_, seed) => orderOrgsForCron(ids, seed)[0]));
+    expect(firstPositions.size).toBe(4);
+  });
+
+  it("handles empty, single, and negative seeds", () => {
+    expect(orderOrgsForCron([], 5)).toEqual([]);
+    expect(orderOrgsForCron([7], 99)).toEqual([7]);
+    expect(orderOrgsForCron([1, 2, 3], -1)).toEqual([3, 1, 2]);
+  });
+
+  it("does not mutate the input", () => {
+    const ids = [3, 1, 2];
+    orderOrgsForCron(ids, 1);
+    expect(ids).toEqual([3, 1, 2]);
   });
 });
 

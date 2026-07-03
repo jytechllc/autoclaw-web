@@ -4,6 +4,17 @@ import { applyPlatformMarkup, recordSpend, releaseReserve } from "@/lib/credits"
 
 type Sql = ReturnType<typeof getDb>;
 
+/** Rotate the org processing order by a time-based seed so that when a cron
+ *  run hits its time budget and skips the tail, a DIFFERENT tail is skipped
+ *  on the next run — bounded starvation instead of permanently starving the
+ *  same orgs. Pure — unit-tested. */
+export function orderOrgsForCron(orgIds: number[], seed: number): number[] {
+  const sorted = [...orgIds].sort((a, b) => a - b);
+  if (sorted.length <= 1) return sorted;
+  const start = ((Math.trunc(seed) % sorted.length) + sorted.length) % sorted.length;
+  return [...sorted.slice(start), ...sorted.slice(0, start)];
+}
+
 export interface SyncSummary {
   orgId: number;
   campaignsSynced: number;
