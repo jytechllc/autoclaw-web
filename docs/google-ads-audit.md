@@ -702,3 +702,11 @@ Extends the ad-copy generator to fill the new extension forms. Anti-hallucinatio
 - `ad-copy/generate/route.ts` — new `mode: "extensions"` returning `{ callouts, sitelinks }`; reuses the existing page fetch, JSON extraction, and read-only gating. `channel` not required in this mode.
 - Detail page: "✨ Generate from site" in both the sitelink form and the callout form — uses the owner project's website, pre-fills the form for review (never auto-submits).
 - `ad-copy/extensions.test.ts` — 9 new test cases. i18n: 4 keys × 4 locales.
+
+### 2026-07-03 — ad-credit transaction export (this PR)
+
+Small accounting quality-of-life: the ledger is the module's differentiator, so finance needs to be able to pull it.
+
+- `GET /api/credits` accepts `?limit=` (default 20 for the on-page table, clamped 1-500).
+- Budget page: "⬇ Export CSV" on the transaction-history header — fetches the most recent 500 entries (not just the 20 on screen) and downloads Date / Type / Amount / Balance After / Reserved After / Reference / Note. ISO dates; reuses `lib/csv` (BOM, RFC 4180).
+- No new i18n (reuses `exportCsv`), no schema changes.

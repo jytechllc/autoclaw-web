@@ -6,6 +6,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { getDictionary, type Locale } from "@/lib/i18n";
 import DashboardShell from "@/components/DashboardShell";
 import { useOrg } from "@/components/OrgContext";
+import { toCsv, downloadCsv } from "@/lib/csv";
 
 interface Credits {
   balance_cents: number | string;
@@ -220,8 +221,36 @@ export default function AdCreditsPage() {
 
         {/* Transaction history */}
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-200">
+          <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
             <h2 className="font-semibold text-gray-800">{t.transactions}</h2>
+            {transactions.length > 0 && (
+              <button
+                onClick={async () => {
+                  try {
+                    // Fetch the full recent history (cap 500) rather than the 20 on screen.
+                    const res = await fetch(`/api/credits?limit=500${activeOrg ? `&org_id=${activeOrg.id}` : ""}`);
+                    const data = await res.json();
+                    const rows: Transaction[] = Array.isArray(data.transactions) ? data.transactions : [];
+                    const csv = toCsv(
+                      ["Date", "Type", "Amount (USD)", "Balance After (USD)", "Reserved After (USD)", "Reference", "Note"],
+                      rows.map((tx) => [
+                        new Date(tx.created_at).toISOString(),
+                        tx.type,
+                        fromCents(tx.amount_cents).toFixed(2),
+                        fromCents(tx.balance_after_cents).toFixed(2),
+                        fromCents(tx.reserved_after_cents).toFixed(2),
+                        tx.reference_type ? `${tx.reference_type}:${tx.reference_id ?? ""}` : "",
+                        tx.note ?? "",
+                      ])
+                    );
+                    downloadCsv(`ad-credit-transactions-${new Date().toISOString().slice(0, 10)}`, csv);
+                  } catch { /* toast infra not present here — fail silently */ }
+                }}
+                className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer"
+              >
+                ⬇ {tg.exportCsv || "Export CSV"}
+              </button>
+            )}
           </div>
           {loading ? (
             <div className="p-8 text-center text-gray-400 text-sm">{tg.loading}</div>
