@@ -4,7 +4,9 @@ import {
   validateBidStrategyInput,
   allowedBidStrategies,
   channelSupportsNegativeKeywords,
+  validateConversionActionInput,
   type CreateAssetGroupInput,
+  type CreateConversionActionInput,
 } from "./google-ads";
 
 /**
@@ -235,6 +237,76 @@ describe("allowedBidStrategies", () => {
 
   it("returns all six for SEARCH", () => {
     expect(allowedBidStrategies("SEARCH")).toHaveLength(6);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateConversionActionInput (PR #4a)
+// ---------------------------------------------------------------------------
+
+function validConversionInput(overrides: Partial<CreateConversionActionInput> = {}): CreateConversionActionInput {
+  return {
+    name: "Sign-up (website)",
+    category: "SIGNUP",
+    countingType: "ONE_PER_CLICK",
+    ...overrides,
+  };
+}
+
+describe("validateConversionActionInput", () => {
+  it("accepts a minimally valid input", () => {
+    const result = validateConversionActionInput(validConversionInput());
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("accepts a purchase with default value and lookback", () => {
+    const result = validateConversionActionInput(validConversionInput({
+      category: "PURCHASE", countingType: "MANY_PER_CLICK", defaultValueUsd: 49.99, clickLookbackDays: 30,
+    }));
+    expect(result.valid).toBe(true);
+  });
+
+  it("rejects empty name", () => {
+    const result = validateConversionActionInput(validConversionInput({ name: "  " }));
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes("name is required"))).toBe(true);
+  });
+
+  it("rejects name over 100 chars", () => {
+    const result = validateConversionActionInput(validConversionInput({ name: "x".repeat(101) }));
+    expect(result.valid).toBe(false);
+  });
+
+  it("rejects unknown category", () => {
+    const result = validateConversionActionInput(validConversionInput({ category: "STORE_VISIT" as never }));
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes("category must be one of"))).toBe(true);
+  });
+
+  it("rejects unknown counting type", () => {
+    const result = validateConversionActionInput(validConversionInput({ countingType: "EVERY_TIME" as never }));
+    expect(result.valid).toBe(false);
+  });
+
+  it("rejects negative default value", () => {
+    const result = validateConversionActionInput(validConversionInput({ defaultValueUsd: -1 }));
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes("defaultValueUsd"))).toBe(true);
+  });
+
+  it("rejects out-of-range lookback windows", () => {
+    for (const days of [0, 91, 2.5]) {
+      const result = validateConversionActionInput(validConversionInput({ clickLookbackDays: days }));
+      expect(result.valid).toBe(false);
+    }
+  });
+
+  it("accepts boundary lookback windows 1 and 90", () => {
+    for (const days of [1, 90]) {
+      const result = validateConversionActionInput(validConversionInput({ clickLookbackDays: days }));
+      expect(result.valid).toBe(true);
+    }
   });
 });
 

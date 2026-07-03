@@ -579,3 +579,14 @@ Closes the follow-up noted in the PR #2 changelog entry: the recommendations end
 - New "✨ AI Optimization Recommendations" card between Budget and Targeting on `app/[locale]/dashboard/google-ads/[id]/page.tsx`. On-demand (button-triggered POST — no auto-fire on page load, respecting the endpoint's 10/min rate limit and LLM cost), renders ranked cards with priority badge (HIGH red / MEDIUM amber / LOW gray), category + target-metric chips, rationale, and a concrete action line; footer shows generation timestamp. Regenerate supported.
 - Locale passed through so recommendations come back in the user's language (zh / ko / en per the prompt design).
 - i18n: 7 new `googleAdsPage` keys × 4 locales. No API changes, no DB changes.
+
+### 2026-07-03 — PR #4a: conversion tracking, backend (this PR)
+
+First half of Section 7 PR #4, scoped per open question #2 to **website conversions** (gtag) — the 90% case. UI lands in PR #4b.
+
+- `lib/google-ads.ts` — `listConversionActions()` (non-removed actions incl. `tag_snippets` filtered to HTML page format, so callers get the global site tag + event snippet for install), `createConversionAction()` (type WEBPAGE, ENABLED; value settings default to "no fixed value" unless `defaultValueUsd` given, in which case `alwaysUseDefaultValue: true`; optional `clickThroughLookbackWindowDays`), `setConversionActionStatus()` (ENABLED/PAUSED/REMOVED, resource-name validated), plus pure `validateConversionActionInput()` (unit-tested: name ≤100, category/countingType enums, value ≥0, lookback 1-90 integer).
+- Exposed category subset: PURCHASE, SIGNUP, LEAD, SUBMIT_LEAD_FORM, CONTACT, PAGE_VIEW, DOWNLOAD, ADD_TO_CART, BEGIN_CHECKOUT, SUBSCRIBE_PAID. Counting: ONE_PER_CLICK (leads) / MANY_PER_CLICK (purchases).
+- `app/api/google-ads/conversion-actions/route.ts` — GET (list) / POST (create). Account-level resource on the shared customer, so auth requires an org member (same trust boundary as `diagnose`) rather than campaign ownership.
+- `app/api/google-ads/conversion-actions/[id]/route.ts` — PATCH status.
+- `lib/google-ads.test.ts` — 9 new test cases for `validateConversionActionInput`.
+- Note for PR #4b (UI) and beyond: recommendations prompt already nudges users toward conversion tracking when conversions are absent; once actions exist, VIDEO/PMax `maximizeConversions` bidding and the AI's CPA/ROAS advice become meaningful. Per-org conversion goal mapping is deferred to the per-org OAuth decision (open question #1).
