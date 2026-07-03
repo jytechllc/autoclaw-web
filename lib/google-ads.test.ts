@@ -5,6 +5,8 @@ import {
   allowedBidStrategies,
   channelSupportsNegativeKeywords,
   validateConversionActionInput,
+  validateAdScheduleInput,
+  channelSupportsAdSchedule,
   type CreateAssetGroupInput,
   type CreateConversionActionInput,
 } from "./google-ads";
@@ -307,6 +309,88 @@ describe("validateConversionActionInput", () => {
       const result = validateConversionActionInput(validConversionInput({ clickLookbackDays: days }));
       expect(result.valid).toBe(true);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateAdScheduleInput (day parting)
+// ---------------------------------------------------------------------------
+
+describe("validateAdScheduleInput", () => {
+  it("accepts an empty list (run at all times)", () => {
+    expect(validateAdScheduleInput([]).valid).toBe(true);
+  });
+
+  it("accepts Mon-Fri business hours", () => {
+    const days = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"] as const;
+    const schedules = days.map((d) => ({ dayOfWeek: d, startHour: 9, endHour: 18 }));
+    const result = validateAdScheduleInput(schedules);
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("accepts multiple non-overlapping intervals on one day", () => {
+    const result = validateAdScheduleInput([
+      { dayOfWeek: "MONDAY", startHour: 9, endHour: 12 },
+      { dayOfWeek: "MONDAY", startHour: 14, endHour: 18 },
+    ]);
+    expect(result.valid).toBe(true);
+  });
+
+  it("accepts back-to-back intervals (end == next start)", () => {
+    const result = validateAdScheduleInput([
+      { dayOfWeek: "MONDAY", startHour: 9, endHour: 12 },
+      { dayOfWeek: "MONDAY", startHour: 12, endHour: 18 },
+    ]);
+    expect(result.valid).toBe(true);
+  });
+
+  it("rejects an unknown day", () => {
+    const result = validateAdScheduleInput([{ dayOfWeek: "FUNDAY" as never, startHour: 9, endHour: 18 }]);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes("dayOfWeek"))).toBe(true);
+  });
+
+  it("rejects endHour <= startHour", () => {
+    for (const [s, e] of [[18, 9], [9, 9]] as const) {
+      const result = validateAdScheduleInput([{ dayOfWeek: "MONDAY", startHour: s, endHour: e }]);
+      expect(result.valid).toBe(false);
+    }
+  });
+
+  it("rejects out-of-range and fractional hours", () => {
+    expect(validateAdScheduleInput([{ dayOfWeek: "MONDAY", startHour: -1, endHour: 5 }]).valid).toBe(false);
+    expect(validateAdScheduleInput([{ dayOfWeek: "MONDAY", startHour: 0, endHour: 25 }]).valid).toBe(false);
+    expect(validateAdScheduleInput([{ dayOfWeek: "MONDAY", startHour: 9.5, endHour: 18 }]).valid).toBe(false);
+  });
+
+  it("rejects overlapping intervals on the same day", () => {
+    const result = validateAdScheduleInput([
+      { dayOfWeek: "MONDAY", startHour: 9, endHour: 14 },
+      { dayOfWeek: "MONDAY", startHour: 13, endHour: 18 },
+    ]);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes("overlap"))).toBe(true);
+  });
+
+  it("rejects more than 6 intervals on one day", () => {
+    const schedules = Array.from({ length: 7 }, (_, i) => ({
+      dayOfWeek: "MONDAY" as const, startHour: i * 2, endHour: i * 2 + 1,
+    }));
+    const result = validateAdScheduleInput(schedules);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes("at most 6"))).toBe(true);
+  });
+});
+
+describe("channelSupportsAdSchedule", () => {
+  it("allows SEARCH / DISPLAY / SHOPPING / VIDEO, rejects PMax and Demand Gen", () => {
+    for (const ch of ["SEARCH", "DISPLAY", "SHOPPING", "VIDEO"]) {
+      expect(channelSupportsAdSchedule(ch)).toBe(true);
+    }
+    expect(channelSupportsAdSchedule("PERFORMANCE_MAX")).toBe(false);
+    expect(channelSupportsAdSchedule("DEMAND_GEN")).toBe(false);
+    expect(channelSupportsAdSchedule("")).toBe(false);
   });
 });
 
