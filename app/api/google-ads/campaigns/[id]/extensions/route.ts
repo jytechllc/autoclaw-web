@@ -6,6 +6,7 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import {
   createCampaignCallouts,
   createCampaignStructuredSnippet,
+  createCampaignCallAsset,
   removeCampaignExtensionAsset,
   channelSupportsTextExtensions,
   STRUCTURED_SNIPPET_HEADERS,
@@ -62,9 +63,10 @@ async function loadCampaign(
   return { campaign: rows[0] as unknown as CampaignRow, campaignId, userId, userEmail };
 }
 
-/** POST — add callouts or a structured snippet.
+/** POST — add callouts, a structured snippet, or a call extension.
  *  Body (callouts): { kind: "callout", texts: string[], orgId? }
- *  Body (snippet):  { kind: "snippet", header, values: string[], orgId? } */
+ *  Body (snippet):  { kind: "snippet", header, values: string[], orgId? }
+ *  Body (call):     { kind: "call", countryCode, phoneNumber, orgId? } */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const ip = getIp(req);
   if (!checkRateLimit(ip, { limit: 30, windowMs: 60_000 })) {
@@ -73,8 +75,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const body = await req.json().catch(() => ({}));
   const kind = String(body.kind || "");
-  if (kind !== "callout" && kind !== "snippet") {
-    return NextResponse.json({ error: 'kind must be "callout" or "snippet"' }, { status: 400 });
+  if (kind !== "callout" && kind !== "snippet" && kind !== "call") {
+    return NextResponse.json({ error: 'kind must be "callout", "snippet", or "call"' }, { status: 400 });
   }
 
   const loaded = await loadCampaign(params, body);
@@ -87,6 +89,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const texts = (Array.isArray(body.texts) ? body.texts : []).map((t: unknown) => String(t || "").trim()).filter(Boolean);
     if (texts.length === 0) return NextResponse.json({ error: "At least 1 callout text required" }, { status: 400 });
     const result = await createCampaignCallouts(campaign.platform_campaign_id, texts);
+    created = result.created;
+    details = result.error;
+  } else if (kind === "call") {
+    const result = await createCampaignCallAsset(campaign.platform_campaign_id, {
+      countryCode: String(body.countryCode || ""),
+      phoneNumber: String(body.phoneNumber || ""),
+    });
     created = result.created;
     details = result.error;
   } else {

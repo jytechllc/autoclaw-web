@@ -741,3 +741,13 @@ Slice 2's safe half: attaching an existing asset to another campaign (the whole 
 ### 2026-07-03 — launch verification checklist (this PR)
 
 Docs only, but it IS the critical path: every Google Ads API call from this sprint was written against docs and verified by unit tests — none has executed against a live account. `docs/google-ads-launch-checklist.md` is the end-to-end acceptance script (env prerequisites, connectivity smoke, per-feature steps with expected results on both AutoClaw and Google UI sides, permission probes incl. direct-API 403 checks, cron/ledger observation incl. watching auto-pause fire once on real spend). Flags the two likeliest live-mismatch spots (Smart Bidding oneof update masks, structured-snippet header strings). Expected outcome of running it: 2–5 small `fix:` PRs, then launch.
+
+### 2026-07-03 — call extensions (this PR)
+
+Third extension type on the shared asset plumbing.
+
+- `lib/google-ads.ts` — `createCampaignCallAsset()` (`callAsset` → campaign_asset `fieldType: CALL`), pure `validateCallAssetInput()` (2-letter ISO country, 7-15 digits after stripping separators), `removeCampaignExtensionAsset()` regex widened to include `~CALL`. `fetchCampaignDetail()` returns `callAssets`.
+- `extensions` route gains `kind: "call"` (`{ countryCode, phoneNumber }`).
+- Detail page 📣 card: "+ Phone" button, call rows (📞 number + country badge) with remove, minimal country/phone form.
+- 4 new test cases. i18n: 4 keys × 4 locales.
+- Launch checklist addendum: verify the call asset appears in Google UI and the number passes Google's own verification (they call/verify some numbers — expect a pending state).
