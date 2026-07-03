@@ -1799,6 +1799,12 @@ export default function CampaignDetailPage() {
                   <button onClick={() => handleAction("close")} disabled={actioning} className="text-xs px-3 py-1.5 border border-red-200 text-red-700 rounded-lg hover:bg-red-50 disabled:opacity-50 cursor-pointer">{t.action_close || "Close"}</button>
                 </>
               )}
+              <Link
+                href={`/${locale}/dashboard/google-ads/${campaignId}/report`}
+                className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer text-gray-600"
+              >
+                🖨️ {t.reportOpen || "Report"}
+              </Link>
               {googleAdsUrl && (
                 <a
                   href={googleAdsUrl}
