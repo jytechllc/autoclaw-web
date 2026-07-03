@@ -3,6 +3,7 @@
 import { useUser } from "@auth0/nextjs-auth0/client";
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { getDictionary, type Locale } from "@/lib/i18n";
 import DashboardShell from "@/components/DashboardShell";
 import { useOrg } from "@/components/OrgContext";
@@ -351,22 +352,30 @@ export default function GoogleAdsPage() {
               {activeOrg && <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">{activeOrg.name}</span>}
             </p>
           </div>
-          {!isReadOnly && (
-            <div className="flex flex-wrap gap-2 self-start">
-              <button
-                onClick={openImport}
-                className="border border-gray-300 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition cursor-pointer"
-              >
-                ↘️ {t.importExisting || "Import existing"}
-              </button>
-              <button
-                onClick={() => { setShowForm(!showForm); setError(""); }}
-                className="bg-red-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-900 transition cursor-pointer"
-              >
-                {showForm ? t.cancel : `+ ${t.createCampaign}`}
-              </button>
-            </div>
-          )}
+          <div className="flex flex-wrap gap-2 self-start">
+            <Link
+              href={`/${locale}/dashboard/google-ads/conversions`}
+              className="border border-gray-300 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition cursor-pointer"
+            >
+              🎯 {t.convTitle || "Conversion Tracking"}
+            </Link>
+            {!isReadOnly && (
+              <>
+                <button
+                  onClick={openImport}
+                  className="border border-gray-300 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition cursor-pointer"
+                >
+                  ↘️ {t.importExisting || "Import existing"}
+                </button>
+                <button
+                  onClick={() => { setShowForm(!showForm); setError(""); }}
+                  className="bg-red-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-900 transition cursor-pointer"
+                >
+                  {showForm ? t.cancel : `+ ${t.createCampaign}`}
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
         {toast && (

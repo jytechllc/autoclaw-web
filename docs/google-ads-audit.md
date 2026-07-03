@@ -590,3 +590,13 @@ First half of Section 7 PR #4, scoped per open question #2 to **website conversi
 - `app/api/google-ads/conversion-actions/[id]/route.ts` — PATCH status.
 - `lib/google-ads.test.ts` — 9 new test cases for `validateConversionActionInput`.
 - Note for PR #4b (UI) and beyond: recommendations prompt already nudges users toward conversion tracking when conversions are absent; once actions exist, VIDEO/PMax `maximizeConversions` bidding and the AI's CPA/ROAS advice become meaningful. Per-org conversion goal mapping is deferred to the per-org OAuth decision (open question #1).
+
+### 2026-07-03 — PR #4b: conversion tracking, UI (this PR)
+
+Second half of PR #4. Deliberately a **separate page** (`/dashboard/google-ads/conversions`) rather than another section in the 781-line list page or the 2,500-line detail page — conversion actions are account-level, and D-3 says stop feeding the monoliths.
+
+- `app/[locale]/dashboard/google-ads/conversions/page.tsx` (~330 lines): list (name, status, category, counting badge, primary-for-goal, numeric id), per-action "Get tag code" expander showing the global site tag + event snippet with copy buttons and a 2-step install hint, create form (name / category / counting / optional value / optional 1-90d lookback), Pause / Enable / Remove (confirm dialog; REMOVED keeps history but stops counting).
+- Mutations gated behind `!isReadOnly` (consistent with `0e6b9be`); read-only users can still view actions and tag code.
+- List page: header now has a 🎯 Conversion Tracking link (visible to all roles); Import/Create buttons remain read-only-gated as before.
+- i18n: 28 new keys × 4 locales. No API/DB changes — pure consumer of PR #4a.
+- **PR #4 is now complete** → the audit's "Conversion tracking" competitor gap is closed for the shared-account setup. Remaining Section 6 gaps: asset library, day parting, experiments, MCC, report exports.
