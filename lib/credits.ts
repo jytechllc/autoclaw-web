@@ -38,41 +38,6 @@ export interface AdCreditTransaction {
   created_at: string;
 }
 
-/**
- * @deprecated Schema now lives in `lib/schema.sql`. Function body is
- * kept (idempotent CREATE IF NOT EXISTS) as a one-release safety net
- * for any production DB that might predate the schema lift. Remove
- * after one release confirms no call sites remain.
- * See docs/google-ads-audit.md D-2.
- */
-export async function ensureAdCreditsTables(sql: Sql) {
-  await sql`
-    CREATE TABLE IF NOT EXISTS ad_credits (
-      org_id INTEGER PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
-      balance_cents BIGINT NOT NULL DEFAULT 0,
-      reserved_cents BIGINT NOT NULL DEFAULT 0,
-      currency VARCHAR(10) NOT NULL DEFAULT 'USD',
-      updated_at TIMESTAMP DEFAULT NOW()
-    )
-  `;
-  await sql`
-    CREATE TABLE IF NOT EXISTS ad_credit_transactions (
-      id SERIAL PRIMARY KEY,
-      org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-      type VARCHAR(20) NOT NULL,
-      amount_cents BIGINT NOT NULL,
-      balance_after_cents BIGINT NOT NULL,
-      reserved_after_cents BIGINT NOT NULL,
-      reference_type VARCHAR(50),
-      reference_id VARCHAR(255),
-      note TEXT,
-      created_at TIMESTAMP DEFAULT NOW()
-    )
-  `;
-  await sql`CREATE INDEX IF NOT EXISTS idx_ad_credit_tx_org ON ad_credit_transactions(org_id, created_at DESC)`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_ad_credit_tx_ref ON ad_credit_transactions(reference_type, reference_id)`;
-}
-
 async function ensureRow(sql: Sql, orgId: number) {
   await sql`
     INSERT INTO ad_credits (org_id, balance_cents, reserved_cents, currency)
