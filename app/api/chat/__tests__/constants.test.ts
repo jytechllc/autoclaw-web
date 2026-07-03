@@ -18,8 +18,8 @@ import {
 // ── Constants integrity ──
 
 describe("AVAILABLE_AGENTS", () => {
-  it("has all 6 agent types", () => {
-    expect(AVAILABLE_AGENTS).toHaveLength(6);
+  it("has all 7 agent types", () => {
+    expect(AVAILABLE_AGENTS).toHaveLength(7);
     const types = AVAILABLE_AGENTS.map((a) => a.type);
     expect(types).toContain("email_marketing");
     expect(types).toContain("seo_content");
@@ -27,6 +27,7 @@ describe("AVAILABLE_AGENTS", () => {
     expect(types).toContain("social_media");
     expect(types).toContain("product_manager");
     expect(types).toContain("sales_followup");
+    expect(types).toContain("recruiting");
   });
 
   it("each agent has type, label, desc", () => {

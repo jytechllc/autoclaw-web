@@ -97,10 +97,11 @@ describe("executeTool", () => {
       expect(result).toContain("Google search results");
     });
 
-    it("fails without apify token", async () => {
+    it("explains setup when no search provider is configured", async () => {
       const ctx = createMockContext({ apifyToken: "" });
       const result = await executeTool("search_google", { queries: ["test"] }, "", ctx);
-      expect(result).toContain("Apify API key not configured");
+      expect(result).toContain("Search not configured");
+      expect(result).toContain("Tavily");
     });
 
     it("fails with empty queries", async () => {
@@ -117,10 +118,11 @@ describe("executeTool", () => {
       expect(result).toContain("Website content");
     });
 
-    it("fails without apify token", async () => {
+    it("explains setup when no crawl provider is configured", async () => {
       const ctx = createMockContext({ apifyToken: "" });
       const result = await executeTool("crawl_website", { url: "https://test.com" }, "", ctx);
-      expect(result).toContain("Apify API key not configured");
+      expect(result).toContain("Unable to crawl");
+      expect(result).toContain("Firecrawl");
     });
 
     it("fails without URL", async () => {
@@ -130,18 +132,27 @@ describe("executeTool", () => {
     });
   });
 
-  describe("search_leads_apify", () => {
-    it("returns lead results", async () => {
+  describe("search_leads", () => {
+    it("returns Apify lead results (keywords only — no lead_finder fallback)", async () => {
       const ctx = createMockContext();
-      const result = await executeTool("search_leads_apify", { keywords: ["tech"], job_titles: ["VP"] }, "Find tech VPs", ctx);
+      const result = await executeTool("search_leads", { keywords: ["tech"] }, "Find tech leads", ctx);
       expect(result).toContain("lead@co.com");
       expect(result).toContain("Next steps");
     });
 
-    it("fails without apify token", async () => {
+    it("replaces thin Apify results via lead_finder fallback when job_titles given", async () => {
+      const ctx = createMockContext();
+      const result = await executeTool("search_leads", { keywords: ["tech"], job_titles: ["VP"] }, "Find tech VPs", ctx);
+      // Apify mock returns 1 lead (<5) → lead_finder fallback replaces the result set
+      expect(result).toContain("found@co.com");
+      expect(result).toContain("Next steps");
+    });
+
+    it("falls back to google-domain extraction without apify token", async () => {
       const ctx = createMockContext({ apifyToken: "" });
-      const result = await executeTool("search_leads_apify", { keywords: ["tech"] }, "", ctx);
-      expect(result).toContain("Apify API key not configured");
+      const result = await executeTool("search_leads", { keywords: ["tech"] }, "", ctx);
+      // chatWithAI mock extracts no domains → graceful "no domains" guidance
+      expect(result).toContain("No relevant company domains found");
     });
   });
 
@@ -154,10 +165,10 @@ describe("executeTool", () => {
       expect(ctx.sendStep).toHaveBeenCalledWith("search_google_maps");
     });
 
-    it("fails without apify token", async () => {
+    it("explains setup when no search provider is configured", async () => {
       const ctx = createMockContext({ apifyToken: "" });
       const result = await executeTool("search_google_maps", { query: "test" }, "", ctx);
-      expect(result).toContain("Apify API key not configured");
+      expect(result).toContain("Search not configured");
     });
   });
 
