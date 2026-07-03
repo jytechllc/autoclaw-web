@@ -20,6 +20,7 @@ import {
   normalizeAssetRows,
   assetTypeToFieldType,
   validateCallAssetInput,
+  validatePromotionInput,
   validateScheduleModifiers,
 } from "./google-ads";
 import { orderOrgsForCron } from "./google-ads-sync";
@@ -905,5 +906,63 @@ describe("channelSupportsNegativeKeywords", () => {
   it("rejects PERFORMANCE_MAX and unknown channels", () => {
     expect(channelSupportsNegativeKeywords("PERFORMANCE_MAX")).toBe(false);
     expect(channelSupportsNegativeKeywords("")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validatePromotionInput (promotion extensions)
+// ---------------------------------------------------------------------------
+
+describe("validatePromotionInput", () => {
+  const base = { promotionTarget: "All running shoes", percentOff: 10, finalUrl: "https://shop.example.com/sale" };
+
+  it("accepts a minimal percent-off promotion", () => {
+    expect(validatePromotionInput(base)).toEqual({ valid: true, errors: [] });
+  });
+
+  it("accepts a money-off promotion with occasion, code and dates", () => {
+    const r = validatePromotionInput({
+      promotionTarget: "Winter coats",
+      moneyAmountOff: 15,
+      currencyCode: "usd",
+      promotionCode: "WINTER15",
+      occasion: "WINTER_SALE",
+      redemptionStartDate: "2026-12-01",
+      redemptionEndDate: "2026-12-31",
+      languageCode: "en",
+      finalUrl: "https://shop.example.com/winter",
+    });
+    expect(r).toEqual({ valid: true, errors: [] });
+  });
+
+  it("requires exactly one of percentOff / moneyAmountOff", () => {
+    expect(validatePromotionInput({ ...base, percentOff: undefined }).valid).toBe(false);
+    expect(validatePromotionInput({ ...base, moneyAmountOff: 5 }).valid).toBe(false);
+  });
+
+  it("bounds percentOff to 1..100 and target to 20 chars", () => {
+    expect(validatePromotionInput({ ...base, percentOff: 0 }).valid).toBe(false);
+    expect(validatePromotionInput({ ...base, percentOff: 101 }).valid).toBe(false);
+    expect(validatePromotionInput({ ...base, percentOff: 100 }).valid).toBe(true);
+    expect(validatePromotionInput({ ...base, promotionTarget: "x".repeat(21) }).valid).toBe(false);
+  });
+
+  it("rejects promo code together with ordersOverAmount, and codes >15 chars", () => {
+    expect(validatePromotionInput({ ...base, promotionCode: "SAVE10", ordersOverAmount: 50 }).valid).toBe(false);
+    expect(validatePromotionInput({ ...base, promotionCode: "X".repeat(16) }).valid).toBe(false);
+    expect(validatePromotionInput({ ...base, ordersOverAmount: 50 }).valid).toBe(true);
+  });
+
+  it("validates redemption dates: both-or-neither, format, ordering", () => {
+    expect(validatePromotionInput({ ...base, redemptionStartDate: "2026-12-01" }).valid).toBe(false);
+    expect(validatePromotionInput({ ...base, redemptionStartDate: "12/01/2026", redemptionEndDate: "12/31/2026" }).valid).toBe(false);
+    expect(validatePromotionInput({ ...base, redemptionStartDate: "2026-12-31", redemptionEndDate: "2026-12-01" }).valid).toBe(false);
+  });
+
+  it("rejects unknown occasions, bad language codes, and non-http URLs", () => {
+    expect(validatePromotionInput({ ...base, occasion: "MY_BIRTHDAY" }).valid).toBe(false);
+    expect(validatePromotionInput({ ...base, languageCode: "english" }).valid).toBe(false);
+    expect(validatePromotionInput({ ...base, finalUrl: "ftp://x" }).valid).toBe(false);
+    expect(validatePromotionInput({ ...base, finalUrl: "" }).valid).toBe(false);
   });
 });

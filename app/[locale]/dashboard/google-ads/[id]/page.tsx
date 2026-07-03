@@ -88,6 +88,18 @@ interface Detail {
   callouts?: Array<{ resourceName: string; text: string }>;
   structuredSnippets?: Array<{ resourceName: string; header: string; values: string[] }>;
   callAssets?: Array<{ resourceName: string; countryCode: string; phoneNumber: string }>;
+  promotions?: Array<{
+    resourceName: string;
+    promotionTarget: string;
+    percentOff: number;
+    moneyAmountOff: number;
+    currencyCode: string;
+    promotionCode: string;
+    occasion: string;
+    redemptionStartDate: string;
+    redemptionEndDate: string;
+    finalUrl: string;
+  }>;
   ads: Array<{
     resourceName: string;
     status: string;
@@ -1203,12 +1215,22 @@ export default function CampaignDetailPage() {
 
   // Callouts + structured snippets
   const SNIPPET_HEADERS = ["Amenities", "Brands", "Courses", "Degree programs", "Destinations", "Featured hotels", "Insurance coverage", "Models", "Neighborhoods", "Service catalog", "Shows", "Styles", "Types"];
-  const [extFormOpen, setExtFormOpen] = useState<"callout" | "snippet" | "call" | null>(null);
+  const [extFormOpen, setExtFormOpen] = useState<"callout" | "snippet" | "call" | "promotion" | null>(null);
   const [calloutText, setCalloutText] = useState("");
   const [snippetHeader, setSnippetHeader] = useState("Service catalog");
   const [snippetValues, setSnippetValues] = useState("");
   const [callCountry, setCallCountry] = useState("US");
   const [callPhone, setCallPhone] = useState("");
+  // Promotion extension form
+  const PROMO_OCCASIONS = ["NONE", "NEW_YEARS", "CHINESE_NEW_YEAR", "VALENTINES_DAY", "EASTER", "MOTHERS_DAY", "FATHERS_DAY", "BACK_TO_SCHOOL", "HALLOWEEN", "SINGLES_DAY", "BLACK_FRIDAY", "CYBER_MONDAY", "CHRISTMAS", "BOXING_DAY", "SPRING_SALE", "SUMMER_SALE", "FALL_SALE", "WINTER_SALE", "END_OF_SEASON"];
+  const [promoTarget, setPromoTarget] = useState("");
+  const [promoDiscountKind, setPromoDiscountKind] = useState<"percent" | "money">("percent");
+  const [promoDiscountValue, setPromoDiscountValue] = useState("10");
+  const [promoCode, setPromoCode] = useState("");
+  const [promoOccasion, setPromoOccasion] = useState("NONE");
+  const [promoStartDate, setPromoStartDate] = useState("");
+  const [promoEndDate, setPromoEndDate] = useState("");
+  const [promoUrl, setPromoUrl] = useState("");
   const [extSubmitting, setExtSubmitting] = useState(false);
   const [extError, setExtError] = useState("");
   const [removingExt, setRemovingExt] = useState<string | null>(null);
@@ -1226,6 +1248,24 @@ export default function CampaignDetailPage() {
       if (!callPhone.trim()) { setExtError(t.extCallValidation || "Enter a phone number"); setExtSubmitting(false); return; }
       body.countryCode = callCountry;
       body.phoneNumber = callPhone.trim();
+    } else if (extFormOpen === "promotion") {
+      const discount = Number(promoDiscountValue);
+      if (!promoTarget.trim() || !Number.isFinite(discount) || discount <= 0 || !/^https?:\/\//i.test(promoUrl.trim())) {
+        setExtError(t.extPromoValidation || "Need: item (≤20 chars), a discount > 0, and a valid http(s) URL");
+        setExtSubmitting(false);
+        return;
+      }
+      body.promotionTarget = promoTarget.trim();
+      if (promoDiscountKind === "percent") body.percentOff = discount;
+      else body.moneyAmountOff = discount;
+      if (promoCode.trim()) body.promotionCode = promoCode.trim();
+      if (promoOccasion !== "NONE") body.occasion = promoOccasion;
+      if (promoStartDate && promoEndDate) {
+        body.redemptionStartDate = promoStartDate;
+        body.redemptionEndDate = promoEndDate;
+      }
+      body.languageCode = locale.startsWith("zh") ? "zh" : locale.startsWith("ko") ? "ko" : "en";
+      body.finalUrl = promoUrl.trim();
     } else {
       const values = snippetValues.split("\n").map((s) => s.trim()).filter(Boolean);
       if (values.length < 3) { setExtError(t.extSnippetValidation || "Enter at least 3 values (one per line, ≤25 chars)"); setExtSubmitting(false); return; }
@@ -1244,6 +1284,9 @@ export default function CampaignDetailPage() {
         setExtFormOpen(null);
         setCalloutText("");
         setSnippetValues("");
+        setPromoTarget("");
+        setPromoCode("");
+        setPromoUrl("");
         fetchData();
         setTimeout(() => setToast(""), 4000);
       } else {
@@ -3192,7 +3235,7 @@ export default function CampaignDetailPage() {
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-semibold text-gray-700">
-                📣 {t.extSection || "Callouts & Snippets"} ({(detail.callouts?.length || 0) + (detail.structuredSnippets?.length || 0) + (detail.callAssets?.length || 0)})
+                📣 {t.extSection || "Callouts & Snippets"} ({(detail.callouts?.length || 0) + (detail.structuredSnippets?.length || 0) + (detail.callAssets?.length || 0) + (detail.promotions?.length || 0)})
               </h2>
               {canEdit && (
                 <div className="flex gap-2 flex-wrap">
@@ -3213,6 +3256,12 @@ export default function CampaignDetailPage() {
                     className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer"
                   >
                     {extFormOpen === "call" ? (t.cancel || "Cancel") : `+ ${t.extAddCall || "Phone"}`}
+                  </button>
+                  <button
+                    onClick={() => { setExtFormOpen(extFormOpen === "promotion" ? null : "promotion"); setExtError(""); }}
+                    className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer"
+                  >
+                    {extFormOpen === "promotion" ? (t.cancel || "Cancel") : `+ ${t.extAddPromo || "Promotion"}`}
                   </button>
                 </div>
               )}
@@ -3278,6 +3327,99 @@ export default function CampaignDetailPage() {
                     )}
                   </div>
                 ))}
+              </div>
+            )}
+
+            {(detail.promotions?.length || 0) > 0 && (
+              <div className="space-y-1.5 mt-2">
+                {(detail.promotions || []).map((p) => (
+                  <div key={p.resourceName} className="flex items-center gap-2 text-xs flex-wrap">
+                    <span className="px-1.5 py-0.5 bg-orange-50 text-orange-700 rounded-full">🏷️ {p.percentOff > 0 ? `${p.percentOff}% off` : `${p.currencyCode} ${p.moneyAmountOff} off`}</span>
+                    <span className="text-gray-700">{p.promotionTarget}</span>
+                    {p.promotionCode && <span className="px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded-full font-mono">{p.promotionCode}</span>}
+                    {p.occasion && <span className="text-gray-400">{p.occasion.replaceAll("_", " ").toLowerCase()}</span>}
+                    {p.redemptionStartDate && <span className="text-gray-400">{p.redemptionStartDate} → {p.redemptionEndDate}</span>}
+                    {canEdit && (
+                      <button
+                        onClick={() => handleRemoveExtension(p.resourceName)}
+                        disabled={removingExt === p.resourceName}
+                        className="text-gray-300 hover:text-red-600 cursor-pointer disabled:opacity-50"
+                      >
+                        {removingExt === p.resourceName ? "…" : "×"}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {extFormOpen === "promotion" && (
+              <div className="mt-4 border-t border-gray-100 pt-4 space-y-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <label className="text-xs text-gray-500">{t.extPromoTarget || "Item promoted (≤20 chars)"}:</label>
+                  <input
+                    value={promoTarget}
+                    onChange={(e) => setPromoTarget(e.target.value)}
+                    maxLength={20}
+                    placeholder={t.extPromoTargetPh || "All running shoes"}
+                    className="text-xs px-2 py-1 border border-gray-300 rounded outline-none w-44"
+                  />
+                  <select
+                    value={promoDiscountKind}
+                    onChange={(e) => setPromoDiscountKind(e.target.value as "percent" | "money")}
+                    className="text-xs px-2 py-1 border border-gray-300 rounded outline-none bg-white"
+                  >
+                    <option value="percent">{t.extPromoPercent || "% off"}</option>
+                    <option value="money">{t.extPromoMoney || "$ off"}</option>
+                  </select>
+                  <input
+                    type="number"
+                    min="1"
+                    value={promoDiscountValue}
+                    onChange={(e) => setPromoDiscountValue(e.target.value)}
+                    className="text-xs px-2 py-1 border border-gray-300 rounded outline-none w-20"
+                  />
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <label className="text-xs text-gray-500">{t.extPromoOccasion || "Occasion"}:</label>
+                  <select
+                    value={promoOccasion}
+                    onChange={(e) => setPromoOccasion(e.target.value)}
+                    className="text-xs px-2 py-1 border border-gray-300 rounded outline-none bg-white"
+                  >
+                    {PROMO_OCCASIONS.map((o) => <option key={o} value={o}>{o === "NONE" ? (t.extPromoNoOccasion || "(none)") : o.replaceAll("_", " ")}</option>)}
+                  </select>
+                  <label className="text-xs text-gray-500">{t.extPromoCode || "Promo code"}:</label>
+                  <input
+                    value={promoCode}
+                    onChange={(e) => setPromoCode(e.target.value)}
+                    maxLength={15}
+                    placeholder="SUMMER20"
+                    className="text-xs px-2 py-1 border border-gray-300 rounded outline-none w-28 font-mono"
+                  />
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <label className="text-xs text-gray-500">{t.extPromoDates || "Redemption dates (optional)"}:</label>
+                  <input type="date" value={promoStartDate} onChange={(e) => setPromoStartDate(e.target.value)} className="text-xs px-2 py-1 border border-gray-300 rounded outline-none" />
+                  <span className="text-xs text-gray-400">→</span>
+                  <input type="date" value={promoEndDate} onChange={(e) => setPromoEndDate(e.target.value)} className="text-xs px-2 py-1 border border-gray-300 rounded outline-none" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-gray-500">{t.extPromoUrl || "Landing page"}:</label>
+                  <input
+                    value={promoUrl}
+                    onChange={(e) => setPromoUrl(e.target.value)}
+                    placeholder="https://your-store.com/sale"
+                    className="text-xs px-2 py-1 border border-gray-300 rounded outline-none flex-1"
+                  />
+                </div>
+                {extError && <pre className="text-xs text-red-600 bg-red-50 p-2 rounded whitespace-pre-wrap break-all">{extError}</pre>}
+                <div className="flex gap-2">
+                  <button onClick={handleAddExtension} disabled={extSubmitting} className="bg-red-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-900 disabled:opacity-50 cursor-pointer">
+                    {extSubmitting ? (t.creating || "Adding...") : (t.extAddPromo || "Add Promotion")}
+                  </button>
+                  <button onClick={() => setExtFormOpen(null)} className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 cursor-pointer">{t.cancel || "Cancel"}</button>
+                </div>
               </div>
             )}
 
