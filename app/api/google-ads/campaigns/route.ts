@@ -21,8 +21,8 @@ function getIp(req: NextRequest): string {
 }
 
 // Schema for ad_accounts, campaigns, ad_credits, ad_credit_transactions
-// is declared in lib/schema.sql. Previously created at runtime by
-// ensureAdsTables() / ensureAdCreditsTables(); see docs/google-ads-audit.md D-2.
+// is declared in lib/schema.sql (runtime table-creation helpers were removed
+// after the schema lift; see docs/google-ads-audit.md D-2).
 
 async function getUserId(sql: ReturnType<typeof getDb>, email: string): Promise<number | null> {
   const rows = await sql`SELECT id FROM users WHERE email = ${email}`;
