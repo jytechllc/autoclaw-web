@@ -660,3 +660,12 @@ Closes the loop between reporting and the negative-keyword feature: see what act
 - Detail page: "🔍 Search Terms" card — **load-on-demand** (button, not auto-fetch: `search_term_view` is one of the slower GAQL views and most visits don't need it). Table of term / impressions / clicks / cost / conversions with a per-row "− Negative" button that POSTs to the existing negative-keywords endpoint as EXACT match; rows already excluded show a gray "excluded" marker (matched against `detail.negativeKeywords`).
 - `lib/google-ads.test.ts` — 5 new test cases for the aggregator. i18n: 11 keys × 4 locales.
 - Nice follow-up someday: feed the top wasteful terms (high cost, zero conversions) into the AI recommendations prompt.
+
+### 2026-07-03 — AI recommendations × wasteful search terms (this PR)
+
+The "someday" from the previous entry, done the next hour. The recommendations engine can now name real money-burning queries instead of speaking in aggregates.
+
+- `recommendations/prompt.ts` — `CampaignSnapshot.wastefulTerms` + pure `selectWastefulTerms()` (zero-conversion terms with actual spend, cost-desc, top 5). Prompt gains a "Wasteful search terms" section and a system rule to emit a KEYWORD recommendation naming the offenders (the search-terms card gives users the one-click negative button to act on it).
+- `recommendations/route.ts` — for SEARCH campaigns, fetches the last-30d search terms best-effort inside a try/catch: `search_term_view` being slow or empty must never block recommendations.
+- `recommendations/prompt.test.ts` — new test file, 5 cases (selection rules, cap, prompt inclusion/omission). First tests for the recommendations module.
+- No UI/i18n changes — the existing recommendations card just gets sharper output.
