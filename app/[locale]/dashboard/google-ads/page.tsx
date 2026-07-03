@@ -8,6 +8,7 @@ import { getDictionary, type Locale } from "@/lib/i18n";
 import DashboardShell from "@/components/DashboardShell";
 import { useOrg } from "@/components/OrgContext";
 import { COUNTRIES } from "@/lib/google-ads";
+import { toCsv, downloadCsv } from "@/lib/csv";
 
 interface Campaign {
   id: number;
@@ -691,6 +692,31 @@ export default function GoogleAdsPage() {
             <h2 className="font-semibold text-gray-800">{t.campaigns}</h2>
             <div className="flex items-center gap-3">
               <span className="text-xs text-gray-500">{campaigns.length} {t.total}</span>
+              {!isReadOnly && campaigns.length > 0 && (
+                <button
+                  onClick={() => {
+                    const csv = toCsv(
+                      ["ID", "Name", "Channel", "Status", "Closed", "Daily Budget (USD)", "Cap (USD)", "Spent (USD)", "Reserved (USD)", "Created"],
+                      campaigns.map((c) => [
+                        c.platform_campaign_id?.split("/").pop() || c.id,
+                        c.campaign_name,
+                        c.channel,
+                        c.status,
+                        c.closed ? "yes" : "no",
+                        Number(c.daily_budget || 0).toFixed(2),
+                        fromCents(c.total_budget_cents).toFixed(2),
+                        fromCents(c.spent_cents).toFixed(2),
+                        fromCents(c.reserved_cents).toFixed(2),
+                        c.created_at?.slice(0, 10) || "",
+                      ])
+                    );
+                    downloadCsv(`google-ads-campaigns-${new Date().toISOString().slice(0, 10)}`, csv);
+                  }}
+                  className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer"
+                >
+                  ⬇ {t.exportCsv || "Export CSV"}
+                </button>
+              )}
               <button
                 onClick={handleSync}
                 disabled={syncing || campaigns.length === 0}

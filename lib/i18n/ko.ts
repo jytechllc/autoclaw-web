@@ -1569,6 +1569,7 @@ const ko = {
     schedPresetBusiness: "월–금 9–18",
     schedClear: "비우기 (상시 게재)",
     schedAddInterval: "시간대 추가",
+    exportCsv: "CSV 내보내기",
     assetGroupsSection: "Asset Groups",
     assetGroupStrength: "광고 강도",
     pmaxReadOnlyNote: "Performance Max는 ad group이 아닌 asset group을 사용합니다. AutoClaw에서는 읽기 전용으로만 표시 — 자산, 잠재고객 신호 편집이나 개별 asset group 일시중지는 Google Ads에서 직접 처리하세요.",

@@ -1600,6 +1600,7 @@ const en = {
     schedPresetBusiness: "Mon–Fri 9–18",
     schedClear: "Clear (run at all times)",
     schedAddInterval: "Add interval",
+    exportCsv: "Export CSV",
     assetGroupsSection: "Asset Groups",
     assetGroupStrength: "Ad strength",
     pmaxReadOnlyNote: "Performance Max uses asset groups (not ad groups). AutoClaw shows them read-only — to edit assets, audience signals, or pause individual asset groups, use Google Ads directly.",

@@ -610,3 +610,13 @@ Closes the Section 6 "Day parting" gap.
 - Detail page: "⏰ Ad Schedule" card — view chips (`Mon 09:00–18:00`), editor with per-row day/start/end selects, "Mon–Fri 9–18" preset, clear-to-always-on, add/remove intervals.
 - `lib/google-ads.test.ts` — 10 new test cases (presets, back-to-back boundaries, overlap/limit rejection, channel gating). i18n: 6 keys × 4 locales.
 - Bid modifiers per interval (e.g. +20% weekday mornings) deferred — noted for a future bid-adjustment pass alongside device/location modifiers.
+
+### 2026-07-03 — CSV report exports (this PR)
+
+Chips away at the Section 6 "Reporting/export" gap with client-side CSV exports (no backend, no new API surface).
+
+- `lib/csv.ts` — dependency-free RFC 4180 helpers: `csvEscape` (quotes commas/quotes/newlines), `toCsv` (CRLF + explicit `﻿` BOM so Excel renders CJK campaign names correctly), `downloadCsv` (browser-only, no-op on server).
+- List page: "⬇ Export CSV" next to Sync — all campaigns with id/name/channel/status/closed/daily budget/cap/spent/reserved/created. Hidden for read-only roles (spend columns are redacted in that mode, so the export must be too).
+- Detail page: "⬇ Export CSV" on the Performance header — the 30-day daily series (date/impressions/clicks/cost/conversions), filename slugged from the campaign name.
+- `lib/csv.test.ts` — 8 test cases. i18n: 1 key × 4 locales.
+- PDF/scheduled email reports deferred; CSV covers the "pull numbers into a spreadsheet/deck" workflow that sales asked for.

@@ -9,6 +9,7 @@ import DashboardShell from "@/components/DashboardShell";
 import { useOrg } from "@/components/OrgContext";
 import { COUNTRIES } from "@/lib/google-ads";
 import { applyPlatformMarkup, paymentGatewayFee, platformFee, isPaidPlan } from "@/lib/billing";
+import { toCsv, downloadCsv } from "@/lib/csv";
 
 /**
  * Realistic-looking placeholder content for the PMAX asset group form.
@@ -1307,7 +1308,30 @@ export default function CampaignDetailPage() {
 
         {/* Performance metrics (last 30 days) */}
         <div>
-          <h2 className="text-sm font-semibold text-gray-700 mb-2">{t.metricsTitle || "Performance (last 30 days)"}</h2>
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-sm font-semibold text-gray-700">{t.metricsTitle || "Performance (last 30 days)"}</h2>
+            {(detail?.dailyMetrics?.length || 0) > 0 && (
+              <button
+                onClick={() => {
+                  const csv = toCsv(
+                    ["Date", "Impressions", "Clicks", "Cost (USD)", "Conversions"],
+                    (detail?.dailyMetrics || []).map((d) => [
+                      d.date,
+                      d.impressions,
+                      d.clicks,
+                      (d.costMicros / 1_000_000).toFixed(2),
+                      d.conversions,
+                    ])
+                  );
+                  const slug = (campaign.campaign_name || `campaign-${campaignId}`).replace(/[^\w一-鿿-]+/g, "-").slice(0, 40);
+                  downloadCsv(`${slug}-daily-30d-${new Date().toISOString().slice(0, 10)}`, csv);
+                }}
+                className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer"
+              >
+                ⬇ {t.exportCsv || "Export CSV"}
+              </button>
+            )}
+          </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 mb-3">
             <Stat label={t.metricImpressions || "Impressions"} value={m ? m.impressions.toLocaleString() : "—"} />
             <Stat label={t.metricClicks || "Clicks"} value={m ? m.clicks.toLocaleString() : "—"} />
