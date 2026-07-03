@@ -8,11 +8,14 @@ import {
   createCampaignStructuredSnippet,
   createCampaignCallAsset,
   createCampaignPromotion,
+  createCampaignPriceAsset,
   removeCampaignExtensionAsset,
   channelSupportsTextExtensions,
   STRUCTURED_SNIPPET_HEADERS,
   type StructuredSnippetHeader,
   type PromotionInput,
+  type PriceAssetInput,
+  type PriceOfferingInput,
 } from "@/lib/google-ads";
 import { resolveOrgId } from "@/lib/credits";
 import { isReadOnlyUserId } from "@/lib/roles-server";
@@ -71,7 +74,9 @@ async function loadCampaign(
  *  Body (call):      { kind: "call", countryCode, phoneNumber, orgId? }
  *  Body (promotion): { kind: "promotion", promotionTarget, percentOff | moneyAmountOff,
  *                      currencyCode?, promotionCode?, ordersOverAmount?, occasion?,
- *                      redemptionStartDate?, redemptionEndDate?, languageCode?, finalUrl, orgId? } */
+ *                      redemptionStartDate?, redemptionEndDate?, languageCode?, finalUrl, orgId? }
+ *  Body (price):     { kind: "price", type, priceQualifier?, currencyCode?, languageCode?,
+ *                      offerings: Array<{ header, description, price, unit?, finalUrl }>, orgId? } */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const ip = getIp(req);
   if (!checkRateLimit(ip, { limit: 30, windowMs: 60_000 })) {
@@ -80,8 +85,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const body = await req.json().catch(() => ({}));
   const kind = String(body.kind || "");
-  if (kind !== "callout" && kind !== "snippet" && kind !== "call" && kind !== "promotion") {
-    return NextResponse.json({ error: 'kind must be "callout", "snippet", "call", or "promotion"' }, { status: 400 });
+  if (kind !== "callout" && kind !== "snippet" && kind !== "call" && kind !== "promotion" && kind !== "price") {
+    return NextResponse.json({ error: 'kind must be "callout", "snippet", "call", "promotion", or "price"' }, { status: 400 });
   }
 
   const loaded = await loadCampaign(params, body);
@@ -118,6 +123,28 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       finalUrl: String(body.finalUrl || ""),
     };
     const result = await createCampaignPromotion(campaign.platform_campaign_id, input);
+    created = result.created;
+    details = result.error;
+  } else if (kind === "price") {
+    const rawOfferings = Array.isArray(body.offerings) ? body.offerings : [];
+    const offerings: PriceOfferingInput[] = rawOfferings.map((o: unknown) => {
+      const obj = (o && typeof o === "object" ? o : {}) as Record<string, unknown>;
+      return {
+        header: String(obj.header || "").trim(),
+        description: String(obj.description || "").trim(),
+        price: Number(obj.price),
+        unit: obj.unit ? String(obj.unit) : undefined,
+        finalUrl: String(obj.finalUrl || "").trim(),
+      };
+    });
+    const input: PriceAssetInput = {
+      type: String(body.type || ""),
+      priceQualifier: body.priceQualifier ? String(body.priceQualifier) : undefined,
+      currencyCode: body.currencyCode ? String(body.currencyCode) : undefined,
+      languageCode: body.languageCode ? String(body.languageCode) : undefined,
+      offerings,
+    };
+    const result = await createCampaignPriceAsset(campaign.platform_campaign_id, input);
     created = result.created;
     details = result.error;
   } else {

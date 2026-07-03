@@ -353,6 +353,13 @@ export interface CampaignDetail {
   structuredSnippets: Array<{ resourceName: string; header: string; values: string[] }>;
   /** Call extensions. resourceName = campaign_asset link. */
   callAssets: Array<{ resourceName: string; countryCode: string; phoneNumber: string }>;
+  /** Price extensions. resourceName = campaign_asset link. Offering prices in currency units. */
+  prices: Array<{
+    resourceName: string;
+    type: string;
+    priceQualifier: string;
+    offerings: Array<{ header: string; description: string; price: number; currencyCode: string; unit: string; finalUrl: string }>;
+  }>;
   /** Promotion extensions. resourceName = campaign_asset link. percentOff in whole percent (10 = 10%). */
   promotions: Array<{
     resourceName: string;
@@ -805,6 +812,45 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
     }))
     .filter((c) => c.phoneNumber && c.resourceName);
 
+  type PriceRow = {
+    campaignAsset: { resourceName?: string };
+    asset?: {
+      priceAsset?: {
+        type?: string;
+        priceQualifier?: string;
+        priceOfferings?: Array<{
+          header?: string;
+          description?: string;
+          price?: { currencyCode?: string; amountMicros?: string };
+          unit?: string;
+          finalUrl?: string;
+        }>;
+      };
+    };
+  };
+  const priceRows = await adsSearchStream(customerId, `
+    SELECT campaign_asset.resource_name, asset.price_asset.type,
+           asset.price_asset.price_qualifier, asset.price_asset.price_offerings
+    FROM campaign_asset
+    WHERE campaign.id = ${numericCampaignId} AND campaign_asset.field_type = PRICE
+      AND campaign_asset.status != 'REMOVED'
+  `).catch(() => []) as PriceRow[];
+  const prices = priceRows
+    .map((r) => ({
+      resourceName: r.campaignAsset.resourceName || "",
+      type: r.asset?.priceAsset?.type || "",
+      priceQualifier: r.asset?.priceAsset?.priceQualifier || "",
+      offerings: (r.asset?.priceAsset?.priceOfferings || []).map((o) => ({
+        header: o.header || "",
+        description: o.description || "",
+        price: Number(o.price?.amountMicros || 0) / 1_000_000,
+        currencyCode: o.price?.currencyCode || "",
+        unit: o.unit || "",
+        finalUrl: o.finalUrl || "",
+      })),
+    }))
+    .filter((p) => p.resourceName && p.offerings.length > 0);
+
   type PromotionRow = {
     campaignAsset: { resourceName?: string };
     asset?: {
@@ -1003,6 +1049,7 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
     callouts,
     structuredSnippets,
     callAssets,
+    prices,
     promotions,
     ads,
   };
@@ -3187,6 +3234,142 @@ export async function createCampaignPromotion(
   return { created: 1 };
 }
 
+// ---------------------------------------------------------------------------
+// Price extensions
+// ---------------------------------------------------------------------------
+
+/** PriceExtensionType enum (v20). */
+export const PRICE_TYPES = [
+  "BRANDS",
+  "EVENTS",
+  "LOCATIONS",
+  "NEIGHBORHOODS",
+  "PRODUCT_CATEGORIES",
+  "PRODUCT_TIERS",
+  "SERVICES",
+  "SERVICE_CATEGORIES",
+  "SERVICE_TIERS",
+] as const;
+export type PriceType = (typeof PRICE_TYPES)[number];
+
+/** PriceExtensionPriceQualifier enum (v20). NONE = show the bare price. */
+export const PRICE_QUALIFIERS = ["NONE", "FROM", "UP_TO", "AVERAGE"] as const;
+export type PriceQualifier = (typeof PRICE_QUALIFIERS)[number];
+
+/** PriceExtensionPriceUnit enum (v20). NONE = flat price. */
+export const PRICE_UNITS = ["NONE", "PER_HOUR", "PER_DAY", "PER_WEEK", "PER_MONTH", "PER_YEAR", "PER_NIGHT"] as const;
+export type PriceUnit = (typeof PRICE_UNITS)[number];
+
+export interface PriceOfferingInput {
+  /** e.g. "Basic plan". ≤25 chars. */
+  header: string;
+  /** e.g. "Up to 5 users". ≤25 chars. */
+  description: string;
+  /** Price in account currency units (e.g. 29.99). Must be > 0. */
+  price: number;
+  unit?: PriceUnit | string;
+  /** Landing page for this offering. Required, http(s). */
+  finalUrl: string;
+}
+
+export interface PriceAssetInput {
+  type: PriceType | string;
+  priceQualifier?: PriceQualifier | string;
+  /** ISO-4217, default USD. Shared by all offerings. */
+  currencyCode?: string;
+  /** BCP-47 language of the texts, default "en". */
+  languageCode?: string;
+  /** 3-8 offerings (Google's hard limits). */
+  offerings: PriceOfferingInput[];
+}
+
+/** Pure validation for a price asset — unit-tested. */
+export function validatePriceAssetInput(input: PriceAssetInput): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  if (!(PRICE_TYPES as readonly string[]).includes(String(input.type || ""))) {
+    errors.push(`type must be one of: ${PRICE_TYPES.join(", ")}`);
+  }
+  const qualifier = String(input.priceQualifier || "NONE");
+  if (!(PRICE_QUALIFIERS as readonly string[]).includes(qualifier)) {
+    errors.push(`priceQualifier must be one of: ${PRICE_QUALIFIERS.join(", ")}`);
+  }
+  const cur = (input.currencyCode || "USD").trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(cur)) errors.push("currencyCode must be a 3-letter ISO code.");
+  const lang = (input.languageCode || "en").trim();
+  if (!/^[a-z]{2,3}(-[A-Za-z]{2,4})?$/.test(lang)) {
+    errors.push('languageCode must be a BCP-47 code like "en" or "zh-CN".');
+  }
+
+  const offerings = input.offerings || [];
+  if (offerings.length < 3 || offerings.length > 8) {
+    errors.push("Between 3 and 8 price offerings required (Google's limits).");
+  }
+  const seenHeaders = new Set<string>();
+  offerings.forEach((o, i) => {
+    const label = `offerings[${i}]`;
+    const header = (o.header || "").trim();
+    const description = (o.description || "").trim();
+    if (!header) errors.push(`${label}: header is required.`);
+    else if (header.length > 25) errors.push(`${label}: header must be ≤25 characters.`);
+    else if (seenHeaders.has(header.toLowerCase())) errors.push(`${label}: duplicate header "${header}".`);
+    else seenHeaders.add(header.toLowerCase());
+    if (!description) errors.push(`${label}: description is required.`);
+    else if (description.length > 25) errors.push(`${label}: description must be ≤25 characters.`);
+    const price = Number(o.price);
+    if (!Number.isFinite(price) || price <= 0) errors.push(`${label}: price must be > 0.`);
+    const unit = String(o.unit || "NONE");
+    if (!(PRICE_UNITS as readonly string[]).includes(unit)) {
+      errors.push(`${label}: unit must be one of: ${PRICE_UNITS.join(", ")}`);
+    }
+    if (!/^https?:\/\//i.test((o.finalUrl || "").trim())) {
+      errors.push(`${label}: finalUrl must start with http:// or https://`);
+    }
+  });
+
+  return { valid: errors.length === 0, errors };
+}
+
+/** Create one price asset and attach it to a campaign (price extension). */
+export async function createCampaignPriceAsset(
+  campaignResourceName: string,
+  input: PriceAssetInput
+): Promise<{ created: number; error?: unknown }> {
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
+  if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
+
+  const validation = validatePriceAssetInput(input);
+  if (!validation.valid) return { created: 0, error: validation.errors.join(" ") };
+
+  const currencyCode = (input.currencyCode || "USD").trim().toUpperCase();
+  const priceAsset: Record<string, unknown> = {
+    type: input.type,
+    languageCode: (input.languageCode || "en").trim(),
+    priceOfferings: input.offerings.map((o) => ({
+      header: o.header.trim(),
+      description: o.description.trim(),
+      price: { currencyCode, amountMicros: String(Math.round(Number(o.price) * 1_000_000)) },
+      ...(o.unit && o.unit !== "NONE" ? { unit: o.unit } : {}),
+      finalUrl: o.finalUrl.trim(),
+    })),
+  };
+  if (input.priceQualifier && input.priceQualifier !== "NONE") {
+    priceAsset.priceQualifier = input.priceQualifier;
+  }
+
+  const assetRes = await adsMutate(customerId, "assets:mutate", {
+    operations: [{ create: { priceAsset } }],
+  });
+  if (assetRes.status !== 200) return { created: 0, error: assetRes.data };
+  const assetName = (assetRes.data as { results?: Array<{ resourceName?: string }> })?.results?.[0]?.resourceName;
+  if (!assetName) return { created: 0, error: "Asset created but no resource name returned" };
+
+  const linkRes = await adsMutate(customerId, "campaignAssets:mutate", {
+    operations: [{ create: { campaign: campaignResourceName, asset: assetName, fieldType: "PRICE" } }],
+  });
+  if (linkRes.status !== 200) return { created: 0, error: linkRes.data };
+  return { created: 1 };
+}
+
 /** Detach a callout / structured-snippet / call / promotion asset from a campaign (asset kept for reuse). */
 export async function removeCampaignExtensionAsset(
   campaignAssetResourceName: string
@@ -3194,7 +3377,7 @@ export async function removeCampaignExtensionAsset(
   const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
   if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
 
-  if (!/^customers\/\d+\/campaignAssets\/\d+~\d+~(CALLOUT|STRUCTURED_SNIPPET|CALL|PROMOTION)$/.test(campaignAssetResourceName)) {
+  if (!/^customers\/\d+\/campaignAssets\/\d+~\d+~(CALLOUT|STRUCTURED_SNIPPET|CALL|PROMOTION|PRICE)$/.test(campaignAssetResourceName)) {
     return { success: false, error: "Invalid campaign asset resource name" };
   }
 

@@ -88,6 +88,12 @@ interface Detail {
   callouts?: Array<{ resourceName: string; text: string }>;
   structuredSnippets?: Array<{ resourceName: string; header: string; values: string[] }>;
   callAssets?: Array<{ resourceName: string; countryCode: string; phoneNumber: string }>;
+  prices?: Array<{
+    resourceName: string;
+    type: string;
+    priceQualifier: string;
+    offerings: Array<{ header: string; description: string; price: number; currencyCode: string; unit: string; finalUrl: string }>;
+  }>;
   promotions?: Array<{
     resourceName: string;
     promotionTarget: string;
@@ -1215,7 +1221,7 @@ export default function CampaignDetailPage() {
 
   // Callouts + structured snippets
   const SNIPPET_HEADERS = ["Amenities", "Brands", "Courses", "Degree programs", "Destinations", "Featured hotels", "Insurance coverage", "Models", "Neighborhoods", "Service catalog", "Shows", "Styles", "Types"];
-  const [extFormOpen, setExtFormOpen] = useState<"callout" | "snippet" | "call" | "promotion" | null>(null);
+  const [extFormOpen, setExtFormOpen] = useState<"callout" | "snippet" | "call" | "promotion" | "price" | null>(null);
   const [calloutText, setCalloutText] = useState("");
   const [snippetHeader, setSnippetHeader] = useState("Service catalog");
   const [snippetValues, setSnippetValues] = useState("");
@@ -1231,6 +1237,15 @@ export default function CampaignDetailPage() {
   const [promoStartDate, setPromoStartDate] = useState("");
   const [promoEndDate, setPromoEndDate] = useState("");
   const [promoUrl, setPromoUrl] = useState("");
+  // Price extension form (3-8 offering rows)
+  const PRICE_TYPE_OPTIONS = ["SERVICES", "SERVICE_CATEGORIES", "SERVICE_TIERS", "PRODUCT_CATEGORIES", "PRODUCT_TIERS", "BRANDS", "EVENTS", "LOCATIONS", "NEIGHBORHOODS"];
+  const PRICE_QUALIFIER_OPTIONS = ["NONE", "FROM", "UP_TO", "AVERAGE"];
+  const PRICE_UNIT_OPTIONS = ["NONE", "PER_HOUR", "PER_DAY", "PER_WEEK", "PER_MONTH", "PER_YEAR", "PER_NIGHT"];
+  type PriceOfferingRow = { header: string; description: string; price: string; unit: string; finalUrl: string };
+  const emptyOffering = (): PriceOfferingRow => ({ header: "", description: "", price: "", unit: "NONE", finalUrl: "" });
+  const [priceType, setPriceType] = useState("SERVICES");
+  const [priceQualifier, setPriceQualifier] = useState("NONE");
+  const [priceOfferings, setPriceOfferings] = useState<PriceOfferingRow[]>([emptyOffering(), emptyOffering(), emptyOffering()]);
   const [extSubmitting, setExtSubmitting] = useState(false);
   const [extError, setExtError] = useState("");
   const [removingExt, setRemovingExt] = useState<string | null>(null);
@@ -1266,6 +1281,26 @@ export default function CampaignDetailPage() {
       }
       body.languageCode = locale.startsWith("zh") ? "zh" : locale.startsWith("ko") ? "ko" : "en";
       body.finalUrl = promoUrl.trim();
+    } else if (extFormOpen === "price") {
+      const filled = priceOfferings.filter((o) => o.header.trim() || o.description.trim() || o.price || o.finalUrl.trim());
+      const complete = filled.filter(
+        (o) => o.header.trim() && o.description.trim() && Number(o.price) > 0 && /^https?:\/\//i.test(o.finalUrl.trim()),
+      );
+      if (complete.length < 3 || complete.length !== filled.length) {
+        setExtError(t.extPriceValidation || "Need 3-8 complete rows: header + description (≤25 chars each), price > 0, http(s) URL");
+        setExtSubmitting(false);
+        return;
+      }
+      body.type = priceType;
+      if (priceQualifier !== "NONE") body.priceQualifier = priceQualifier;
+      body.languageCode = locale.startsWith("zh") ? "zh" : locale.startsWith("ko") ? "ko" : "en";
+      body.offerings = complete.map((o) => ({
+        header: o.header.trim(),
+        description: o.description.trim(),
+        price: Number(o.price),
+        unit: o.unit,
+        finalUrl: o.finalUrl.trim(),
+      }));
     } else {
       const values = snippetValues.split("\n").map((s) => s.trim()).filter(Boolean);
       if (values.length < 3) { setExtError(t.extSnippetValidation || "Enter at least 3 values (one per line, ≤25 chars)"); setExtSubmitting(false); return; }
@@ -1287,6 +1322,7 @@ export default function CampaignDetailPage() {
         setPromoTarget("");
         setPromoCode("");
         setPromoUrl("");
+        setPriceOfferings([emptyOffering(), emptyOffering(), emptyOffering()]);
         fetchData();
         setTimeout(() => setToast(""), 4000);
       } else {
@@ -3241,7 +3277,7 @@ export default function CampaignDetailPage() {
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-semibold text-gray-700">
-                📣 {t.extSection || "Callouts & Snippets"} ({(detail.callouts?.length || 0) + (detail.structuredSnippets?.length || 0) + (detail.callAssets?.length || 0) + (detail.promotions?.length || 0)})
+                📣 {t.extSection || "Callouts & Snippets"} ({(detail.callouts?.length || 0) + (detail.structuredSnippets?.length || 0) + (detail.callAssets?.length || 0) + (detail.promotions?.length || 0) + (detail.prices?.length || 0)})
               </h2>
               {canEdit && (
                 <div className="flex gap-2 flex-wrap">
@@ -3268,6 +3304,12 @@ export default function CampaignDetailPage() {
                     className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer"
                   >
                     {extFormOpen === "promotion" ? (t.cancel || "Cancel") : `+ ${t.extAddPromo || "Promotion"}`}
+                  </button>
+                  <button
+                    onClick={() => { setExtFormOpen(extFormOpen === "price" ? null : "price"); setExtError(""); }}
+                    className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer"
+                  >
+                    {extFormOpen === "price" ? (t.cancel || "Cancel") : `+ ${t.extAddPrice || "Prices"}`}
                   </button>
                 </div>
               )}
@@ -3356,6 +3398,76 @@ export default function CampaignDetailPage() {
                     )}
                   </div>
                 ))}
+              </div>
+            )}
+
+            {(detail.prices?.length || 0) > 0 && (
+              <div className="space-y-1.5 mt-2">
+                {(detail.prices || []).map((p) => (
+                  <div key={p.resourceName} className="text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="px-1.5 py-0.5 bg-sky-50 text-sky-700 rounded-full">💲 {p.type.replaceAll("_", " ").toLowerCase()}</span>
+                      {p.priceQualifier && <span className="text-gray-400">{p.priceQualifier.replaceAll("_", " ").toLowerCase()}</span>}
+                      {canEdit && (
+                        <button
+                          onClick={() => handleRemoveExtension(p.resourceName)}
+                          disabled={removingExt === p.resourceName}
+                          className="text-gray-300 hover:text-red-600 cursor-pointer disabled:opacity-50"
+                        >
+                          {removingExt === p.resourceName ? "…" : "×"}
+                        </button>
+                      )}
+                    </div>
+                    <div className="text-gray-500 mt-0.5 ml-1">
+                      {p.offerings.map((o) => `${o.header} $${o.price}${o.unit && o.unit !== "NONE" ? "/" + o.unit.replace("PER_", "").toLowerCase() : ""}`).join(" · ")}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {extFormOpen === "price" && (
+              <div className="mt-4 border-t border-gray-100 pt-4 space-y-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <label className="text-xs text-gray-500">{t.extPriceType || "Type"}:</label>
+                  <select value={priceType} onChange={(e) => setPriceType(e.target.value)} className="text-xs px-2 py-1 border border-gray-300 rounded outline-none bg-white">
+                    {PRICE_TYPE_OPTIONS.map((o) => <option key={o} value={o}>{o.replaceAll("_", " ")}</option>)}
+                  </select>
+                  <label className="text-xs text-gray-500">{t.extPriceQualifier || "Qualifier"}:</label>
+                  <select value={priceQualifier} onChange={(e) => setPriceQualifier(e.target.value)} className="text-xs px-2 py-1 border border-gray-300 rounded outline-none bg-white">
+                    {PRICE_QUALIFIER_OPTIONS.map((o) => <option key={o} value={o}>{o === "NONE" ? (t.extPromoNoOccasion || "(none)") : o.replaceAll("_", " ")}</option>)}
+                  </select>
+                </div>
+                <p className="text-xs text-gray-400">{t.extPriceHint || "3-8 rows. Header & description ≤25 chars; each row needs its own landing page URL."}</p>
+                <div className="space-y-2">
+                  {priceOfferings.map((o, i) => (
+                    <div key={i} className="flex items-center gap-1.5 flex-wrap">
+                      <input value={o.header} maxLength={25} placeholder={t.extPriceHeader || "Basic plan"} onChange={(e) => setPriceOfferings((prev) => prev.map((row, j) => j === i ? { ...row, header: e.target.value } : row))} className="text-xs px-2 py-1 border border-gray-300 rounded outline-none w-32" />
+                      <input value={o.description} maxLength={25} placeholder={t.extPriceDesc || "Up to 5 users"} onChange={(e) => setPriceOfferings((prev) => prev.map((row, j) => j === i ? { ...row, description: e.target.value } : row))} className="text-xs px-2 py-1 border border-gray-300 rounded outline-none w-32" />
+                      <span className="text-xs text-gray-400">$</span>
+                      <input type="number" min="0.01" step="0.01" value={o.price} placeholder="29.99" onChange={(e) => setPriceOfferings((prev) => prev.map((row, j) => j === i ? { ...row, price: e.target.value } : row))} className="text-xs px-2 py-1 border border-gray-300 rounded outline-none w-20" />
+                      <select value={o.unit} onChange={(e) => setPriceOfferings((prev) => prev.map((row, j) => j === i ? { ...row, unit: e.target.value } : row))} className="text-xs px-2 py-1 border border-gray-300 rounded outline-none bg-white">
+                        {PRICE_UNIT_OPTIONS.map((u) => <option key={u} value={u}>{u === "NONE" ? "—" : "/" + u.replace("PER_", "").toLowerCase()}</option>)}
+                      </select>
+                      <input value={o.finalUrl} placeholder="https://…" onChange={(e) => setPriceOfferings((prev) => prev.map((row, j) => j === i ? { ...row, finalUrl: e.target.value } : row))} className="text-xs px-2 py-1 border border-gray-300 rounded outline-none flex-1 min-w-40" />
+                      {priceOfferings.length > 3 && (
+                        <button onClick={() => setPriceOfferings((prev) => prev.filter((_, j) => j !== i))} className="text-gray-300 hover:text-red-600 cursor-pointer text-xs">×</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {priceOfferings.length < 8 && (
+                  <button onClick={() => setPriceOfferings((prev) => [...prev, emptyOffering()])} className="text-xs px-2 py-1 border border-gray-200 rounded hover:bg-gray-50 cursor-pointer">
+                    + {t.extPriceAddRow || "Row"}
+                  </button>
+                )}
+                {extError && <pre className="text-xs text-red-600 bg-red-50 p-2 rounded whitespace-pre-wrap break-all">{extError}</pre>}
+                <div className="flex gap-2">
+                  <button onClick={handleAddExtension} disabled={extSubmitting} className="bg-red-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-900 disabled:opacity-50 cursor-pointer">
+                    {extSubmitting ? (t.creating || "Adding...") : (t.extAddPrice || "Add Prices")}
+                  </button>
+                  <button onClick={() => setExtFormOpen(null)} className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 cursor-pointer">{t.cancel || "Cancel"}</button>
+                </div>
               </div>
             )}
 
