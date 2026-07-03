@@ -332,6 +332,10 @@ export interface CampaignDetail {
     adGroupName: string;
     apiType: AudienceApiType | "";
     value: string;
+    /** ad_group_criterion resource name — needed for bid-modifier updates. */
+    resourceName: string;
+    /** Criterion bid modifier factor (1 = none). Undefined when not reported. */
+    bidModifier?: number;
   }>;
   adGroups: Array<{ resourceName: string; name: string; status: string; cpcBidMicros: number }>;
   /** Performance Max only — PMax has no ad groups, instead it has asset groups. Empty for other channels. */
@@ -528,8 +532,10 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
   // Audience targeting — Demand Gen / Display / Video use multiple criterion types
   type AudienceRow = {
     adGroupCriterion: {
+      resourceName?: string;
       type?: string;
       negative?: boolean;
+      bidModifier?: number;
       userInterest?: { userInterestCategory?: string };
       userList?: { userList?: string };
       customAudience?: { customAudience?: string };
@@ -542,7 +548,8 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
     adGroup?: { name?: string };
   };
   const audienceRows = await adsSearchStream(customerId, `
-    SELECT ad_group_criterion.type, ad_group_criterion.negative,
+    SELECT ad_group_criterion.resource_name, ad_group_criterion.type, ad_group_criterion.negative,
+           ad_group_criterion.bid_modifier,
            ad_group_criterion.user_interest.user_interest_category,
            ad_group_criterion.user_list.user_list,
            ad_group_criterion.custom_audience.custom_audience,
@@ -670,6 +677,9 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
       adGroupName: r.adGroup?.name || "",
       apiType,
       value,
+      resourceName: c.resourceName || "",
+      // 1 = no adjustment; undefined when Google omits the field.
+      bidModifier: typeof c.bidModifier === "number" ? c.bidModifier : undefined,
     };
   }).filter((a) => a.label);
 
@@ -3579,6 +3589,114 @@ export async function setCampaignScheduleModifiers(
   }));
 
   const res = await adsMutate(customerId, "campaignCriteria:mutate", { operations });
+  if (res.status !== 200) return { success: false, updated: 0, error: res.data };
+  return { success: true, updated: operations.length };
+}
+
+// ---------------------------------------------------------------------------
+// Demographic (audience) bid modifiers — ad_group_criterion level
+// ---------------------------------------------------------------------------
+
+export interface AudienceModifierInput {
+  /** The demographic ad_group_criterion resource name (from CampaignDetail.audiences). */
+  criterionResourceName: string;
+  /** Bid adjustment percent: -90..900. 0 = reset to no adjustment. */
+  percent: number;
+}
+
+/** Demographics ride on ad_group_criterion — Search & Display only (same
+ *  practical envelope as the campaign-criterion modifiers; Shopping's
+ *  demographic support is inconsistent, so it's kept out). */
+const AUDIENCE_MODIFIER_CHANNELS = new Set(["SEARCH", "DISPLAY"]);
+export function channelSupportsAudienceModifiers(channelType: string): boolean {
+  return AUDIENCE_MODIFIER_CHANNELS.has(channelType);
+}
+
+/** Demographic criterion types eligible for bid modifiers. */
+const DEMOGRAPHIC_CRITERION_TYPES = ["AGE_RANGE", "GENDER", "PARENTAL_STATUS", "INCOME_RANGE"] as const;
+
+/** Pure validation — unit-tested. */
+export function validateAudienceModifiers(modifiers: AudienceModifierInput[]): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  if (!Array.isArray(modifiers) || modifiers.length === 0) {
+    return { valid: false, errors: ["At least one modifier is required."] };
+  }
+  if (modifiers.length > 50) {
+    return { valid: false, errors: ["At most 50 modifiers per request."] };
+  }
+  const seen = new Set<string>();
+  modifiers.forEach((m, i) => {
+    const label = `modifiers[${i}]`;
+    if (!/^customers\/\d+\/adGroupCriteria\/\d+~\d+$/.test(m.criterionResourceName || "")) {
+      errors.push(`${label}: criterionResourceName must be an ad_group_criterion resource name.`);
+      return;
+    }
+    if (seen.has(m.criterionResourceName)) {
+      errors.push(`${label}: duplicate criterion.`);
+      return;
+    }
+    seen.add(m.criterionResourceName);
+    if (!Number.isFinite(m.percent) || m.percent < -90 || m.percent > 900) {
+      errors.push(`${label}: percent must be between -90 and 900.`);
+    }
+  });
+  return { valid: errors.length === 0, errors };
+}
+
+/** Update bid modifiers on EXISTING demographic criteria of one campaign.
+ *  Update-only by resource name (like schedule modifiers): never creates or
+ *  removes targeting, so it can't race the audience editor. Negative
+ *  (excluded) criteria are rejected — Google forbids modifiers on them. */
+export async function setAudienceBidModifiers(
+  campaignResourceName: string,
+  modifiers: AudienceModifierInput[]
+): Promise<{ success: boolean; updated: number; error?: unknown }> {
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
+  if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
+
+  const numericCampaignId = campaignResourceName.split("/").pop() || "";
+
+  type ChannelRow = { campaign: { advertisingChannelType?: string } };
+  const channelRows = await adsSearchStream(customerId, `
+    SELECT campaign.advertising_channel_type FROM campaign WHERE campaign.id = ${numericCampaignId}
+  `) as ChannelRow[];
+  const channelType = channelRows[0]?.campaign?.advertisingChannelType || "";
+  if (!channelSupportsAudienceModifiers(channelType)) {
+    return { success: false, updated: 0, error: `Demographic bid adjustments are not supported for ${channelType || "this"} campaigns` };
+  }
+
+  const validation = validateAudienceModifiers(modifiers);
+  if (!validation.valid) return { success: false, updated: 0, error: validation.errors.join(" ") };
+
+  // Every criterion must be a NON-NEGATIVE demographic criterion of THIS campaign.
+  type AGCRow = { adGroupCriterion: { resourceName: string; negative?: boolean } };
+  const existing = await adsSearchStream(customerId, `
+    SELECT ad_group_criterion.resource_name, ad_group_criterion.negative
+    FROM ad_group_criterion
+    WHERE campaign.id = ${numericCampaignId}
+      AND ad_group_criterion.type IN (${DEMOGRAPHIC_CRITERION_TYPES.join(", ")})
+  `) as AGCRow[];
+  const eligible = new Set(existing.filter((r) => !r.adGroupCriterion.negative).map((r) => r.adGroupCriterion.resourceName));
+  const excluded = new Set(existing.filter((r) => r.adGroupCriterion.negative).map((r) => r.adGroupCriterion.resourceName));
+  const bad = modifiers.filter((m) => !eligible.has(m.criterionResourceName));
+  if (bad.length > 0) {
+    const reasons = bad.map((m) =>
+      excluded.has(m.criterionResourceName)
+        ? `${m.criterionResourceName} (excluded — modifiers not allowed)`
+        : m.criterionResourceName
+    );
+    return { success: false, updated: 0, error: `Not demographic criteria of this campaign: ${reasons.join(", ")}` };
+  }
+
+  const operations = modifiers.map((m) => ({
+    update: {
+      resourceName: m.criterionResourceName,
+      bidModifier: Math.round((1 + m.percent / 100) * 100) / 100,
+    },
+    updateMask: "bid_modifier",
+  }));
+
+  const res = await adsMutate(customerId, "adGroupCriteria:mutate", { operations });
   if (res.status !== 200) return { success: false, updated: 0, error: res.data };
   return { success: true, updated: operations.length };
 }

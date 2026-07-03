@@ -766,7 +766,18 @@ Completes the bid-modifier trio (device ✅, location ✅, schedule ✅) — "+2
 - ⏰ card: interval chips now colored by adjustment (+green/−amber) with the % inline; new "% Adjust bids" mode listing intervals with one % input each.
 - 5 new test cases. i18n: 2 keys × 4 locales.
 
-### 2026-07-03 — price extensions (this PR)
+### 2026-07-03 — demographic bid modifiers (this PR)
+
+Completes the bid-modifier suite (device ✅, location ✅, schedule ✅, **demographics ✅**) — "+30% for 25-34, -50% for unknown gender" is now expressible.
+
+- Demographics live on **ad_group_criterion** (not campaign_criterion like the other three). The audiences GAQL in `fetchCampaignDetail()` now also selects `resource_name` + `bid_modifier`; audience entries carry both.
+- `setAudienceBidModifiers()` — update-only by criterion resource name (mask `bid_modifier`), same 1+pct/100 factor. Server-side proof of ownership by GAQL (`WHERE campaign.id = N AND type IN (AGE_RANGE, GENDER, PARENTAL_STATUS, INCOME_RANGE)`) because ad_group_criterion resource names embed the ad-group id, not the campaign id — a prefix check can't prove membership. **Negative (excluded) criteria are rejected with a named reason** (Google forbids modifiers on them). SEARCH/DISPLAY only (Shopping demographic support is inconsistent; kept out deliberately).
+- Pure `validateAudienceModifiers()`: resource-name shape, no dupes, −90..900, ≤50 per request.
+- `POST /campaigns/[id]/audience-modifiers` — standard gates + customer-prefix check; campaign membership proven in the lib call.
+- Audiences block: chips show the adjustment inline (+green/−amber); new "% Adjust bids" mode (gated to SEARCH/DISPLAY with ≥1 eligible criterion) listing each non-excluded demographic with a % input.
+- 4 new test cases. i18n: 3 keys × 4 locales.
+
+### 2026-07-03 — price extensions
 
 The final member of the extensions family: a price menu ("Basic $29.99/month · Pro $59.99/month · …") under search ads, each row deep-linking to its own landing page.
 
