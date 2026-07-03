@@ -766,7 +766,16 @@ Completes the bid-modifier trio (device ✅, location ✅, schedule ✅) — "+2
 - ⏰ card: interval chips now colored by adjustment (+green/−amber) with the % inline; new "% Adjust bids" mode listing intervals with one % input each.
 - 5 new test cases. i18n: 2 keys × 4 locales.
 
-### 2026-07-03 — weekly digest opt-out (this PR)
+### 2026-07-03 — automated launch preflight (this PR)
+
+Shortens real-account day: when credentials land, open `google-ads/preflight`, fix the reds, then walk the manual checklist. Automates the machine-checkable subset of docs/google-ads-launch-checklist.md.
+
+- Pure grading module `lib/google-ads-preflight.ts` (fully unit-tested): env completeness (names only — values never echoed), customer probe → connectivity + **account-kind gate** (MANAGER account = fail, campaigns can't serve from it; TEST account = warn), billing (needs ≥1 APPROVED setup or ads can't spend), conversion inventory (warn — Smart Bidding/PMax underperform without), ad-credits ledger invariants (any negative balance/reserved = fail), AI provider chain (0 = fail, 1 = warn no-fallback, 2+ = pass). `summarizePreflight()`: fail > warn > pass dominance.
+- `GET /api/google-ads/preflight` — session-gated, read-only everywhere, tight rate limit.
+- `google-ads/preflight` page: traffic-light board + summary banner + re-run; explicit footer that green ≠ launched (ad-serving and auto-pause verification stay human).
+- 8 new test cases. i18n: 9 keys × 4 locales.
+
+### 2026-07-03 — weekly digest opt-out
 
 Closes the known limitation from the weekly-digest PR: orgs can now turn the Monday email off.
 
