@@ -87,6 +87,7 @@ interface Detail {
   sitelinks?: Array<{ resourceName: string; linkText: string; finalUrl: string; description1: string; description2: string }>;
   callouts?: Array<{ resourceName: string; text: string }>;
   structuredSnippets?: Array<{ resourceName: string; header: string; values: string[] }>;
+  callAssets?: Array<{ resourceName: string; countryCode: string; phoneNumber: string }>;
   ads: Array<{
     resourceName: string;
     status: string;
@@ -1158,10 +1159,12 @@ export default function CampaignDetailPage() {
 
   // Callouts + structured snippets
   const SNIPPET_HEADERS = ["Amenities", "Brands", "Courses", "Degree programs", "Destinations", "Featured hotels", "Insurance coverage", "Models", "Neighborhoods", "Service catalog", "Shows", "Styles", "Types"];
-  const [extFormOpen, setExtFormOpen] = useState<"callout" | "snippet" | null>(null);
+  const [extFormOpen, setExtFormOpen] = useState<"callout" | "snippet" | "call" | null>(null);
   const [calloutText, setCalloutText] = useState("");
   const [snippetHeader, setSnippetHeader] = useState("Service catalog");
   const [snippetValues, setSnippetValues] = useState("");
+  const [callCountry, setCallCountry] = useState("US");
+  const [callPhone, setCallPhone] = useState("");
   const [extSubmitting, setExtSubmitting] = useState(false);
   const [extError, setExtError] = useState("");
   const [removingExt, setRemovingExt] = useState<string | null>(null);
@@ -1175,6 +1178,10 @@ export default function CampaignDetailPage() {
       const texts = calloutText.split("\n").map((s) => s.trim()).filter(Boolean);
       if (texts.length === 0) { setExtError(t.extCalloutValidation || "Enter at least 1 callout (one per line, ≤25 chars)"); setExtSubmitting(false); return; }
       body.texts = texts;
+    } else if (extFormOpen === "call") {
+      if (!callPhone.trim()) { setExtError(t.extCallValidation || "Enter a phone number"); setExtSubmitting(false); return; }
+      body.countryCode = callCountry;
+      body.phoneNumber = callPhone.trim();
     } else {
       const values = snippetValues.split("\n").map((s) => s.trim()).filter(Boolean);
       if (values.length < 3) { setExtError(t.extSnippetValidation || "Enter at least 3 values (one per line, ≤25 chars)"); setExtSubmitting(false); return; }
@@ -3010,10 +3017,10 @@ export default function CampaignDetailPage() {
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-semibold text-gray-700">
-                📣 {t.extSection || "Callouts & Snippets"} ({(detail.callouts?.length || 0) + (detail.structuredSnippets?.length || 0)})
+                📣 {t.extSection || "Callouts & Snippets"} ({(detail.callouts?.length || 0) + (detail.structuredSnippets?.length || 0) + (detail.callAssets?.length || 0)})
               </h2>
               {canEdit && (
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
                   <button
                     onClick={() => { setExtFormOpen(extFormOpen === "callout" ? null : "callout"); setExtError(""); }}
                     className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer"
@@ -3025,6 +3032,12 @@ export default function CampaignDetailPage() {
                     className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer"
                   >
                     {extFormOpen === "snippet" ? (t.cancel || "Cancel") : `+ ${t.extAddSnippet || "Snippet"}`}
+                  </button>
+                  <button
+                    onClick={() => { setExtFormOpen(extFormOpen === "call" ? null : "call"); setExtError(""); }}
+                    className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer"
+                  >
+                    {extFormOpen === "call" ? (t.cancel || "Cancel") : `+ ${t.extAddCall || "Phone"}`}
                   </button>
                 </div>
               )}
@@ -3070,6 +3083,54 @@ export default function CampaignDetailPage() {
                     )}
                   </div>
                 ))}
+              </div>
+            )}
+
+            {(detail.callAssets?.length || 0) > 0 && (
+              <div className="space-y-1.5 mt-2">
+                {(detail.callAssets || []).map((c) => (
+                  <div key={c.resourceName} className="flex items-center gap-2 text-xs">
+                    <span className="text-gray-700">📞 {c.phoneNumber}</span>
+                    <span className="px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded-full">{c.countryCode}</span>
+                    {canEdit && (
+                      <button
+                        onClick={() => handleRemoveExtension(c.resourceName)}
+                        disabled={removingExt === c.resourceName}
+                        className="text-gray-300 hover:text-red-600 cursor-pointer disabled:opacity-50"
+                      >
+                        {removingExt === c.resourceName ? "…" : "×"}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {extFormOpen === "call" && (
+              <div className="mt-4 border-t border-gray-100 pt-4 space-y-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <label className="text-xs text-gray-500">{t.extCallCountry || "Country"}:</label>
+                  <input
+                    value={callCountry}
+                    onChange={(e) => setCallCountry(e.target.value.toUpperCase().slice(0, 2))}
+                    maxLength={2}
+                    className="text-xs px-2 py-1 border border-gray-300 rounded outline-none w-14 uppercase"
+                  />
+                  <label className="text-xs text-gray-500">{t.extCallPhone || "Phone"}:</label>
+                  <input
+                    value={callPhone}
+                    onChange={(e) => setCallPhone(e.target.value)}
+                    placeholder="+1 555 123 4567"
+                    className="text-xs px-2 py-1 border border-gray-300 rounded outline-none w-44"
+                  />
+                </div>
+                {extError && <pre className="text-xs text-red-600 bg-red-50 p-2 rounded whitespace-pre-wrap break-all">{extError}</pre>}
+                <div className="flex gap-2">
+                  <button onClick={handleAddExtension} disabled={extSubmitting} className="bg-red-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-900 disabled:opacity-50 cursor-pointer">
+                    {extSubmitting ? (t.creating || "Adding...") : (t.extAddCall || "Add Phone")}
+                  </button>
+                  <button onClick={() => setExtFormOpen(null)} className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 cursor-pointer">{t.cancel || "Cancel"}</button>
+                </div>
               </div>
             )}
 

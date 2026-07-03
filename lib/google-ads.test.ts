@@ -19,6 +19,7 @@ import {
   channelSupportsLocationModifiers,
   normalizeAssetRows,
   assetTypeToFieldType,
+  validateCallAssetInput,
 } from "./google-ads";
 import { orderOrgsForCron } from "./google-ads-sync";
 import {
@@ -452,6 +453,35 @@ describe("normalizeAssetRows", () => {
     ], new Map());
     expect(result).toHaveLength(1);
     expect(result[0].label).toBe("Callout");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateCallAssetInput (call extensions)
+// ---------------------------------------------------------------------------
+
+describe("validateCallAssetInput", () => {
+  it("accepts valid country + phone with separators", () => {
+    for (const phone of ["+1 (555) 123-4567", "5551234567", "021-8888-6666"]) {
+      const result = validateCallAssetInput({ countryCode: "US", phoneNumber: phone });
+      expect(result.valid).toBe(true);
+    }
+  });
+
+  it("normalizes lowercase country codes", () => {
+    expect(validateCallAssetInput({ countryCode: "us", phoneNumber: "5551234567" }).valid).toBe(true);
+  });
+
+  it("rejects bad country codes", () => {
+    for (const cc of ["", "USA", "1", "中国"]) {
+      expect(validateCallAssetInput({ countryCode: cc, phoneNumber: "5551234567" }).valid).toBe(false);
+    }
+  });
+
+  it("rejects too-short, too-long, or non-numeric phones", () => {
+    for (const phone of ["", "12345", "1".repeat(16), "call-me-maybe"]) {
+      expect(validateCallAssetInput({ countryCode: "US", phoneNumber: phone }).valid).toBe(false);
+    }
   });
 });
 

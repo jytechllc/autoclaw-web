@@ -351,6 +351,8 @@ export interface CampaignDetail {
   callouts: Array<{ resourceName: string; text: string }>;
   /** Structured snippet extensions. resourceName = campaign_asset link. */
   structuredSnippets: Array<{ resourceName: string; header: string; values: string[] }>;
+  /** Call extensions. resourceName = campaign_asset link. */
+  callAssets: Array<{ resourceName: string; countryCode: string; phoneNumber: string }>;
   ads: Array<{
     resourceName: string;
     status: string;
@@ -773,6 +775,21 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
     }))
     .filter((s) => s.header && s.resourceName);
 
+  type CallRow = { campaignAsset: { resourceName?: string }; asset?: { callAsset?: { countryCode?: string; phoneNumber?: string } } };
+  const callRows = await adsSearchStream(customerId, `
+    SELECT campaign_asset.resource_name, asset.call_asset.country_code, asset.call_asset.phone_number
+    FROM campaign_asset
+    WHERE campaign.id = ${numericCampaignId} AND campaign_asset.field_type = CALL
+      AND campaign_asset.status != 'REMOVED'
+  `).catch(() => []) as CallRow[];
+  const callAssets = callRows
+    .map((r) => ({
+      resourceName: r.campaignAsset.resourceName || "",
+      countryCode: r.asset?.callAsset?.countryCode || "",
+      phoneNumber: r.asset?.callAsset?.phoneNumber || "",
+    }))
+    .filter((c) => c.phoneNumber && c.resourceName);
+
   // Ads — query fields for all common ad types (search / video / demand gen)
   type TextRow = { text: string };
   type AssetRef = { asset: string };
@@ -928,6 +945,7 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
     sitelinks,
     callouts,
     structuredSnippets,
+    callAssets,
     ads,
   };
 }
@@ -2897,14 +2915,60 @@ export async function createCampaignStructuredSnippet(
   return { created: 1 };
 }
 
-/** Detach a callout or structured-snippet from a campaign (asset kept for reuse). */
+/** Pure validation for a call asset — unit-tested. */
+export function validateCallAssetInput(input: { countryCode: string; phoneNumber: string }): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  const cc = (input.countryCode || "").trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(cc)) {
+    errors.push("countryCode must be a 2-letter ISO code (e.g. US, CN).");
+  }
+  const digits = (input.phoneNumber || "").replace(/[\s\-().+]/g, "");
+  if (!/^\d{7,15}$/.test(digits)) {
+    errors.push("phoneNumber must contain 7-15 digits (separators allowed).");
+  }
+  return { valid: errors.length === 0, errors };
+}
+
+/** Create a call asset and attach it to a campaign (call extension). */
+export async function createCampaignCallAsset(
+  campaignResourceName: string,
+  input: { countryCode: string; phoneNumber: string }
+): Promise<{ created: number; error?: unknown }> {
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
+  if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
+
+  const validation = validateCallAssetInput(input);
+  if (!validation.valid) return { created: 0, error: validation.errors.join(" ") };
+
+  const assetRes = await adsMutate(customerId, "assets:mutate", {
+    operations: [{
+      create: {
+        callAsset: {
+          countryCode: input.countryCode.trim().toUpperCase(),
+          phoneNumber: input.phoneNumber.trim(),
+        },
+      },
+    }],
+  });
+  if (assetRes.status !== 200) return { created: 0, error: assetRes.data };
+  const assetName = (assetRes.data as { results?: Array<{ resourceName?: string }> })?.results?.[0]?.resourceName;
+  if (!assetName) return { created: 0, error: "Asset created but no resource name returned" };
+
+  const linkRes = await adsMutate(customerId, "campaignAssets:mutate", {
+    operations: [{ create: { campaign: campaignResourceName, asset: assetName, fieldType: "CALL" } }],
+  });
+  if (linkRes.status !== 200) return { created: 0, error: linkRes.data };
+  return { created: 1 };
+}
+
+/** Detach a callout / structured-snippet / call asset from a campaign (asset kept for reuse). */
 export async function removeCampaignExtensionAsset(
   campaignAssetResourceName: string
 ): Promise<{ success: boolean; error?: unknown }> {
   const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
   if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
 
-  if (!/^customers\/\d+\/campaignAssets\/\d+~\d+~(CALLOUT|STRUCTURED_SNIPPET)$/.test(campaignAssetResourceName)) {
+  if (!/^customers\/\d+\/campaignAssets\/\d+~\d+~(CALLOUT|STRUCTURED_SNIPPET|CALL)$/.test(campaignAssetResourceName)) {
     return { success: false, error: "Invalid campaign asset resource name" };
   }
 
