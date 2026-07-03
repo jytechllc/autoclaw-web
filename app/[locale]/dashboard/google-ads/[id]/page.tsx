@@ -81,6 +81,7 @@ interface Detail {
   keywords: Array<{ text: string; matchType: string }>;
   bidding?: { strategyType: string; targetCpaMicros: number; targetRoas: number };
   negativeKeywords?: Array<{ resourceName: string; text: string; matchType: string }>;
+  adSchedules?: Array<{ resourceName: string; dayOfWeek: string; startHour: number; endHour: number }>;
   ads: Array<{
     resourceName: string;
     status: string;
@@ -185,6 +186,19 @@ function describeBidding(b?: { strategyType: string; targetCpaMicros: number; ta
 }
 /** Channels where campaign-level negative keywords are supported (mirrors lib). */
 const NEG_KW_CHANNELS = new Set(["SEARCH", "DISPLAY", "SHOPPING", "VIDEO"]);
+
+/** Channels supporting ad schedules / day parting (mirrors lib). */
+const AD_SCHEDULE_CHANNELS = new Set(["SEARCH", "DISPLAY", "SHOPPING", "VIDEO"]);
+const SCHEDULE_DAYS = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"] as const;
+type ScheduleDay = (typeof SCHEDULE_DAYS)[number];
+type ScheduleRow = { dayOfWeek: ScheduleDay; startHour: number; endHour: number };
+const DAY_SHORT: Record<string, string> = {
+  MONDAY: "Mon", TUESDAY: "Tue", WEDNESDAY: "Wed", THURSDAY: "Thu",
+  FRIDAY: "Fri", SATURDAY: "Sat", SUNDAY: "Sun",
+};
+function fmtHour(h: number): string {
+  return `${String(h).padStart(2, "0")}:00`;
+}
 
 function formatUsd(cents: number | string | null | undefined): string {
   return `$${(Number(cents || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -862,6 +876,53 @@ export default function CampaignDetailPage() {
       setTimeout(() => setToast(""), 3000);
     }
     setRemovingNegKw(null);
+  }
+
+  // Ad schedule / day parting
+  const [editingSchedule, setEditingSchedule] = useState(false);
+  const [scheduleRows, setScheduleRows] = useState<ScheduleRow[]>([]);
+  const [savingSchedule, setSavingSchedule] = useState(false);
+  const [scheduleError, setScheduleError] = useState("");
+
+  function openScheduleEditor() {
+    const existing = (detail?.adSchedules || []).map((s) => ({
+      dayOfWeek: (SCHEDULE_DAYS.includes(s.dayOfWeek as ScheduleDay) ? s.dayOfWeek : "MONDAY") as ScheduleDay,
+      startHour: s.startHour,
+      endHour: s.endHour,
+    }));
+    setScheduleRows(existing);
+    setScheduleError("");
+    setEditingSchedule(true);
+  }
+
+  function applyBusinessHoursPreset() {
+    setScheduleRows((["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"] as ScheduleDay[]).map((d) => ({
+      dayOfWeek: d, startHour: 9, endHour: 18,
+    })));
+  }
+
+  async function handleSaveSchedule() {
+    setSavingSchedule(true);
+    setScheduleError("");
+    try {
+      const res = await fetch(`/api/google-ads/campaigns/${campaignId}/ad-schedule`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ schedules: scheduleRows, orgId: activeOrg?.id }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setToast(t.updated || "Updated");
+        setEditingSchedule(false);
+        fetchData();
+        setTimeout(() => setToast(""), 4000);
+      } else {
+        setScheduleError(typeof data.details === "string" ? data.details : (data.error || "Update failed"));
+      }
+    } catch (e) {
+      setScheduleError(e instanceof Error ? e.message : "Update failed");
+    }
+    setSavingSchedule(false);
   }
 
   // AI optimization recommendations (PR #2 follow-up)
@@ -2281,6 +2342,101 @@ export default function CampaignDetailPage() {
                 </span>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Ad schedule / day parting */}
+        {detail && AD_SCHEDULE_CHANNELS.has(detail.channelType) && (
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-gray-700">
+                ⏰ {t.schedSection || "Ad Schedule"} {(detail.adSchedules?.length || 0) > 0 ? `(${detail.adSchedules?.length})` : ""}
+              </h2>
+              {!campaign.closed && !editingSchedule && (
+                <button
+                  onClick={openScheduleEditor}
+                  className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer"
+                >
+                  ✏️ {t.schedEdit || "Edit"}
+                </button>
+              )}
+            </div>
+
+            {!editingSchedule && (
+              (detail.adSchedules?.length || 0) === 0 ? (
+                <p className="text-xs text-gray-400">{t.schedAllTimes || "Running at all times. Add intervals to only serve on specific days/hours."}</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {(detail.adSchedules || []).map((s) => (
+                    <span key={s.resourceName} className="px-2 py-0.5 bg-sky-50 text-sky-700 text-xs rounded-full">
+                      {DAY_SHORT[s.dayOfWeek] || s.dayOfWeek} {fmtHour(s.startHour)}–{fmtHour(s.endHour)}
+                    </span>
+                  ))}
+                </div>
+              )
+            )}
+
+            {editingSchedule && (
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={applyBusinessHoursPreset} className="text-xs px-2 py-1 border border-gray-200 rounded hover:bg-gray-50 cursor-pointer text-gray-600">
+                    {t.schedPresetBusiness || "Mon–Fri 9–18"}
+                  </button>
+                  <button onClick={() => setScheduleRows([])} className="text-xs px-2 py-1 border border-gray-200 rounded hover:bg-gray-50 cursor-pointer text-gray-600">
+                    {t.schedClear || "Clear (run at all times)"}
+                  </button>
+                </div>
+                {scheduleRows.map((row, i) => (
+                  <div key={i} className="flex items-center gap-2 flex-wrap">
+                    <select
+                      value={row.dayOfWeek}
+                      onChange={(e) => setScheduleRows(scheduleRows.map((r, j) => j === i ? { ...r, dayOfWeek: e.target.value as ScheduleDay } : r))}
+                      className="text-xs px-2 py-1 border border-gray-300 rounded outline-none bg-white"
+                    >
+                      {SCHEDULE_DAYS.map((d) => <option key={d} value={d}>{DAY_SHORT[d]}</option>)}
+                    </select>
+                    <select
+                      value={row.startHour}
+                      onChange={(e) => setScheduleRows(scheduleRows.map((r, j) => j === i ? { ...r, startHour: Number(e.target.value) } : r))}
+                      className="text-xs px-2 py-1 border border-gray-300 rounded outline-none bg-white"
+                    >
+                      {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{fmtHour(h)}</option>)}
+                    </select>
+                    <span className="text-xs text-gray-400">→</span>
+                    <select
+                      value={row.endHour}
+                      onChange={(e) => setScheduleRows(scheduleRows.map((r, j) => j === i ? { ...r, endHour: Number(e.target.value) } : r))}
+                      className="text-xs px-2 py-1 border border-gray-300 rounded outline-none bg-white"
+                    >
+                      {Array.from({ length: 24 }, (_, h) => <option key={h + 1} value={h + 1}>{fmtHour(h + 1)}</option>)}
+                    </select>
+                    <button
+                      onClick={() => setScheduleRows(scheduleRows.filter((_, j) => j !== i))}
+                      className="text-xs text-gray-400 hover:text-red-600 cursor-pointer"
+                    >×</button>
+                  </div>
+                ))}
+                <button
+                  onClick={() => setScheduleRows([...scheduleRows, { dayOfWeek: "MONDAY", startHour: 9, endHour: 18 }])}
+                  className="text-xs px-2 py-1 border border-dashed border-gray-300 rounded hover:bg-gray-50 cursor-pointer text-gray-500"
+                >
+                  + {t.schedAddInterval || "Add interval"}
+                </button>
+                {scheduleError && <pre className="text-xs text-red-600 bg-red-50 p-2 rounded whitespace-pre-wrap break-all">{scheduleError}</pre>}
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleSaveSchedule}
+                    disabled={savingSchedule}
+                    className="bg-red-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-900 disabled:opacity-50 cursor-pointer"
+                  >
+                    {savingSchedule ? (t.creating || "Saving...") : (t.save || "Save")}
+                  </button>
+                  <button onClick={() => setEditingSchedule(false)} className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 cursor-pointer">
+                    {t.cancel || "Cancel"}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

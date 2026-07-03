@@ -340,6 +340,8 @@ export interface CampaignDetail {
   bidding: { strategyType: string; targetCpaMicros: number; targetRoas: number };
   /** Campaign-level negative keywords. resourceName is needed for removal. */
   negativeKeywords: Array<{ resourceName: string; text: string; matchType: string }>;
+  /** Day-parting intervals. Empty = runs at all times. */
+  adSchedules: Array<{ resourceName: string; dayOfWeek: string; startHour: number; endHour: number }>;
   ads: Array<{
     resourceName: string;
     status: string;
@@ -666,6 +668,23 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
     }))
     .filter((k) => k.text && k.resourceName);
 
+  // Ad schedule (day parting) criteria
+  type SchedRow = { campaignCriterion: { resourceName?: string; adSchedule?: { dayOfWeek?: string; startHour?: number; endHour?: number } } };
+  const schedRows = await adsSearchStream(customerId, `
+    SELECT campaign_criterion.resource_name, campaign_criterion.ad_schedule.day_of_week,
+           campaign_criterion.ad_schedule.start_hour, campaign_criterion.ad_schedule.end_hour
+    FROM campaign_criterion
+    WHERE campaign.id = ${numericCampaignId} AND campaign_criterion.type = AD_SCHEDULE
+  `).catch(() => []) as SchedRow[];
+  const adSchedules = schedRows
+    .map((r) => ({
+      resourceName: r.campaignCriterion.resourceName || "",
+      dayOfWeek: r.campaignCriterion.adSchedule?.dayOfWeek || "",
+      startHour: Number(r.campaignCriterion.adSchedule?.startHour ?? 0),
+      endHour: Number(r.campaignCriterion.adSchedule?.endHour ?? 24),
+    }))
+    .filter((s) => s.dayOfWeek);
+
   // Ads — query fields for all common ad types (search / video / demand gen)
   type TextRow = { text: string };
   type AssetRef = { asset: string };
@@ -816,6 +835,7 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
       targetRoas: Number(camp?.maximizeConversionValue?.targetRoas || 0),
     },
     negativeKeywords,
+    adSchedules,
     ads,
   };
 }
@@ -2081,6 +2101,127 @@ export async function addCampaignNegativeKeywords(
   }
 
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Ad schedule / day parting
+// ---------------------------------------------------------------------------
+
+export const AD_SCHEDULE_DAYS = [
+  "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY",
+] as const;
+export type AdScheduleDay = (typeof AD_SCHEDULE_DAYS)[number];
+
+export interface AdScheduleInput {
+  dayOfWeek: AdScheduleDay;
+  /** 0-23. Whole hours only — Google also allows :15/:30/:45, deferred. */
+  startHour: number;
+  /** 1-24 (24 = end of day). Must be > startHour. */
+  endHour: number;
+}
+
+/** Channels where campaign-level AD_SCHEDULE criteria apply. PMax / Demand Gen
+ *  schedule automatically and reject the criterion. */
+const AD_SCHEDULE_CHANNELS = new Set(["SEARCH", "DISPLAY", "SHOPPING", "VIDEO"]);
+
+export function channelSupportsAdSchedule(channelType: string): boolean {
+  return AD_SCHEDULE_CHANNELS.has(channelType);
+}
+
+/** Pure validation — unit-tested. Google limits: ≤6 intervals per day, no overlaps. */
+export function validateAdScheduleInput(schedules: AdScheduleInput[]): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+
+  if (!Array.isArray(schedules)) return { valid: false, errors: ["schedules must be an array."] };
+  if (schedules.length > 42) errors.push("Too many intervals (max 6 per day × 7 days).");
+
+  const byDay = new Map<string, Array<{ start: number; end: number }>>();
+  schedules.forEach((s, i) => {
+    const label = `schedules[${i}]`;
+    if (!AD_SCHEDULE_DAYS.includes(s.dayOfWeek)) {
+      errors.push(`${label}: dayOfWeek must be one of ${AD_SCHEDULE_DAYS.join(", ")}.`);
+      return;
+    }
+    if (!Number.isInteger(s.startHour) || s.startHour < 0 || s.startHour > 23) {
+      errors.push(`${label}: startHour must be an integer 0-23.`);
+      return;
+    }
+    if (!Number.isInteger(s.endHour) || s.endHour < 1 || s.endHour > 24) {
+      errors.push(`${label}: endHour must be an integer 1-24.`);
+      return;
+    }
+    if (s.endHour <= s.startHour) {
+      errors.push(`${label}: endHour must be after startHour.`);
+      return;
+    }
+    const list = byDay.get(s.dayOfWeek) || [];
+    list.push({ start: s.startHour, end: s.endHour });
+    byDay.set(s.dayOfWeek, list);
+  });
+
+  for (const [day, list] of byDay) {
+    if (list.length > 6) errors.push(`${day}: at most 6 intervals per day.`);
+    const sorted = [...list].sort((a, b) => a.start - b.start);
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i].start < sorted[i - 1].end) {
+        errors.push(`${day}: intervals overlap (${sorted[i - 1].start}-${sorted[i - 1].end} and ${sorted[i].start}-${sorted[i].end}).`);
+        break;
+      }
+    }
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+/** Replace ALL ad-schedule criteria on a campaign. Empty list = run at all times. */
+export async function setCampaignAdSchedule(
+  campaignResourceName: string,
+  schedules: AdScheduleInput[]
+): Promise<{ success: boolean; error?: unknown }> {
+  const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
+  if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
+
+  const numericCampaignId = campaignResourceName.split("/").pop() || "";
+
+  type ChannelRow = { campaign: { advertisingChannelType?: string } };
+  const channelRows = await adsSearchStream(customerId, `
+    SELECT campaign.advertising_channel_type FROM campaign WHERE campaign.id = ${numericCampaignId}
+  `) as ChannelRow[];
+  const channelType = channelRows[0]?.campaign?.advertisingChannelType || "";
+  if (!channelSupportsAdSchedule(channelType)) {
+    return { success: false, error: `Ad schedules are not supported for ${channelType || "this"} campaigns` };
+  }
+
+  const validation = validateAdScheduleInput(schedules);
+  if (!validation.valid) return { success: false, error: validation.errors.join(" ") };
+
+  type CCRow = { campaignCriterion: { resourceName: string } };
+  const existing = await adsSearchStream(customerId, `
+    SELECT campaign_criterion.resource_name
+    FROM campaign_criterion
+    WHERE campaign.id = ${numericCampaignId} AND campaign_criterion.type = AD_SCHEDULE
+  `) as CCRow[];
+
+  const operations: Record<string, unknown>[] = [
+    ...existing.map((r) => ({ remove: r.campaignCriterion.resourceName })),
+    ...schedules.map((s) => ({
+      create: {
+        campaign: campaignResourceName,
+        adSchedule: {
+          dayOfWeek: s.dayOfWeek,
+          startHour: s.startHour,
+          startMinute: "ZERO",
+          endHour: s.endHour,
+          endMinute: "ZERO",
+        },
+      },
+    })),
+  ];
+  if (operations.length === 0) return { success: true };
+
+  const res = await adsMutate(customerId, "campaignCriteria:mutate", { operations });
+  if (res.status !== 200) return { success: false, error: res.data };
+  return { success: true };
 }
 
 // ---------------------------------------------------------------------------

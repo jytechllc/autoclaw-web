@@ -600,3 +600,13 @@ Second half of PR #4. Deliberately a **separate page** (`/dashboard/google-ads/c
 - List page: header now has a 🎯 Conversion Tracking link (visible to all roles); Import/Create buttons remain read-only-gated as before.
 - i18n: 28 new keys × 4 locales. No API/DB changes — pure consumer of PR #4a.
 - **PR #4 is now complete** → the audit's "Conversion tracking" competitor gap is closed for the shared-account setup. Remaining Section 6 gaps: asset library, day parting, experiments, MCC, report exports.
+
+### 2026-07-03 — day parting / ad schedule (this PR)
+
+Closes the Section 6 "Day parting" gap.
+
+- `lib/google-ads.ts` — `setCampaignAdSchedule()` (replace-all AD_SCHEDULE campaign criteria; empty list = run at all times; whole hours only, `startMinute`/`endMinute` fixed to ZERO — :15/:30/:45 deferred), `channelSupportsAdSchedule()` (SEARCH/DISPLAY/SHOPPING/VIDEO; PMax and Demand Gen schedule automatically and reject the criterion), pure `validateAdScheduleInput()` (day enum, integer hours 0-23/1-24, end > start, ≤6 intervals/day, no same-day overlaps — back-to-back allowed). `fetchCampaignDetail()` returns `adSchedules`.
+- `app/api/google-ads/campaigns/[id]/ad-schedule/route.ts` — `POST { schedules[] }`, replace-all semantics, standard auth/org/closed/channel checks, audit-logged.
+- Detail page: "⏰ Ad Schedule" card — view chips (`Mon 09:00–18:00`), editor with per-row day/start/end selects, "Mon–Fri 9–18" preset, clear-to-always-on, add/remove intervals.
+- `lib/google-ads.test.ts` — 10 new test cases (presets, back-to-back boundaries, overlap/limit rejection, channel gating). i18n: 6 keys × 4 locales.
+- Bid modifiers per interval (e.g. +20% weekday mornings) deferred — noted for a future bid-adjustment pass alongside device/location modifiers.
