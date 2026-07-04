@@ -10,6 +10,8 @@ const {
   nativeImage,
   ipcMain,
   dialog,
+  session,
+  clipboard,
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
@@ -54,6 +56,7 @@ let autoUpdater = null; // set by initAutoUpdater() on builds that can self-upda
 let updateReadyVersion = null; // version string once an update is downloaded
 let manualUpdateCheck = false; // menu-triggered check → surface result dialogs
 let gpuCrashCount = 0; // GPU process losses this session (see GPU_CRASH_LIMIT)
+let savedZoomLevel = 0; // restored zoom level; a fresh page load resets it to 0
 
 // Default window geometry; also the fallback when no saved state exists.
 const DEFAULT_BOUNDS = { width: 1280, height: 860 };
@@ -83,9 +86,12 @@ function saveWindowState() {
     // getBounds() reports the maximized bounds while maximized, which we don't
     // want to restore to. getNormalBounds() is the pre-maximize rectangle.
     const bounds = mainWindow.getNormalBounds();
+    // Persist the zoom level too, so a user who zooms in/out keeps it across
+    // launches (a fresh page load otherwise resets it to 0 = 100%).
+    const zoomLevel = mainWindow.webContents.getZoomLevel();
     fs.writeFileSync(
       windowStateFile(),
-      JSON.stringify({ ...bounds, isMaximized }),
+      JSON.stringify({ ...bounds, isMaximized, zoomLevel }),
     );
   } catch {
     // Read-only drive or locked path — losing window state is non-fatal.
@@ -233,6 +239,22 @@ function clearRetryTimer() {
   }
 }
 
+// Whether a URL is allowed to load inside the main window. Same-origin pages,
+// our own local file:// pages (loading/offline), and auth-provider domains
+// (which must stay in-window so login can complete) are allowed; everything
+// else is treated as an external link. Shared by the new-window handler and the
+// will-navigate guard so the two can't drift apart.
+function isInAppUrl(url) {
+  try {
+    const target = new URL(url);
+    if (target.protocol === "file:") return true;
+    if (target.origin === APP_ORIGIN) return true;
+    return /auth0\.com|accounts\.google\.com|login\.|oauth/i.test(url);
+  } catch {
+    return false;
+  }
+}
+
 // Navigate the main window to the hosted web app. Used on startup (after the
 // splash paints), by the auto-reconnect timer, and by the "Retry now" button.
 function loadRemoteApp() {
@@ -254,6 +276,7 @@ function showOfflinePage() {
 function createWindow() {
   const saved = readWindowState();
   const bounds = saved || DEFAULT_BOUNDS;
+  if (saved && typeof saved.zoomLevel === "number") savedZoomLevel = saved.zoomLevel;
 
   mainWindow = new BrowserWindow({
     width: bounds.width,
@@ -272,6 +295,10 @@ function createWindow() {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
+      // Run the renderer in Chromium's OS-level sandbox. The preload only uses
+      // contextBridge + ipcRenderer, both available under sandbox, so this
+      // costs nothing and hardens against a compromised remote page.
+      sandbox: true,
       spellcheck: true,
     },
   });
@@ -308,6 +335,8 @@ function createWindow() {
     // Hosted app loaded successfully — back online, stop retrying.
     clearRetryTimer();
     showingError = false;
+    // A fresh document loads at zoom 0; restore the user's saved zoom.
+    if (savedZoomLevel) wc.setZoomLevel(savedZoomLevel);
   });
 
   // Main-frame load failure (offline, DNS, server unreachable) → offline page +
@@ -348,23 +377,78 @@ function createWindow() {
     }
   });
 
-  // Persist window geometry as the user resizes/moves it.
+  // Persist window geometry as the user resizes/moves it, and the zoom level
+  // when the user Ctrl/Cmd+scrolls (menu zoom is captured on the next save/quit).
   mainWindow.on("resize", scheduleSaveWindowState);
   mainWindow.on("move", scheduleSaveWindowState);
+  wc.on("zoom-changed", scheduleSaveWindowState);
+
+  // Native right-click menu: spellcheck suggestions plus the standard edit
+  // actions and "copy link". Without this, right-clicking inside the hosted app
+  // does nothing, which feels unlike a real desktop app.
+  wc.on("context-menu", (_event, params) => {
+    const items = [];
+
+    if (params.misspelledWord) {
+      for (const suggestion of params.dictionarySuggestions) {
+        items.push({
+          label: suggestion,
+          click: () => wc.replaceMisspelling(suggestion),
+        });
+      }
+      if (params.dictionarySuggestions.length === 0) {
+        items.push({ label: "No suggestions", enabled: false });
+      }
+      items.push(
+        {
+          label: "Add to Dictionary",
+          click: () =>
+            wc.session.addWordToSpellCheckerDictionary(params.misspelledWord),
+        },
+        { type: "separator" },
+      );
+    }
+
+    if (params.isEditable || params.selectionText) {
+      items.push(
+        { role: "cut", enabled: params.editFlags.canCut },
+        { role: "copy", enabled: params.editFlags.canCopy },
+        { role: "paste", enabled: params.editFlags.canPaste },
+        { type: "separator" },
+        { role: "selectAll" },
+      );
+    }
+
+    if (params.linkURL) {
+      if (items.length) items.push({ type: "separator" });
+      items.push({
+        label: "Copy Link",
+        click: () => clipboard.writeText(params.linkURL),
+      });
+    }
+
+    if (items.length) {
+      Menu.buildFromTemplate(items).popup({ window: mainWindow });
+    }
+  });
 
   // Open external links (window.open / target=_blank) in the system browser.
   // Same-origin navigations (incl. Auth0 redirect back to the app) stay in-window.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    try {
-      const sameOrigin = new URL(url).origin === APP_ORIGIN;
-      // Auth providers must stay inside the app window to complete login.
-      const isAuth = /auth0\.com|accounts\.google\.com|login\.|oauth/i.test(url);
-      if (sameOrigin || isAuth) return { action: "allow" };
-    } catch {
-      /* fall through to external */
-    }
+    if (isInAppUrl(url)) return { action: "allow" };
     shell.openExternal(url);
     return { action: "deny" };
+  });
+
+  // Guard top-level navigations too: a link (or script) that navigates the main
+  // frame to an off-app site would otherwise replace the shell with an
+  // arbitrary page. Keep in-app URLs in-window and send the rest to the system
+  // browser. Programmatic loads (loadURL/loadFile) don't fire this event, so
+  // the startup/offline flow is unaffected.
+  wc.on("will-navigate", (event, url) => {
+    if (isInAppUrl(url)) return;
+    event.preventDefault();
+    shell.openExternal(url);
   });
 
   // Close-to-tray: the first close hides the window and keeps the app resident
@@ -674,6 +758,16 @@ if (!gotLock) {
   app.whenReady().then(() => {
     // Must be set before any notification is shown (Windows requirement).
     app.setAppUserModelId(APP_ID);
+
+    // Deny web permission requests the shell doesn't need (camera, mic,
+    // geolocation, MIDI, etc.). Native OS notifications go through the preload
+    // bridge (see notify.js), not the web Notification API, so that permission
+    // isn't needed either. clipboard-sanitized-write is allowed for copy
+    // buttons. Anything not explicitly allowed is denied.
+    const allowedPermissions = new Set(["clipboard-sanitized-write"]);
+    session.defaultSession.setPermissionRequestHandler(
+      (_wc, permission, callback) => callback(allowedPermissions.has(permission)),
+    );
     // Clicking a notification brings the app to the foreground.
     registerNotificationIpc({ iconPath, onClick: showMainWindow });
     // "Retry now" button on the offline page → re-attempt the hosted app.
