@@ -66,12 +66,23 @@ export interface StockSimData {
   budgetUSD: number;
 }
 
-function s3(): S3Client {
+function s3(): S3Client | null {
   const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
   const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
-  if (!accessKeyId || !secretAccessKey) throw new Error("AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY not set");
+  if (!accessKeyId || !secretAccessKey) return null;
   return new S3Client({ region: REGION, credentials: { accessKeyId, secretAccessKey } });
 }
+
+// Rendered when AWS creds are absent (e.g. preview builds) — the page shows
+// its "no data yet" state instead of failing the whole build at prerender.
+const EMPTY_DATA: StockSimData = {
+  asOf: null,
+  tradingDays: 0,
+  rows: [],
+  navHistory: [],
+  bedrockSpentUSD: 0,
+  budgetUSD: 9,
+};
 
 async function readKey<T>(client: S3Client, key: string, fallback: T): Promise<T> {
   try {
@@ -89,6 +100,10 @@ function pct(now: number, base: number | undefined | null): number | null {
 
 export async function getStockSimData(): Promise<StockSimData> {
   const client = s3();
+  if (!client) {
+    console.warn("[stock-sim] AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY not set; rendering empty state");
+    return EMPTY_DATA;
+  }
 
   const hist = (await readKey<NavRecord[]>(client, "nav-history.json", [])).sort((a, b) =>
     a.date.localeCompare(b.date)

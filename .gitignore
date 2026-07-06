@@ -59,3 +59,6 @@ local_doc/
 
 # local Claude instructions (do not upload)
 CLAUDE.md
+
+# oss-monitor local dev state
+state/

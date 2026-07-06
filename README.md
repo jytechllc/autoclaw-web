@@ -9,6 +9,7 @@ This repository was split from a larger monorepo to keep web development, review
 - Next.js App Router application (`app/`) with locale-aware pages and dashboard UX
 - API routes for organizations, projects, reports, team members, invoicing, chat, checkout, and subscriptions
 - Scheduled maintenance endpoints for audit retention, key cleanup, and report sync
+- OSS Model Watch: daily Hugging Face scan of open-source model releases and trending, with a markdown digest (`lib/oss-monitor.ts`)
 - Stripe integration for subscription flows
 - PostgreSQL access via Neon serverless driver
 - Zod-based request validation and API key / webhook related security utilities
