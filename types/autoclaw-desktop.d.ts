@@ -9,6 +9,8 @@ export interface AutoclawDesktopBridge {
     title: string;
     body?: string;
     silent?: boolean;
+    // Optional same-origin path or URL to open in-window on click.
+    url?: string;
   }) => Promise<{ ok: boolean; reason?: string }>;
   // Re-attempt loading the hosted app (offline page retry button).
   retry: () => Promise<{ ok: boolean }>;

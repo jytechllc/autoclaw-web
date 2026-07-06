@@ -57,6 +57,26 @@ let updateReadyVersion = null; // version string once an update is downloaded
 let manualUpdateCheck = false; // menu-triggered check → surface result dialogs
 let gpuCrashCount = 0; // GPU process losses this session (see GPU_CRASH_LIMIT)
 let savedZoomLevel = 0; // restored zoom level; a fresh page load resets it to 0
+// Best-known UI locale for the local splash/offline pages. Seeded from the OS
+// locale at startup, then refreshed from the app's `locale` cookie once the
+// hosted app has loaded, so these pages match the language the user picked.
+let shellLocale = "en";
+
+// Locales the shell's local pages are translated into (mirror lib/i18n).
+const SHELL_LOCALES = ["en", "zh", "zh-TW", "ko"];
+
+// Map an OS/cookie locale tag onto one of SHELL_LOCALES, or null if unsupported.
+function normalizeLocale(raw) {
+  if (!raw || typeof raw !== "string") return null;
+  if (SHELL_LOCALES.includes(raw)) return raw;
+  const lower = raw.toLowerCase();
+  if (lower === "zh-tw" || lower === "zh-hant" || lower.startsWith("zh-hant"))
+    return "zh-TW";
+  if (lower.startsWith("zh")) return "zh";
+  if (lower.startsWith("ko")) return "ko";
+  if (lower.startsWith("en")) return "en";
+  return null;
+}
 
 // Default window geometry; also the fallback when no saved state exists.
 const DEFAULT_BOUNDS = { width: 1280, height: 860 };
@@ -268,7 +288,9 @@ function loadRemoteApp() {
 function showOfflinePage() {
   if (!mainWindow || showingError) return;
   showingError = true;
-  mainWindow.loadFile(path.join(__dirname, "offline.html"));
+  mainWindow.loadFile(path.join(__dirname, "offline.html"), {
+    query: { lang: shellLocale },
+  });
   clearRetryTimer();
   retryTimer = setInterval(loadRemoteApp, RETRY_INTERVAL_MS);
 }
@@ -310,7 +332,9 @@ function createWindow() {
   // Startup: paint a local splash (loading.html) immediately, then navigate to
   // the hosted app once the splash is up. The splash stays visible until the
   // remote first paints (or fails), so cold start is never a blank window.
-  mainWindow.loadFile(path.join(__dirname, "loading.html"));
+  mainWindow.loadFile(path.join(__dirname, "loading.html"), {
+    query: { lang: shellLocale },
+  });
   const revealWindow = () => {
     if (mainWindow && !mainWindow.isVisible()) mainWindow.show();
   };
@@ -337,6 +361,14 @@ function createWindow() {
     showingError = false;
     // A fresh document loads at zoom 0; restore the user's saved zoom.
     if (savedZoomLevel) wc.setZoomLevel(savedZoomLevel);
+    // Pick up the user's chosen language so a later offline page matches it.
+    session.defaultSession.cookies
+      .get({ url: APP_ORIGIN, name: "locale" })
+      .then((cookies) => {
+        const loc = normalizeLocale(cookies[0] && cookies[0].value);
+        if (loc) shellLocale = loc;
+      })
+      .catch(() => {});
   });
 
   // Main-frame load failure (offline, DNS, server unreachable) → offline page +
@@ -480,6 +512,41 @@ function createWindow() {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Launch at login. Offered only on packaged Windows/macOS installs: Linux's
+// implementation is unreliable across desktop environments, dev runs would just
+// register the electron binary, and the portable ("U 盘版") build's whole point
+// is to leave no trace on the host — so registering a login item there would
+// defeat it (and break once the drive is unplugged).
+function loginItemSupported() {
+  if (isDev || process.env.PORTABLE_EXECUTABLE_DIR) return false;
+  return process.platform === "win32" || process.platform === "darwin";
+}
+
+function isOpenAtLogin() {
+  if (!loginItemSupported()) return false;
+  try {
+    return app.getLoginItemSettings().openAtLogin;
+  } catch {
+    return false;
+  }
+}
+
+// Menu toggle handler. `menuItem.checked` has already flipped to the new value.
+function toggleOpenAtLogin(menuItem) {
+  try {
+    app.setLoginItemSettings({ openAtLogin: menuItem.checked });
+  } catch {
+    // Revert the checkbox and report if the OS rejected the change.
+    menuItem.checked = !menuItem.checked;
+    dialog.showMessageBox({
+      type: "warning",
+      title: "AutoClaw",
+      message: "Could not change the launch-at-login setting.",
+    });
+  }
+}
+
 function buildMenu() {
   const template = [
     {
@@ -500,6 +567,16 @@ function buildMenu() {
           checked: gpuDisabled,
           click: toggleGpuFallback,
         },
+        ...(loginItemSupported()
+          ? [
+              {
+                type: "checkbox",
+                label: "Open at Login",
+                checked: isOpenAtLogin(),
+                click: toggleOpenAtLogin,
+              },
+            ]
+          : []),
         { type: "separator" },
         ...(isDev ? [{ role: "toggleDevTools" }, { type: "separator" }] : []),
         ...(updaterSupported()
@@ -716,6 +793,22 @@ function showMainWindow() {
   }
 }
 
+// Navigate the main window to a notification's deep-link. Accepts a same-origin
+// path ("/campaigns/123") or full URL; resolved against APP_ORIGIN and rejected
+// unless it lands in-app, so a crafted notification can't steer the shell to an
+// arbitrary site.
+function navigateInApp(target) {
+  if (!mainWindow || typeof target !== "string" || !target) return;
+  let resolved;
+  try {
+    resolved = new URL(target, APP_ORIGIN).toString();
+  } catch {
+    return;
+  }
+  if (!isInAppUrl(resolved)) return;
+  mainWindow.webContents.loadURL(resolved);
+}
+
 // Redirect app state to the drive for portable builds. Must run before `ready`.
 configurePortableDataDir();
 
@@ -759,6 +852,10 @@ if (!gotLock) {
     // Must be set before any notification is shown (Windows requirement).
     app.setAppUserModelId(APP_ID);
 
+    // Seed the splash/offline-page language from the OS locale (available only
+    // after ready). Refined from the app's locale cookie once it has loaded.
+    shellLocale = normalizeLocale(app.getLocale()) || "en";
+
     // Deny web permission requests the shell doesn't need (camera, mic,
     // geolocation, MIDI, etc.). Native OS notifications go through the preload
     // bridge (see notify.js), not the web Notification API, so that permission
@@ -768,8 +865,15 @@ if (!gotLock) {
     session.defaultSession.setPermissionRequestHandler(
       (_wc, permission, callback) => callback(allowedPermissions.has(permission)),
     );
-    // Clicking a notification brings the app to the foreground.
-    registerNotificationIpc({ iconPath, onClick: showMainWindow });
+    // Clicking a notification brings the app to the foreground and, if the
+    // notification carried a deep-link, navigates to it in-window.
+    registerNotificationIpc({
+      iconPath,
+      onActivate: (url) => {
+        showMainWindow();
+        if (url) navigateInApp(url);
+      },
+    });
     // "Retry now" button on the offline page → re-attempt the hosted app.
     ipcMain.handle("autoclaw:retry", () => {
       loadRemoteApp();
