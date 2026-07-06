@@ -101,11 +101,33 @@
       <img class="logo" src="../electron-resources/icon.png" alt="AutoClaw" />
     </div>
     <div class="status">
-      <div class="label">Starting AutoClaw…</div>
+      <div class="label" id="label">Starting AutoClaw…</div>
       <div class="percent" id="pct">0%</div>
-      <div class="sub">Almost ready…</div>
+      <div class="sub" id="sub">Almost ready…</div>
     </div>
     <script>
+      // Localize the splash. main.js passes ?lang=<locale> (resolved from the
+      // app's language); fall back to the OS/browser language, then English.
+      const I18N = {
+        en: { label: "Starting AutoClaw…", sub: "Almost ready…" },
+        zh: { label: "正在启动 AutoClaw…", sub: "即将就绪…" },
+        "zh-TW": { label: "正在啟動 AutoClaw…", sub: "即將就緒…" },
+        ko: { label: "AutoClaw 시작 중…", sub: "거의 준비되었습니다…" },
+      };
+      function pickLocale() {
+        const q = new URLSearchParams(location.search).get("lang");
+        const raw = (q || navigator.language || "en").toLowerCase();
+        if (I18N[q]) return q;
+        if (raw === "zh-tw" || raw.startsWith("zh-hant")) return "zh-TW";
+        if (raw.startsWith("zh")) return "zh";
+        if (raw.startsWith("ko")) return "ko";
+        return "en";
+      }
+      const t = I18N[pickLocale()];
+      document.documentElement.lang = pickLocale();
+      document.getElementById("label").textContent = t.label;
+      document.getElementById("sub").textContent = t.sub;
+
       // Smoothly ease the percentage toward a 90% ceiling: fast at first, then
       // asymptotically slower, so it always feels like progress but never stalls
       // at a number that pretends the load finished. The hosted page swaps this

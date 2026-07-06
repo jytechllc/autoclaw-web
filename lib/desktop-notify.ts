@@ -12,6 +12,12 @@ export interface NotifyOptions {
   title: string;
   body?: string;
   silent?: boolean;
+  /**
+   * Same-origin path ("/campaigns/123") or URL to open when the notification is
+   * clicked. In the desktop shell this navigates the app window; in the browser
+   * fallback it focuses the tab and navigates there.
+   */
+  url?: string;
 }
 
 /**
@@ -47,10 +53,16 @@ export async function notifyUser(options: NotifyOptions): Promise<boolean> {
   if (permission !== "granted") return false;
 
   try {
-    new Notification(options.title, {
+    const notification = new Notification(options.title, {
       body: options.body,
       silent: options.silent,
     });
+    if (options.url) {
+      notification.onclick = () => {
+        window.focus();
+        window.location.assign(options.url as string);
+      };
+    }
     return true;
   } catch {
     return false;

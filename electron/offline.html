@@ -113,8 +113,8 @@
         <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
         <line x1="12" y1="20" x2="12.01" y2="20" />
       </svg>
-      <h1>Can't reach AutoClaw</h1>
-      <p>You appear to be offline, or the AutoClaw service is temporarily unavailable. Your session is safe — the app will reconnect on its own.</p>
+      <h1 id="title-text">Can't reach AutoClaw</h1>
+      <p id="desc">You appear to be offline, or the AutoClaw service is temporarily unavailable. Your session is safe — the app will reconnect on its own.</p>
       <div class="status">
         <span class="dot" aria-hidden="true"></span>
         <span id="status-text">Trying to reconnect…</span>
@@ -124,23 +124,76 @@
       </div>
     </div>
     <script>
+      // Localize the page. main.js passes ?lang=<locale> (resolved from the
+      // app's language); fall back to the OS/browser language, then English.
+      const I18N = {
+        en: {
+          title: "AutoClaw — Offline",
+          heading: "Can't reach AutoClaw",
+          desc: "You appear to be offline, or the AutoClaw service is temporarily unavailable. Your session is safe — the app will reconnect on its own.",
+          trying: "Trying to reconnect…",
+          reconnecting: "Reconnecting…",
+          retry: "Retry now",
+        },
+        zh: {
+          title: "AutoClaw — 离线",
+          heading: "无法连接 AutoClaw",
+          desc: "您似乎已离线，或 AutoClaw 服务暂时不可用。您的会话已安全保存——应用会自动重新连接。",
+          trying: "正在尝试重新连接…",
+          reconnecting: "正在重新连接…",
+          retry: "立即重试",
+        },
+        "zh-TW": {
+          title: "AutoClaw — 離線",
+          heading: "無法連線至 AutoClaw",
+          desc: "您似乎已離線，或 AutoClaw 服務暫時無法使用。您的工作階段已安全保存——應用程式會自動重新連線。",
+          trying: "正在嘗試重新連線…",
+          reconnecting: "正在重新連線…",
+          retry: "立即重試",
+        },
+        ko: {
+          title: "AutoClaw — 오프라인",
+          heading: "AutoClaw에 연결할 수 없습니다",
+          desc: "오프라인 상태이거나 AutoClaw 서비스를 일시적으로 사용할 수 없습니다. 세션은 안전하며 앱이 자동으로 다시 연결됩니다.",
+          trying: "다시 연결하는 중…",
+          reconnecting: "다시 연결하는 중…",
+          retry: "지금 다시 시도",
+        },
+      };
+      function pickLocale() {
+        const q = new URLSearchParams(location.search).get("lang");
+        if (I18N[q]) return q;
+        const raw = (q || navigator.language || "en").toLowerCase();
+        if (raw === "zh-tw" || raw.startsWith("zh-hant")) return "zh-TW";
+        if (raw.startsWith("zh")) return "zh";
+        if (raw.startsWith("ko")) return "ko";
+        return "en";
+      }
+      const t = I18N[pickLocale()];
+      document.documentElement.lang = pickLocale();
+      document.title = t.title;
+      document.getElementById("title-text").textContent = t.heading;
+      document.getElementById("desc").textContent = t.desc;
+
       // The native bridge (window.autoclawDesktop) is injected by preload.js and
       // is always present inside the shell; guard anyway so the page is harmless
       // if ever opened standalone.
       const bridge = window.autoclawDesktop;
       const btn = document.getElementById("retry");
       const statusText = document.getElementById("status-text");
+      statusText.textContent = t.trying;
+      btn.textContent = t.retry;
 
       function retry() {
         if (!bridge || typeof bridge.retry !== "function") return;
         btn.disabled = true;
-        statusText.textContent = "Reconnecting…";
+        statusText.textContent = t.reconnecting;
         bridge.retry();
         // The main process navigates away on success; if it fails the page is
         // re-shown fresh, so just re-enable shortly in case the load is slow.
         setTimeout(() => {
           btn.disabled = false;
-          statusText.textContent = "Trying to reconnect…";
+          statusText.textContent = t.trying;
         }, 4000);
       }
 
