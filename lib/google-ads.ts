@@ -1,4 +1,7 @@
-const GOOGLE_ADS_API_VERSION = "v20";
+// v20 was sunset by Google (UNSUPPORTED_VERSION as of 2026-07); the API moved
+// to a monthly cadence — check https://developers.google.com/google-ads/api/docs/sunset-dates
+// before each bump. v23 chosen for the longest runway at time of writing.
+const GOOGLE_ADS_API_VERSION = "v23";
 const OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const ADS_API_BASE = `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}`;
 
