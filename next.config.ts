@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Emit a self-contained server bundle (.next/standalone) for the AWS
+  // ECS/Fargate Docker image; without it the runtime image is huge.
+  output: "standalone",
   // Keep pdf-parse and pdfjs-dist out of the serverless bundle so they can
   // load native canvas bindings at runtime (needed for PDF text extraction).
   serverExternalPackages: ["pdf-parse", "pdfjs-dist", "@napi-rs/canvas"],
