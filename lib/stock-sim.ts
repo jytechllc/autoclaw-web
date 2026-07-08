@@ -66,14 +66,15 @@ export interface StockSimData {
   budgetUSD: number;
 }
 
-function s3(): S3Client {
+function s3(): S3Client | null {
   const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
   const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
-  if (!accessKeyId || !secretAccessKey) throw new Error("AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY not set");
+  if (!accessKeyId || !secretAccessKey) return null;
   return new S3Client({ region: REGION, credentials: { accessKeyId, secretAccessKey } });
 }
 
-async function readKey<T>(client: S3Client, key: string, fallback: T): Promise<T> {
+async function readKey<T>(client: S3Client | null, key: string, fallback: T): Promise<T> {
+  if (!client) return fallback;
   try {
     const r = await client.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
     return JSON.parse(await r.Body!.transformToString()) as T;
