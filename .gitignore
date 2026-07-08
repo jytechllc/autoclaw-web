@@ -59,3 +59,12 @@ local_doc/
 
 # local Claude instructions (do not upload)
 CLAUDE.md
+
+# terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+crash.*.log

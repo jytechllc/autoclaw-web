@@ -1,0 +1,13 @@
+aws_region   = "us-east-1"
+project_name = "autoclaw"
+environment  = "production"
+
+vpc_cidr           = "10.20.0.0/16"
+availability_zones = ["us-east-1a", "us-east-1b"]
+
+public_subnet_cidrs  = ["10.20.0.0/24", "10.20.1.0/24"]
+private_subnet_cidrs = ["10.20.10.0/24", "10.20.11.0/24"]
+
+# Set to false once the workload is stable and the cost of one NAT Gateway
+# per AZ is justified by the AZ-resilience it buys.
+single_nat_gateway = true
