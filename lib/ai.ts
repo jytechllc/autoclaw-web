@@ -1,6 +1,9 @@
 import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
 
 const CEREBRAS_API_KEY = process.env.CEREBRAS_API_KEY;
+// Known-good model on the platform Cerebras key. qwen-3-235b/reasoning models 404 or
+// return empty content on this key, so default to gemma-4-31b; override via env.
+const CEREBRAS_PLATFORM_MODEL = process.env.CEREBRAS_FAST_MODEL || "gemma-4-31b";
 const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
 const GOOGLE_AI_API = process.env.GOOGLE_AI_API;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
@@ -191,7 +194,7 @@ export async function* streamFastChat(
     yield* streamOpenAICompatibleSSE(
       "https://api.cerebras.ai/v1/chat/completions",
       cerebrasKey,
-      process.env.CEREBRAS_FAST_MODEL || "gemma-4-31b",
+      CEREBRAS_PLATFORM_MODEL,
       "cerebras",
       messages,
       maxTokens,
@@ -554,7 +557,7 @@ export async function chatWithAI(messages: ChatMessage[], maxTokens = 500, byok?
 
   // 3. Platform keys as fallback
   if (CEREBRAS_API_KEY) {
-    providers.push({ name: "Cerebras qwen-3-235b", call: () => callOpenAICompatible("https://api.cerebras.ai/v1/chat/completions", CEREBRAS_API_KEY, "qwen-3-235b-a22b-instruct-2507", "cerebras", messages, maxTokens) });
+    providers.push({ name: `Cerebras ${CEREBRAS_PLATFORM_MODEL}`, call: () => callOpenAICompatible("https://api.cerebras.ai/v1/chat/completions", CEREBRAS_API_KEY, CEREBRAS_PLATFORM_MODEL, "cerebras", messages, maxTokens) });
   }
   if (GOOGLE_AI_API) providers.push({ name: "Google", call: () => callGoogle(GOOGLE_AI_API, "gemini-2.0-flash", messages, maxTokens) });
 
