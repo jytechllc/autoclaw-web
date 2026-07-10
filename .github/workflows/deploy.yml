@@ -33,6 +33,9 @@ jobs:
   deploy:
     name: Build image and deploy to ECS
     runs-on: ubuntu-latest
+    # Skip (rather than fail) until the AWS infra vars are provisioned on the
+    # repo. Once AWS_REGION is set, pushes to main deploy automatically.
+    if: ${{ vars.AWS_REGION != '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
