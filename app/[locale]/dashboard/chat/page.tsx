@@ -91,6 +91,7 @@ export default function ChatPage() {
   const [secretWarning, setSecretWarning] = useState<string | null>(null);
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState("auto");
+  const [fastMode, setFastMode] = useState(false);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [characters, setCharacters] = useState<CharacterOption[]>([]);
   const [selectedCharacter, setSelectedCharacter] = useState("");
@@ -304,6 +305,7 @@ export default function ChatPage() {
           message: userMsg,
           model: selectedModel !== "auto" ? selectedModel : undefined,
           character: selectedCharacter || undefined,
+          fastMode: fastMode || undefined,
           locale,
           conversation_id: activeConvId ? String(activeConvId) : undefined,
         }),
@@ -316,6 +318,7 @@ export default function ChatPage() {
         let finalReply = "";
         let finalModel = "";
         let finalUsage: ChatMessage["usage"] = undefined;
+        let streamMsgId: number | null = null; // set once the first Fast Mode token arrives
         if (reader) {
           while (true) {
             const { done, value } = await reader.read();
@@ -325,6 +328,18 @@ export default function ChatPage() {
               if (line.startsWith("data: ")) {
                 try {
                   const evt = JSON.parse(line.slice(6));
+                  if (evt.type === "token") {
+                    // Fast Mode: live token stream — append to a growing assistant bubble
+                    finalReply += evt.delta as string;
+                    if (streamMsgId === null) {
+                      streamMsgId = Date.now() + 1;
+                      const id = streamMsgId;
+                      setMessages((prev) => [...prev, { id, role: "assistant", content: finalReply, agent_type: "autoclaw", created_at: new Date().toISOString() }]);
+                    } else {
+                      const id = streamMsgId;
+                      setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, content: finalReply } : m)));
+                    }
+                  }
                   if (evt.type === "step") {
                     const stepMsg = evt.message as string;
                     setToolStatus(stepMsg);
@@ -378,7 +393,12 @@ export default function ChatPage() {
           }
         }
         if (finalReply) {
-          setMessages((prev) => [...prev, { id: Date.now() + 1, role: "assistant", content: finalReply, agent_type: "autoclaw", model: finalModel || undefined, created_at: new Date().toISOString(), usage: finalUsage }]);
+          if (streamMsgId !== null) {
+            const id = streamMsgId;
+            setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, content: finalReply, model: finalModel || undefined, usage: finalUsage } : m)));
+          } else {
+            setMessages((prev) => [...prev, { id: Date.now() + 1, role: "assistant", content: finalReply, agent_type: "autoclaw", model: finalModel || undefined, created_at: new Date().toISOString(), usage: finalUsage }]);
+          }
         }
       } else {
         const data = await res.json();
@@ -759,6 +779,26 @@ export default function ChatPage() {
                     if (m.costPer1MInput === 0) return td.modelFree;
                     return `$${(m.costPer1MInput / 100).toFixed(2)}/${td.modelMInput} · $${(m.costPer1MOutput / 100).toFixed(2)}/${td.modelMOutput}`;
                   })()}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => setFastMode((v) => !v)}
+                aria-pressed={fastMode}
+                title={td.fastModeHint || "Fast Mode: skip the fallback chain and use the fastest provider"}
+                className={`flex items-center gap-1 text-xs rounded-md px-2 py-1 border transition-colors cursor-pointer ${fastMode ? "border-red-500 bg-red-50 text-red-700 font-medium" : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"}`}
+              >
+                <svg className="w-3.5 h-3.5" fill={fastMode ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                {td.fastMode || "Fast"}
+              </button>
+              {fastMode && (
+                <span className="flex items-center gap-1 text-xs text-amber-600">
+                  <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                  {td.fastModeNoTools || "Fast Mode can't use tools (no lead search / email)"}
                 </span>
               )}
               {characters.length > 0 && (
