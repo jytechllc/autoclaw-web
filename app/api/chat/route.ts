@@ -3,7 +3,7 @@ export const maxDuration = 300; // Vercel Pro allows up to 300s — needed for A
 import { NextRequest, NextResponse } from "next/server";
 import { auth0 } from "@/lib/auth0";
 import { getDb } from "@/lib/db";
-import { chatWithTools, ByokKeys, type ToolTurnMessage, type ContentBlock } from "@/lib/ai";
+import { chatWithTools, streamFastChat, ByokKeys, type ToolTurnMessage, type ContentBlock } from "@/lib/ai";
 import { TOOL_SCHEMAS } from "./tool-schemas";
 import { checkInput, checkToolCall, checkOutput, SAFETY_SYSTEM_PROMPT } from "@/lib/guardrails";
 import { decrypt, encrypt } from "@/lib/crypto";
@@ -76,14 +76,14 @@ export async function POST(req: NextRequest) {
     const sql = getDb();
     const email = session.user.email as string;
 
-    let body: { message?: string; project_id?: string; conversation_id?: string; model?: string; locale?: string; character?: string };
+    let body: { message?: string; project_id?: string; conversation_id?: string; model?: string; locale?: string; character?: string; fastMode?: boolean };
     try {
       body = await req.json();
     } catch {
       return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
     }
 
-    const { message, project_id, conversation_id, model: selectedModel, locale: reqLocale, character } = body;
+    const { message, project_id, conversation_id, model: selectedModel, locale: reqLocale, character, fastMode } = body;
     const locale = (reqLocale as string) || "en";
     const convId = conversation_id ? parseInt(conversation_id) : null;
 
@@ -225,6 +225,67 @@ export async function POST(req: NextRequest) {
 
     let reply: string;
     const pendingUsage: { provider: string; model: string; prompt: number; completion: number; total: number }[] = [];
+
+    // === FAST MODE: token-streamed, tool-free chat over the fastest provider ===
+    // Skips intents, RAG, tools, and the orchestrator loop entirely.
+    if (fastMode) {
+      const fastSystemPrompt = buildSystemPrompt({ projects, agents, userPlan, agentLimit, ragContext: "", locale, character }) + SAFETY_SYSTEM_PROMPT;
+      const fastMessages: { role: "system" | "user" | "assistant"; content: string }[] = [{ role: "system", content: fastSystemPrompt }];
+      for (const m of recentHistory.slice().reverse()) {
+        if (m.role === "user" && m.content === redactedMessage) continue;
+        fastMessages.push({ role: m.role as "user" | "assistant", content: (m.content as string).slice(0, 500) });
+      }
+      fastMessages.push({ role: "user", content: message });
+
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          let full = "";
+          let usedProvider = "cerebras";
+          let usedFastModel = "";
+          let usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number } | undefined;
+          try {
+            for await (const chunk of streamFastChat(fastMessages, 800, byok)) {
+              if (chunk.provider) usedProvider = chunk.provider;
+              if (chunk.model) usedFastModel = chunk.model;
+              if (chunk.delta) {
+                full += chunk.delta;
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "token", delta: chunk.delta })}\n\n`));
+              }
+              if (chunk.usage) usage = chunk.usage;
+            }
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "token", delta: `\n\n**Fast Mode error:** ${msg.slice(0, 300)}` })}\n\n`));
+          }
+
+          const cleanReply = checkOutput(full).text || full;
+          const usedModelStr = `${usedProvider}/${usedFastModel}`;
+          try {
+            const txn = [
+              sql`INSERT INTO chat_messages (user_id, project_id, conversation_id, role, content, agent_type, model) VALUES (${userId}, ${project_id || null}, ${convId}, 'assistant', ${cleanReply}, 'autoclaw', ${usedModelStr})`,
+            ];
+            if (usage) {
+              txn.push(sql`INSERT INTO token_usage (project_id, user_id, provider, model, prompt_tokens, completion_tokens, total_tokens, source) VALUES (${project_id || null}, ${userId}, ${usedProvider}, ${usedFastModel}, ${usage.prompt_tokens}, ${usage.completion_tokens}, ${usage.total_tokens}, 'chat')`);
+            }
+            await sql.transaction(txn);
+          } catch (dbErr) {
+            console.error("[Fast Mode] save failed", dbErr instanceof Error ? dbErr.message : dbErr);
+          }
+
+          const doneUsage = usage
+            ? { totalTokens: usage.total_tokens, promptTokens: usage.prompt_tokens, completionTokens: usage.completion_tokens, estCost: 0, calls: 1 }
+            : undefined;
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "done", reply: cleanReply, model: usedModelStr, usage: doneUsage })}\n\n`));
+          controller.close();
+        },
+      });
+
+      return new Response(stream, {
+        headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
+      });
+    }
+
     const lowerMsg = message.toLowerCase();
     const isAffirmative = /^(yes|yeah|yep|sure|ok|okay|please|do it|go ahead|y|let's go|let's do it|absolutely|of course|好的|好|可以|开始|行|嗯|是的|没问题|来吧|开始吧)\b/i.test(message.trim());
 

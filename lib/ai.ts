@@ -10,6 +10,8 @@ const XPILOT_BASE_URL = process.env.XPILOT_BASE_URL || "https://xpilot.jytech.us
 // AWS Bedrock — cross-project AI infra. Region is us-east-2 (Ohio); newest Claude
 // models there are reached via cross-region inference profiles (model id prefixed "us.").
 const AWS_BEDROCK_REGION = process.env.AWS_BEDROCK_REGION || "us-east-2";
+// Per-provider timeout so a hung provider (e.g. Bedrock throttling) fails fast to the next one.
+const PROVIDER_TIMEOUT_MS = Number(process.env.AI_PROVIDER_TIMEOUT_MS) || 30000;
 
 interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -90,6 +92,7 @@ async function callOpenAICompatible(
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({ model, messages, max_tokens: maxTokens }),
+    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
   });
 
   if (!res.ok) {
@@ -108,6 +111,95 @@ async function callOpenAICompatible(
       total_tokens: data.usage.total_tokens || 0,
     } : undefined,
   };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Fast Mode: token-streamed, tool-free chat over the fastest provider (Cerebras).
+// Skips the Bedrock/benchmark/RAG/orchestrator machinery entirely.
+// ──────────────────────────────────────────────────────────────────────────
+export interface FastChatChunk {
+  delta?: string;
+  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+  provider: string;
+  model: string;
+}
+
+/** Stream an OpenAI-compatible SSE completion, yielding text deltas then final usage. */
+async function* streamOpenAICompatibleSSE(
+  url: string,
+  apiKey: string,
+  model: string,
+  provider: string,
+  messages: ChatMessage[],
+  maxTokens: number,
+): AsyncGenerator<FastChatChunk> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({ model, messages, max_tokens: maxTokens, stream: true, stream_options: { include_usage: true } }),
+    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
+  });
+  if (!res.ok || !res.body) {
+    const err = await res.text().catch(() => "");
+    throw new Error(`${provider} error ${res.status}: ${err}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let usage: FastChatChunk["usage"];
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data:")) continue;
+      const payload = trimmed.slice(5).trim();
+      if (payload === "[DONE]") continue;
+      try {
+        const json = JSON.parse(payload);
+        const delta = json.choices?.[0]?.delta?.content;
+        if (delta) yield { delta, provider, model };
+        if (json.usage) {
+          usage = {
+            prompt_tokens: json.usage.prompt_tokens || 0,
+            completion_tokens: json.usage.completion_tokens || 0,
+            total_tokens: json.usage.total_tokens || 0,
+          };
+        }
+      } catch { /* ignore partial/non-JSON keep-alive lines */ }
+    }
+  }
+  yield { usage, provider, model };
+}
+
+/**
+ * Fast Mode entry point. Streams from Cerebras (fastest platform provider). If no
+ * Cerebras key is available, falls back to a single non-streamed call emitted whole,
+ * so Fast Mode still returns something even without the fast provider configured.
+ */
+export async function* streamFastChat(
+  messages: ChatMessage[],
+  maxTokens = 800,
+  byok: ByokKeys = {},
+): AsyncGenerator<FastChatChunk> {
+  const cerebrasKey = byok.cerebras || CEREBRAS_API_KEY;
+  if (cerebrasKey) {
+    yield* streamOpenAICompatibleSSE(
+      "https://api.cerebras.ai/v1/chat/completions",
+      cerebrasKey,
+      process.env.CEREBRAS_FAST_MODEL || "gemma-4-31b",
+      "cerebras",
+      messages,
+      maxTokens,
+    );
+    return;
+  }
+  const r = await chatWithAI(messages, maxTokens, byok);
+  yield { delta: r.content, provider: r.provider, model: r.model, usage: r.usage };
 }
 
 // --- Anthropic (Messages API) ---
@@ -133,6 +225,7 @@ async function callAnthropic(apiKey: string, model: string, messages: ChatMessag
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
   });
 
   if (!res.ok) {
@@ -172,6 +265,7 @@ async function callGoogle(apiKey: string, model: string, messages: ChatMessage[]
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
   });
 
   if (!res.ok) {
@@ -207,6 +301,7 @@ async function callOpenRouter(model: string, messages: ChatMessage[], maxTokens:
       "X-Title": "AutoClaw",
     },
     body: JSON.stringify({ model, messages, max_tokens: maxTokens }),
+    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
   });
 
   if (!res.ok) {
@@ -244,6 +339,7 @@ async function callXPilot(apiKey: string, model: string, messages: ChatMessage[]
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({ model, prompt, system, max_tokens: maxTokens }),
+    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
   });
 
   if (!res.ok) {
@@ -293,7 +389,7 @@ async function callBedrock(modelId: string, messages: ChatMessage[], maxTokens: 
     contentType: "application/json",
     accept: "application/json",
     body: JSON.stringify(body),
-  }));
+  }), { abortSignal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) });
 
   const data = JSON.parse(new TextDecoder().decode(res.body)) as {
     content?: { text?: string }[];
@@ -581,7 +677,7 @@ async function callBedrockWithTools(
       content: typeof m.content === "string" ? [{ type: "text", text: m.content }] : m.content,
     })),
   };
-  const res = await client.send(new InvokeModelCommand({ modelId, contentType: "application/json", accept: "application/json", body: JSON.stringify(body) }));
+  const res = await client.send(new InvokeModelCommand({ modelId, contentType: "application/json", accept: "application/json", body: JSON.stringify(body) }), { abortSignal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) });
   const decoded = JSON.parse(new TextDecoder().decode(res.body));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const blocks: any[] = Array.isArray(decoded.content) ? decoded.content : [];
