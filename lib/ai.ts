@@ -191,7 +191,7 @@ export async function* streamFastChat(
     yield* streamOpenAICompatibleSSE(
       "https://api.cerebras.ai/v1/chat/completions",
       cerebrasKey,
-      "qwen-3-235b-a22b-instruct-2507",
+      process.env.CEREBRAS_FAST_MODEL || "gemma-4-31b",
       "cerebras",
       messages,
       maxTokens,
