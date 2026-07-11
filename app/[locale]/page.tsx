@@ -247,6 +247,12 @@ export default function Home() {
               <a href="#pricing" className="hover:text-primary transition-colors">{t.pricing}</a>
               <Link href={`/${locale}/leaderboard`} className="hover:text-primary transition-colors">{locale === "zh" || locale === "zh-TW" ? "排行榜" : "Leaderboard"}</Link>
               <a href={`/${locale}/dashboard`} className="hover:text-primary transition-colors">{tc.dashboard}</a>
+              <Link href={`/${locale}/download`} className="inline-flex items-center gap-1.5 text-primary hover:text-primary-dark font-semibold transition-colors">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                </svg>
+                {t.navDownload}
+              </Link>
               <LanguageSwitcher locale={locale} />
               {user ? (
                 <div className="flex items-center gap-3">
@@ -295,6 +301,12 @@ export default function Home() {
               <a href="#pricing" onClick={closeMobileMenu} className="px-3 py-2.5 rounded-lg text-gray-700 hover:bg-gray-50 font-medium text-sm transition-colors">{t.pricing}</a>
               <Link href={`/${locale}/leaderboard`} onClick={closeMobileMenu} className="px-3 py-2.5 rounded-lg text-gray-700 hover:bg-gray-50 font-medium text-sm transition-colors">{locale === "zh" || locale === "zh-TW" ? "排行榜" : "Leaderboard"}</Link>
               <a href={`/${locale}/dashboard`} onClick={closeMobileMenu} className="px-3 py-2.5 rounded-lg text-gray-700 hover:bg-gray-50 font-medium text-sm transition-colors">{tc.dashboard}</a>
+              <Link href={`/${locale}/download`} onClick={closeMobileMenu} className="px-3 py-2.5 rounded-lg text-primary hover:bg-gray-50 font-semibold text-sm transition-colors inline-flex items-center gap-1.5">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                </svg>
+                {t.navDownload}
+              </Link>
               <div className="border-t border-gray-100 mt-2 pt-3 flex items-center justify-between px-3">
                 <LanguageSwitcher locale={locale} />
                 {user ? (
@@ -610,6 +622,7 @@ export default function Home() {
               <ul className="space-y-2 text-sm">
                 <li><a href={`/${locale}/careers`} className="hover:text-white transition-colors">{t.footerCareers || "Career Opportunities"}</a></li>
                 <li><a href={`/${locale}/docs`} className="hover:text-white transition-colors">{t.footerDocs || "Documentation"}</a></li>
+                <li><a href={`/${locale}/download`} className="hover:text-white transition-colors">{t.footerDownload || "Desktop App"}</a></li>
                 <li><a href={`/${locale}/status`} className="hover:text-white transition-colors">{t.footerStatus || "Status"}</a></li>
               </ul>
             </div>

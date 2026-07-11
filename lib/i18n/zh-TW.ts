@@ -584,6 +584,8 @@ const zhTW: typeof en = {
     footerResources: "資源",
     footerCareers: "企業招募",
     footerDocs: "文件",
+    footerDownload: "桌面版",
+    navDownload: "下載",
     footerStatus: "狀態",
     footerContact: "聯絡我們",
     footerRights: "AutoClaw. 版權所有。",

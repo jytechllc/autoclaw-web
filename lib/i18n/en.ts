@@ -596,6 +596,8 @@ const en = {
     footerResources: "Resources",
     footerCareers: "Career Opportunities",
     footerDocs: "Documentation",
+    footerDownload: "Desktop App",
+    navDownload: "Download",
     footerStatus: "Status",
     footerContact: "Contact",
     footerRights: "AutoClaw. All rights reserved.",

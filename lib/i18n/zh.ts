@@ -584,6 +584,8 @@ const zh: typeof en = {
     footerResources: "资源",
     footerCareers: "企业招聘",
     footerDocs: "文档",
+    footerDownload: "桌面版",
+    navDownload: "下载",
     footerStatus: "状态",
     footerContact: "联系我们",
     footerRights: "AutoClaw. 版权所有。",
