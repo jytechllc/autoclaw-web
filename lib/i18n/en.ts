@@ -598,6 +598,7 @@ const en = {
     footerDocs: "Documentation",
     footerDownload: "Desktop App",
     navDownload: "Download",
+    navProduct: "Product",
     footerStatus: "Status",
     footerContact: "Contact",
     footerRights: "AutoClaw. All rights reserved.",

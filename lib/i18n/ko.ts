@@ -567,6 +567,7 @@ const ko = {
     footerDocs: "문서",
     footerDownload: "데스크톱 앱",
     navDownload: "다운로드",
+    navProduct: "제품",
     footerStatus: "상태",
     footerContact: "연락처",
     footerRights: "AutoClaw. All rights reserved.",

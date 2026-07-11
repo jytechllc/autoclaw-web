@@ -241,12 +241,24 @@ export default function Home() {
               <span><span className="text-primary">Auto</span>Claw</span>
             </span>
             <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-gray-600">
-              <a href="#agents" className="hover:text-primary transition-colors">{tc.agents}</a>
-              <a href="#how-it-works" className="hover:text-primary transition-colors">{t.howItWorks}</a>
+              <div className="relative group">
+                <button className="inline-flex items-center gap-1 hover:text-primary transition-colors group-focus-within:text-primary">
+                  {t.navProduct}
+                  <svg className="w-4 h-4 transition-transform group-hover:rotate-180 group-focus-within:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                  </svg>
+                </button>
+                {/* pt-3 bridges the gap so the menu doesn't close when the cursor crosses it */}
+                <div className="invisible opacity-0 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 transition-opacity absolute left-0 top-full pt-3 z-50">
+                  <div className="min-w-48 rounded-xl border border-gray-100 bg-white shadow-lg py-2">
+                    <a href="#agents" className="block px-4 py-2 hover:bg-gray-50 hover:text-primary transition-colors">{tc.agents}</a>
+                    <a href="#how-it-works" className="block px-4 py-2 hover:bg-gray-50 hover:text-primary transition-colors">{t.howItWorks}</a>
+                    <a href="#pricing" className="block px-4 py-2 hover:bg-gray-50 hover:text-primary transition-colors">{t.pricing}</a>
+                  </div>
+                </div>
+              </div>
               <Link href={`/${locale}/use-cases`} className="hover:text-primary transition-colors">{t.caseStudies}</Link>
-              <a href="#pricing" className="hover:text-primary transition-colors">{t.pricing}</a>
               <Link href={`/${locale}/leaderboard`} className="hover:text-primary transition-colors">{locale === "zh" || locale === "zh-TW" ? "排行榜" : "Leaderboard"}</Link>
-              <a href={`/${locale}/dashboard`} className="hover:text-primary transition-colors">{tc.dashboard}</a>
               <Link href={`/${locale}/download`} className="inline-flex items-center gap-1.5 text-primary hover:text-primary-dark font-semibold transition-colors">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
@@ -300,7 +312,6 @@ export default function Home() {
               <Link href={`/${locale}/use-cases`} onClick={closeMobileMenu} className="px-3 py-2.5 rounded-lg text-gray-700 hover:bg-gray-50 font-medium text-sm transition-colors">{t.caseStudies}</Link>
               <a href="#pricing" onClick={closeMobileMenu} className="px-3 py-2.5 rounded-lg text-gray-700 hover:bg-gray-50 font-medium text-sm transition-colors">{t.pricing}</a>
               <Link href={`/${locale}/leaderboard`} onClick={closeMobileMenu} className="px-3 py-2.5 rounded-lg text-gray-700 hover:bg-gray-50 font-medium text-sm transition-colors">{locale === "zh" || locale === "zh-TW" ? "排行榜" : "Leaderboard"}</Link>
-              <a href={`/${locale}/dashboard`} onClick={closeMobileMenu} className="px-3 py-2.5 rounded-lg text-gray-700 hover:bg-gray-50 font-medium text-sm transition-colors">{tc.dashboard}</a>
               <Link href={`/${locale}/download`} onClick={closeMobileMenu} className="px-3 py-2.5 rounded-lg text-primary hover:bg-gray-50 font-semibold text-sm transition-colors inline-flex items-center gap-1.5">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
