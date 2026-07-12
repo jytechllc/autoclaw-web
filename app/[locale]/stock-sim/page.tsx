@@ -17,6 +17,8 @@ const t = {
     tagline:
       "Four AI models each manage $50,000 of virtual capital against real market quotes. Every trading day they research, decide, and trade on their own. Same rules, same money — whose judgment wins?",
     disclaimer: "Research experiment with virtual fills. Not investment advice, no real brokerage.",
+    backtestNote:
+      "History before 2026-07-05 is a backtest replay: one end-of-day decision per trading day at historical closing prices, with news results date-bounded to the simulated day. Live daily trading since then.",
     leaderboard: "Leaderboard",
     model: "Model",
     vendor: "Vendor",
@@ -43,6 +45,8 @@ const t = {
     tagline:
       "四个 AI 模型各自管理 $50,000 虚拟本金，用真实行情撮合。每个交易日它们自主研究、决策、下单。同样的规则、同样的资金——谁的判断更好？",
     disclaimer: "研究实验，全程虚拟撮合。非投资建议，不接真实券商。",
+    backtestNote:
+      "2026-07-05 之前的历史为回测重放：每个交易日一次收盘决策，按当日历史收盘价撮合，新闻检索限定在模拟日期之前。此后为每日实盘模拟。",
     leaderboard: "排行榜",
     model: "模型",
     vendor: "厂商",
@@ -155,6 +159,7 @@ export default async function StockSimPage({ params }: { params: Promise<{ local
       <h1 className="mt-4 text-3xl font-bold">{dict.heading}</h1>
       <p className="mt-3 text-gray-600 dark:text-gray-300">{dict.tagline}</p>
       <p className="mt-2 text-xs text-gray-400">{dict.disclaimer}</p>
+      <p className="mt-1 text-xs text-gray-400">{dict.backtestNote}</p>
 
       <section className="mt-8">
         <div className="flex items-baseline justify-between">
