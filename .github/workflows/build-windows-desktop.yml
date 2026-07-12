@@ -139,9 +139,14 @@ jobs:
         run: |
           set -euo pipefail
           for prefix in "desktop/desktop-v${VERSION}" "desktop/latest"; do
+            # Only the top-level artifacts. The trailing `--exclude "*/*"` is what
+            # keeps this from also publishing electron-builder's intermediate
+            # win-unpacked/ and win-ia32-unpacked/ trees, which contain their own
+            # .exe files (~1.3GB of build internals) and must not be public.
             aws s3 cp dist-electron/ "s3://${BUCKET}/${prefix}/" \
               --endpoint-url "${ENDPOINT}" \
               --recursive --exclude "*" --include "*.exe" --include "*.blockmap" \
+              --exclude "*/*" \
               --only-show-errors
             aws s3 cp dist-electron/latest.yml "s3://${BUCKET}/${prefix}/latest.yml" \
               --endpoint-url "${ENDPOINT}" \
