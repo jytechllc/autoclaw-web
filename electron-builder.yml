@@ -71,10 +71,28 @@ nsis:
 portable:
   artifactName: ${productName}-${version}-Portable.${ext}
 
-# Secondary targets (built on their native OS / CI).
+# macOS. Built on a macos runner (see the build-macos job) — it can't be
+# cross-compiled from the Windows runner.
+#
+# Two separate dmgs rather than one universal binary: a universal dmg bundles
+# both slices, so every user downloads ~2x the bytes to run one of them. These
+# are ~300MB shells over a slow-in-China link, so the split is worth the extra
+# artifact.
+#
+# `identity: null` builds unsigned — there's no Apple Developer ID cert yet.
+# Consequences, both handled elsewhere: Gatekeeper quarantines the app on first
+# open (the download page tells users how to get past it), and electron-updater
+# refuses to self-update an unsigned mac app (updaterSupported() in
+# electron/main.js already returns false on darwin, so it never tries).
 mac:
-  target: dmg
+  target:
+    - target: dmg
+      arch: [arm64, x64]
   category: public.app-category.business
+  identity: null
+
+dmg:
+  artifactName: ${productName}-${version}-${arch}.${ext}
 
 linux:
   target: AppImage
