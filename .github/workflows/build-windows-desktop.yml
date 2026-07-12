@@ -1,8 +1,13 @@
-name: Build Windows Desktop
+name: Build Desktop
 
-# Builds the AutoClaw Electron desktop installer (.exe) on a Windows runner and
-# publishes it as a downloadable GitHub Release. Trigger manually, or it runs
-# when the desktop-related files change on any branch.
+# Builds the AutoClaw Electron desktop apps — Windows installers (.exe) on a
+# Windows runner, macOS disk images (.dmg) on a macOS runner — publishes them as
+# a GitHub Release, and uploads them to R2, which is what the download page and
+# the auto-updater actually read. Trigger manually, or it runs when the
+# desktop-related files change on any branch.
+#
+# The file keeps its build-windows-desktop.yml name: renaming it would change the
+# `paths` trigger below and start a fresh workflow in the Actions history.
 on:
   workflow_dispatch:
   push:
@@ -152,4 +157,81 @@ jobs:
               --endpoint-url "${ENDPOINT}" \
               --content-type text/yaml --cache-control no-cache --only-show-errors
             echo "uploaded -> ${prefix}/"
+          done
+
+  # macOS can't be cross-compiled from the Windows runner, so it gets its own
+  # native runner. It runs *after* build-windows so the GitHub Release already
+  # exists and this job only uploads assets into it — two jobs racing to create
+  # the same release would be a lottery over which one wins.
+  build-macos:
+    runs-on: macos-latest
+    needs: build-windows
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: |
+            package-lock.json
+            electron/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          npm install --no-audit --no-fund
+          npm install --prefix electron --no-audit --no-fund
+
+      # Unsigned (identity: null in electron-builder.yml) — no Apple Developer ID
+      # cert yet. Builds a separate dmg per arch: arm64 and x64.
+      - name: Build macOS disk images
+        run: npx electron-builder --mac --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Read app version
+        id: pkg
+        run: echo "version=$(node -p "require('./electron/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload dmg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AutoClaw-macOS
+          path: dist-electron/*.dmg
+          if-no-files-found: error
+          retention-days: 30
+
+      # Adds the dmgs to the release build-windows already published.
+      - name: Attach dmgs to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: desktop-v${{ steps.pkg.outputs.version }}
+          files: dist-electron/*.dmg
+
+      # Same two prefixes as the Windows artifacts. Note `--exclude "*/*"`: without
+      # it the copy also sweeps up electron-builder's mac/ and mac-arm64/ unpacked
+      # app bundles, publishing hundreds of MB of build internals.
+      #
+      # No latest-mac.yml is uploaded: electron-updater can't self-update an
+      # unsigned mac app, so there is no feed to point it at (updaterSupported()
+      # in electron/main.js returns false on darwin). Mac users re-download.
+      - name: Upload dmgs to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          ENDPOINT: ${{ secrets.R2_DEFAULT_S3_ENDPOINT }}
+          BUCKET: autoclaw
+          VERSION: ${{ steps.pkg.outputs.version }}
+        run: |
+          set -euo pipefail
+          for prefix in "desktop/desktop-v${VERSION}" "desktop/latest"; do
+            aws s3 cp dist-electron/ "s3://${BUCKET}/${prefix}/" \
+              --endpoint-url "${ENDPOINT}" \
+              --recursive --exclude "*" --include "*.dmg" --exclude "*/*" \
+              --only-show-errors
+            echo "uploaded dmgs -> ${prefix}/"
           done
