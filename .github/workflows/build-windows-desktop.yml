@@ -112,3 +112,44 @@ jobs:
           exit 1
         env:
           GH_TOKEN: ${{ github.token }}
+
+      # R2 is the real download + auto-update source: Windows is the China-market
+      # channel, where github.com is slow or blocked, and R2 charges no egress on
+      # these ~300MB downloads. The GitHub Release above is kept as an archive /
+      # changelog, but the download page and electron-updater both read from this
+      # bucket (see electron-builder.yml `publish`).
+      #
+      # R2 speaks the S3 API, so the aws CLI works with --endpoint-url. Region
+      # must be `auto`.
+      #
+      # Two prefixes: an immutable desktop-v<version>/ for permalinks, and
+      # latest/ — the updater feed — which is overwritten each release. latest.yml
+      # is written LAST, because it is the pointer that makes a build live: an app
+      # polling mid-upload must never see a latest.yml whose installer isn't there
+      # yet. It's also sent with no-cache so updaters don't sit on a stale version.
+      - name: Upload release to R2
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          ENDPOINT: ${{ secrets.R2_DEFAULT_S3_ENDPOINT }}
+          BUCKET: autoclaw
+          VERSION: ${{ steps.pkg.outputs.version }}
+        run: |
+          set -euo pipefail
+          for prefix in "desktop/desktop-v${VERSION}" "desktop/latest"; do
+            # Only the top-level artifacts. The trailing `--exclude "*/*"` is what
+            # keeps this from also publishing electron-builder's intermediate
+            # win-unpacked/ and win-ia32-unpacked/ trees, which contain their own
+            # .exe files (~1.3GB of build internals) and must not be public.
+            aws s3 cp dist-electron/ "s3://${BUCKET}/${prefix}/" \
+              --endpoint-url "${ENDPOINT}" \
+              --recursive --exclude "*" --include "*.exe" --include "*.blockmap" \
+              --exclude "*/*" \
+              --only-show-errors
+            aws s3 cp dist-electron/latest.yml "s3://${BUCKET}/${prefix}/latest.yml" \
+              --endpoint-url "${ENDPOINT}" \
+              --content-type text/yaml --cache-control no-cache --only-show-errors
+            echo "uploaded -> ${prefix}/"
+          done

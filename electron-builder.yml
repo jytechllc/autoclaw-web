@@ -32,15 +32,21 @@ extraResources:
     to: icon.png
 
 # Auto-update feed (electron-updater reads this via the app-update.yml that
-# electron-builder bakes into the package). The `generic` provider is used
-# instead of `github` on purpose: our release tags are `desktop-vX.Y.Z`, which
-# the github provider can't parse as versions, while this URL always redirects
-# to the newest release's assets regardless of tag naming. The CI workflow
-# uploads latest.yml + the installer + its blockmap next to each release.
-# The trailing slash matters — file names are resolved relative to this URL.
+# electron-builder bakes into the package). Served from Cloudflare R2 rather
+# than GitHub Releases: Windows is the China-market channel, where github.com is
+# slow or blocked outright, and R2 has no egress fees (these are ~300MB
+# downloads). The CI workflow uploads latest.yml + the installer + its blockmap
+# to this prefix on every release, overwriting the previous build. latest.yml
+# names its installer by a *relative* url, so the yml and the .exe it points at
+# must live at this same prefix — and the trailing slash matters, since file
+# names resolve relative to this URL.
+#
+# NOTE: this is R2's *development* URL, which Cloudflare rate-limits and does
+# not recommend for production. Bind a custom domain (e.g. dl.jytech.us) to the
+# `autoclaw` bucket and swap it in here before this sees real download volume.
 publish:
   provider: generic
-  url: https://github.com/jytechllc/autoclaw-web/releases/latest/download/
+  url: https://pub-200e7b105f264829800e0695974532d2.r2.dev/desktop/latest/
 
 # Windows first (primary target for the China-market channel).
 win:
