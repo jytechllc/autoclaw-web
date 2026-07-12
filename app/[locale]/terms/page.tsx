@@ -11,6 +11,7 @@ export default async function TermsPage({ params }: { params: Promise<{ locale: 
   if (!isValidLocale(locale)) notFound();
   const dict = getDictionary(locale);
   const t = dict.terms;
+  const legalEntity = "JY Tech LLC";
 
   const sections = [
     { title: t.acceptanceTitle, content: t.acceptanceContent },
@@ -45,7 +46,8 @@ export default async function TermsPage({ params }: { params: Promise<{ locale: 
         <h1 className="text-3xl font-bold mb-2">{t.title}</h1>
         <p className="text-gray-500 text-sm mb-8">{t.lastUpdated}: 2026-03-15</p>
 
-        <p className="text-gray-700 mb-8 leading-relaxed">{t.intro}</p>
+        <p className="text-gray-700 mb-3 leading-relaxed">{t.intro}</p>
+        <p className="text-sm text-gray-500 mb-8">These Terms govern AutoClaw, a product and service operated by {legalEntity}.</p>
 
         <div className="space-y-8">
           {sections.map((section, i) => (
@@ -60,6 +62,7 @@ export default async function TermsPage({ params }: { params: Promise<{ locale: 
 
         <div className="mt-12 pt-8 border-t border-gray-200">
           <h2 className="text-xl font-semibold mb-3">{t.contactTitle}</h2>
+          <p className="text-gray-700 leading-relaxed mb-2">Service provider: {legalEntity}</p>
           <p className="text-gray-700 leading-relaxed">{t.contactContent}</p>
           <p className="mt-2 text-gray-700">
             <a href="mailto:leo.liu@jytech.us" className="text-red-600 hover:underline">Yanlei Liu (leo.liu@jytech.us)</a>

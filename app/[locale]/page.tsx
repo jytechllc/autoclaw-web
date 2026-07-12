@@ -116,6 +116,7 @@ export default function Home() {
   const dict = getDictionary(locale);
   const t = dict.landing;
   const tc = dict.common;
+  const legalEntity = "JY Tech LLC";
   const primaryContact = { name: "Yanlei Liu", email: "leo.liu@jytech.us" };
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -217,8 +218,9 @@ export default function Home() {
       },
       {
         "@type": "Organization",
-        name: "AutoClaw",
+        name: legalEntity,
         url: "https://autoclaw.jytech.us",
+        brand: "AutoClaw",
         contactPoint: {
           "@type": "ContactPoint",
           telephone: "+1-415-518-2187",
@@ -662,6 +664,7 @@ export default function Home() {
           </div>
           <div className="border-t border-gray-800 mt-8 pt-8 text-center text-xs flex flex-col sm:flex-row items-center justify-center gap-2">
             <p>&copy; {new Date().getFullYear()} {t.footerRights}</p>
+            <span className="text-gray-500">AutoClaw is a product of {legalEntity}.</span>
             <span className="hidden sm:inline text-gray-600">|</span>
             <a href={`/${locale}/terms`} className="hover:text-white transition-colors">{t.footerTerms}</a>
             <span className="hidden sm:inline text-gray-600">|</span>

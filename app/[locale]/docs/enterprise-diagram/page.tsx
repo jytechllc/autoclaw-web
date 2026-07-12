@@ -315,7 +315,7 @@ export default function EnterpriseDiagramPage() {
         <div className="bg-white/5 backdrop-blur border border-white/10 rounded-2xl p-6 text-center">
           <h3 className="font-semibold text-white mb-2">{t.needHelp}</h3>
           <p className="text-sm text-gray-400">
-            {t.contactUs}{" "}
+            AutoClaw is a product of JY Tech LLC. {t.contactUs}{" "}
             <a href="mailto:leo.liu@jytech.us" className="text-red-400 hover:text-red-300 transition-colors">Yanlei Liu (leo.liu@jytech.us)</a>
           </p>
         </div>
@@ -323,7 +323,7 @@ export default function EnterpriseDiagramPage() {
 
       {/* Footer */}
       <footer className="border-t border-white/10 py-8 text-center text-xs text-gray-500">
-        &copy; {new Date().getFullYear()} AutoClaw by JY Tech. All rights reserved.
+        &copy; {new Date().getFullYear()} JY Tech LLC. AutoClaw is a JY Tech LLC product. All rights reserved.
       </footer>
     </div>
   );

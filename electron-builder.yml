@@ -1,6 +1,6 @@
 appId: us.jytech.autoclaw
 productName: AutoClaw
-copyright: Copyright © jytech
+copyright: Copyright © JY Tech LLC
 
 # The desktop app is a remote shell — it bundles only electron/ + the icon and
 # uses no native node modules at runtime, so skip rebuilding native deps. This

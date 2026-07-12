@@ -164,6 +164,9 @@ export default function DocsPage() {
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <h2 className="text-lg font-semibold mb-2">{td.contactTitle}</h2>
           <p className="text-sm text-gray-500">
+            AutoClaw is a product of JY Tech LLC.{" "}
+          </p>
+          <p className="text-sm text-gray-500 mt-2">
             {td.contactDesc}{" "}
             <a href="mailto:leo.liu@jytech.us" className="text-red-600 hover:text-red-800 transition-colors">
               Yanlei Liu (leo.liu@jytech.us)
