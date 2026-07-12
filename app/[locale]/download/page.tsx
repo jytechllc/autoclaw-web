@@ -7,17 +7,27 @@ export const metadata = {
   title: "Download – AutoClaw",
 };
 
-// Desktop release assets. When a new desktop build is published, bump the
-// version + tag here (the Build Windows Desktop workflow tags desktop-v<version>).
-// NOTE: points at the Americium3 fork for now; switch to jytechllc/autoclaw-web
-// once the desktop branch is merged into the main repo.
-const RELEASES_URL = "https://github.com/Americium3/autoclaw-web/releases";
+// Desktop release assets, served from Cloudflare R2 — github.com is slow or
+// blocked in China, the primary market for the Windows build, and R2 charges no
+// egress on these ~300MB downloads. The Build Windows Desktop workflow uploads
+// each build to desktop/desktop-v<version>/ and mirrors it to desktop/latest/,
+// which is also the electron-updater feed (see electron-builder.yml).
+// To publish a new build, bump VERSION to match electron/package.json.
+//
+// NOTE: R2's development URL, which Cloudflare rate-limits and does not
+// recommend for production — swap in a custom domain (e.g. dl.jytech.us) bound
+// to the `autoclaw` bucket before this takes real download volume.
+const RELEASES_BASE = "https://pub-200e7b105f264829800e0695974532d2.r2.dev/desktop";
+const VERSION = "0.1.4";
 const DESKTOP = {
-  version: "0.1.0",
-  tag: "desktop-v0.1.0",
-  portable: `${RELEASES_URL}/download/desktop-v0.1.0/AutoClaw-0.1.0-Portable.exe`,
-  setup: `${RELEASES_URL}/download/desktop-v0.1.0/AutoClaw-0.1.0-Setup.exe`,
+  version: VERSION,
+  portable: `${RELEASES_BASE}/desktop-v${VERSION}/AutoClaw-${VERSION}-Portable.exe`,
+  setup: `${RELEASES_BASE}/desktop-v${VERSION}/AutoClaw-${VERSION}-Setup.exe`,
 };
+
+// Sizes are shown next to each button so users on metered/slow connections know
+// what they're committing to. Keep in sync with the uploaded artifacts.
+const SIZES = { portable: "305 MB", setup: "274 MB" };
 
 interface DownloadCopy {
   title: string;
@@ -32,7 +42,20 @@ interface DownloadCopy {
   recommended: string;
   versionLabel: string;
   smartscreen: string;
-  allReleases: string;
+  reqTitle: string;
+  reqOS: string;
+  reqOSValue: string;
+  reqCPU: string;
+  reqCPUValue: string;
+  reqRAM: string;
+  reqRAMValue: string;
+  reqDisk: string;
+  reqDiskValue: string;
+  reqNetwork: string;
+  reqNetworkValue: string;
+  reqDisplay: string;
+  reqDisplayValue: string;
+  macNote: string;
 }
 
 const copy: Record<string, DownloadCopy> = {
@@ -52,7 +75,22 @@ const copy: Record<string, DownloadCopy> = {
     versionLabel: "Version",
     smartscreen:
       "Not code-signed yet — if SmartScreen blocks the first run, click “More info → Run anyway”.",
-    allReleases: "All versions & release notes",
+    reqTitle: "System requirements",
+    reqOS: "Operating system",
+    reqOSValue:
+      "Windows 10 or later. The installer is 64-bit; the portable edition is 32-bit and also runs on 32-bit Windows.",
+    reqCPU: "Processor",
+    reqCPUValue: "1 GHz dual-core x86 / x64 processor or better.",
+    reqRAM: "Memory",
+    reqRAMValue: "4 GB RAM minimum, 8 GB recommended.",
+    reqDisk: "Disk space",
+    reqDiskValue: `About 1 GB free — ${SIZES.setup} for the installer (${SIZES.portable} portable), plus room for cache and logs.`,
+    reqNetwork: "Network",
+    reqNetworkValue:
+      "A broadband internet connection is required. AutoClaw Desktop runs against the AutoClaw cloud service and does not work offline.",
+    reqDisplay: "Display",
+    reqDisplayValue: "1280 × 720 or higher.",
+    macNote: "macOS and Linux builds aren’t available yet — Windows only for now.",
   },
   zh: {
     title: "下载 AutoClaw 桌面版",
@@ -69,7 +107,20 @@ const copy: Record<string, DownloadCopy> = {
     recommended: "推荐",
     versionLabel: "版本",
     smartscreen: "尚未做代码签名——首次运行若被 SmartScreen 拦截，点「更多信息 → 仍要运行」。",
-    allReleases: "查看所有版本与更新说明",
+    reqTitle: "硬件要求",
+    reqOS: "操作系统",
+    reqOSValue: "Windows 10 及以上。安装版为 64 位；便携版为 32 位，32/64 位 Windows 均可运行。",
+    reqCPU: "处理器",
+    reqCPUValue: "1 GHz 双核 x86 / x64 处理器及以上。",
+    reqRAM: "内存",
+    reqRAMValue: "最低 4 GB，推荐 8 GB。",
+    reqDisk: "硬盘空间",
+    reqDiskValue: `约 1 GB 可用空间——安装版 ${SIZES.setup}（便携版 ${SIZES.portable}），另需预留缓存与日志空间。`,
+    reqNetwork: "网络",
+    reqNetworkValue: "需要宽带网络连接。AutoClaw 桌面版依赖 AutoClaw 云端服务，无法离线使用。",
+    reqDisplay: "显示器",
+    reqDisplayValue: "1280 × 720 及以上分辨率。",
+    macNote: "暂未提供 macOS 与 Linux 版本，目前仅支持 Windows。",
   },
   "zh-TW": {
     title: "下載 AutoClaw 桌面版",
@@ -86,7 +137,21 @@ const copy: Record<string, DownloadCopy> = {
     recommended: "推薦",
     versionLabel: "版本",
     smartscreen: "尚未進行程式碼簽章——首次執行若被 SmartScreen 攔截，點「更多資訊 → 仍要執行」。",
-    allReleases: "檢視所有版本與更新說明",
+    reqTitle: "硬體需求",
+    reqOS: "作業系統",
+    reqOSValue:
+      "Windows 10 以上。安裝版為 64 位元；可攜版為 32 位元，32/64 位元 Windows 皆可執行。",
+    reqCPU: "處理器",
+    reqCPUValue: "1 GHz 雙核心 x86 / x64 處理器以上。",
+    reqRAM: "記憶體",
+    reqRAMValue: "最低 4 GB，建議 8 GB。",
+    reqDisk: "硬碟空間",
+    reqDiskValue: `約 1 GB 可用空間——安裝版 ${SIZES.setup}（可攜版 ${SIZES.portable}），另需預留快取與日誌空間。`,
+    reqNetwork: "網路",
+    reqNetworkValue: "需要寬頻網路連線。AutoClaw 桌面版依賴 AutoClaw 雲端服務，無法離線使用。",
+    reqDisplay: "顯示器",
+    reqDisplayValue: "1280 × 720 以上解析度。",
+    macNote: "尚未提供 macOS 與 Linux 版本，目前僅支援 Windows。",
   },
   ko: {
     title: "AutoClaw 데스크톱 다운로드",
@@ -104,7 +169,22 @@ const copy: Record<string, DownloadCopy> = {
     versionLabel: "버전",
     smartscreen:
       "아직 코드 서명이 되어 있지 않습니다 — 첫 실행 시 SmartScreen이 차단하면 “추가 정보 → 실행”을 클릭하세요.",
-    allReleases: "모든 버전 및 릴리스 노트",
+    reqTitle: "시스템 요구 사항",
+    reqOS: "운영체제",
+    reqOSValue:
+      "Windows 10 이상. 설치 버전은 64비트이며, 휴대용 버전은 32비트로 32/64비트 Windows에서 모두 실행됩니다.",
+    reqCPU: "프로세서",
+    reqCPUValue: "1GHz 듀얼코어 x86 / x64 프로세서 이상.",
+    reqRAM: "메모리",
+    reqRAMValue: "최소 4GB, 8GB 권장.",
+    reqDisk: "디스크 공간",
+    reqDiskValue: `약 1GB 여유 공간 — 설치 버전 ${SIZES.setup}(휴대용 ${SIZES.portable}), 캐시와 로그를 위한 공간 별도.`,
+    reqNetwork: "네트워크",
+    reqNetworkValue:
+      "광대역 인터넷 연결이 필요합니다. AutoClaw 데스크톱은 AutoClaw 클라우드 서비스에 연결해 동작하며 오프라인에서는 사용할 수 없습니다.",
+    reqDisplay: "디스플레이",
+    reqDisplayValue: "1280 × 720 이상.",
+    macNote: "macOS 및 Linux 빌드는 아직 제공되지 않습니다 — 현재는 Windows 전용입니다.",
   },
 };
 
@@ -153,7 +233,7 @@ export default async function DownloadPage({ params }: { params: Promise<{ local
               href={DESKTOP.portable}
               className="mt-5 inline-flex items-center justify-center rounded-lg bg-red-500 hover:bg-red-600 text-white text-sm font-semibold px-4 py-2.5 transition-colors"
             >
-              {t.download} &middot; .exe
+              {t.download} &middot; .exe &middot; {SIZES.portable}
             </a>
           </div>
 
@@ -164,21 +244,32 @@ export default async function DownloadPage({ params }: { params: Promise<{ local
               href={DESKTOP.setup}
               className="mt-5 inline-flex items-center justify-center rounded-lg border border-gray-300 hover:border-gray-400 text-gray-800 text-sm font-semibold px-4 py-2.5 transition-colors"
             >
-              {t.download} &middot; Setup.exe
+              {t.download} &middot; Setup.exe &middot; {SIZES.setup}
             </a>
           </div>
         </div>
 
         <p className="text-xs text-gray-400 mt-6">{t.smartscreen}</p>
 
-        <p className="mt-8">
-          <a
-            href={`${RELEASES_URL}/tag/${DESKTOP.tag}`}
-            className="text-sm text-red-500 hover:text-red-600 transition-colors"
-          >
-            {t.allReleases} &rarr;
-          </a>
-        </p>
+        <section className="mt-12">
+          <h2 className="text-lg font-semibold mb-4">{t.reqTitle}</h2>
+          <dl className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
+            {[
+              [t.reqOS, t.reqOSValue],
+              [t.reqCPU, t.reqCPUValue],
+              [t.reqRAM, t.reqRAMValue],
+              [t.reqDisk, t.reqDiskValue],
+              [t.reqNetwork, t.reqNetworkValue],
+              [t.reqDisplay, t.reqDisplayValue],
+            ].map(([label, value]) => (
+              <div key={label} className="px-6 py-4 sm:flex sm:gap-6">
+                <dt className="text-sm font-medium text-gray-900 sm:w-40 sm:shrink-0">{label}</dt>
+                <dd className="text-sm text-gray-600 leading-relaxed mt-1 sm:mt-0">{value}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="text-xs text-gray-400 mt-4">{t.macNote}</p>
+        </section>
       </main>
 
       <footer className="bg-slate-900 text-gray-400 border-t border-gray-800">
