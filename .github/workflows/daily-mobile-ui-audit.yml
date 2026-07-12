@@ -1,0 +1,101 @@
+name: daily-mobile-ui-audit
+
+on:
+  schedule:
+    - cron: "30 7 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+  models: read
+
+concurrency:
+  group: daily-mobile-ui-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 20
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Run lint
+        continue-on-error: true
+        run: npm run lint > /tmp/mobile-ui-lint.log 2>&1
+
+      - name: Run typecheck
+        continue-on-error: true
+        run: npm run typecheck > /tmp/mobile-ui-typecheck.log 2>&1
+
+      - name: Build mobile UI context
+        run: node .github/scripts/mobile-ui-audit/build-context.mjs > /tmp/mobile-ui-context.md
+
+      - name: Build prompt payload
+        run: |
+          set -euo pipefail
+          head -c 18000 /tmp/mobile-ui-context.md > /tmp/mobile-ui-context-trim.md
+          head -c 5000 /tmp/mobile-ui-lint.log > /tmp/mobile-ui-lint-trim.log || true
+          head -c 5000 /tmp/mobile-ui-typecheck.log > /tmp/mobile-ui-typecheck-trim.log || true
+          jq -n \
+            --rawfile system .github/scripts/mobile-ui-audit/system-prompt.md \
+            --rawfile context /tmp/mobile-ui-context-trim.md \
+            --rawfile lint /tmp/mobile-ui-lint-trim.log \
+            --rawfile typecheck /tmp/mobile-ui-typecheck-trim.log \
+            --arg date "$(date -u +%Y-%m-%d)" \
+            '{
+              model: "gpt-4o",
+              temperature: 0.1,
+              max_tokens: 1400,
+              messages: [
+                { role: "system", content: $system },
+                { role: "user", content: ("AUDIT DATE: " + $date + "\n\nMOBILE UI CONTEXT\n\n" + $context + "\n\n---\n\nLINT OUTPUT\n\n```text\n" + $lint + "\n```\n\n---\n\nTYPECHECK OUTPUT\n\n```text\n" + $typecheck + "\n```") }
+              ]
+            }' > /tmp/mobile-ui-payload.json
+
+      - name: Call GitHub Models
+        env:
+          MODELS_TOKEN: ${{ secrets.MODELS_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TOKEN="${MODELS_TOKEN:-$GITHUB_TOKEN}"
+          RAW=$(curl -sS --fail-with-body -X POST \
+            https://models.inference.ai.azure.com/chat/completions \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d @/tmp/mobile-ui-payload.json)
+          echo "$RAW" > /tmp/mobile-ui-raw-response.json
+          jq -r '.choices[0].message.content // .error // "(empty response)"' /tmp/mobile-ui-raw-response.json > /tmp/mobile-ui-report.md
+
+      - name: Open or update audit issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh label create mobile-ui-audit --color "d73a4a" --description "Automated daily mobile UI audit" 2>/dev/null || true
+          TITLE="Daily mobile UI audit"
+          EXISTING=$(gh issue list --label mobile-ui-audit --search "$TITLE in:title" --json number -q '.[0].number' || echo "")
+          {
+            printf '## %s UTC\n\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            cat /tmp/mobile-ui-report.md
+            printf '\n\n---\n'
+            printf 'Source workflow: `.github/workflows/daily-mobile-ui-audit.yml`\n'
+          } > /tmp/mobile-ui-issue-body.md
+          if [ -z "$EXISTING" ]; then
+            gh issue create --title "$TITLE" --label mobile-ui-audit --body-file /tmp/mobile-ui-issue-body.md
+          else
+            gh issue comment "$EXISTING" --body-file /tmp/mobile-ui-issue-body.md
+          fi

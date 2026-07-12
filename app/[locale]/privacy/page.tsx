@@ -60,8 +60,8 @@ export default async function PrivacyPage({ params }: { params: Promise<{ locale
           <h2 className="text-xl font-semibold mb-3">{t.contactTitle}</h2>
           <p className="text-gray-700 leading-relaxed">
             {t.contactContent}{" "}
-            <a href="mailto:jay.lin@jytech.us" className="text-red-600 hover:underline">
-              jay.lin@jytech.us
+            <a href="mailto:leo.liu@jytech.us" className="text-red-600 hover:underline">
+              Yanlei Liu (leo.liu@jytech.us)
             </a>
           </p>
         </div>

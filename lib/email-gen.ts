@@ -20,7 +20,7 @@ export type EmailStep = "initial" | "followup1" | "followup2";
 export const SIGNATURE = [
   "Collin Liu",
   "商务拓展总监 · Sienovo AutoClaw",
-  "微信：xinmai002leo | 电话：15019201125",
+  "微信：xinmai002leo | 电话：18718699276",
   "https://autoclaw.jytech.us",
 ].join("\n");
 

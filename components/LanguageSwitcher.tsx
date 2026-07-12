@@ -11,7 +11,13 @@ const LANGUAGES: { code: Locale; label: string; flag: string }[] = [
   { code: "ko", label: "한국어", flag: "KO" },
 ];
 
-export default function LanguageSwitcher({ locale }: { locale: Locale }) {
+export default function LanguageSwitcher({
+  locale,
+  mobile = false,
+}: {
+  locale: Locale;
+  mobile?: boolean;
+}) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -28,26 +34,34 @@ export default function LanguageSwitcher({ locale }: { locale: Locale }) {
 
   function switchTo(code: Locale) {
     if (code === locale) { setOpen(false); return; }
-    const newPath = pathname.replace(`/${locale}`, `/${code}`) || `/${code}`;
+    const segments = (pathname || "/").split("/");
+    if (segments.length > 1) segments[1] = code;
+    const newPath = segments.join("/") || `/${code}`;
     document.cookie = `locale=${code};path=/;max-age=31536000`;
     window.location.href = newPath;
   }
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className={`relative ${mobile ? "w-full" : ""}`}>
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors cursor-pointer px-2 py-1 rounded border border-gray-200 hover:border-gray-300"
+        className={`flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors cursor-pointer rounded border border-gray-200 hover:border-gray-300 ${
+          mobile ? "w-full justify-between px-3 py-2.5 bg-gray-50" : "px-2 py-1"
+        }`}
       >
         <span className="font-medium">{current.flag}</span>
-        <span className="hidden sm:inline">{current.label}</span>
+        <span className={mobile ? "" : "hidden sm:inline"}>{current.label}</span>
         <svg className={`w-3.5 h-3.5 transition-transform ${open ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+        <div
+          className={`bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50 ${
+            mobile ? "mt-2 w-full" : "absolute right-0 mt-1 w-40"
+          }`}
+        >
           {LANGUAGES.map((lang) => (
             <button
               key={lang.code}

@@ -116,12 +116,15 @@ export default function Home() {
   const dict = getDictionary(locale);
   const t = dict.landing;
   const tc = dict.common;
+  const primaryContact = { name: "Yanlei Liu", email: "leo.liu@jytech.us" };
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const closeMobileMenu = useCallback(() => setMobileMenuOpen(false), []);
 
   const isYeoso = typeof window !== "undefined" && window.location.hostname.endsWith("yeoso.com");
-  const cnContact = isYeoso ? { name: "Jason", phone: "15221611137" } : { name: "Helen Lan", phone: "17318011997" };
+  const cnContact = isYeoso
+    ? { name: "Jason", phone: "15221611137", wechat: "" }
+    : { name: "Yanlei Liu", phone: "18718699276", wechat: "xinmai002leo" };
   const siteLinks = isYeoso
     ? [{ href: "https://www.tsoai.com", label: "www.tsoai.com" }, { href: "https://yeoso.com", label: "yeoso.com" }]
     : [{ href: "https://jytech.us", label: "jytech.us" }];
@@ -318,8 +321,8 @@ export default function Home() {
                 </svg>
                 {t.navDownload}
               </Link>
-              <div className="border-t border-gray-100 mt-2 pt-3 flex items-center justify-between px-3">
-                <LanguageSwitcher locale={locale} />
+              <div className="border-t border-gray-100 mt-2 pt-3 flex flex-col gap-3 px-3">
+                <LanguageSwitcher locale={locale} mobile />
                 {user ? (
                   <div className="flex items-center gap-3">
                     <a href={`/${locale}/dashboard`} className="flex items-center gap-2">
@@ -335,7 +338,7 @@ export default function Home() {
                     <Link href="/auth/logout" className="text-xs text-gray-400 hover:text-red-500">{tc.logOut}</Link>
                   </div>
                 ) : (
-                  <a href={`/auth/login?returnTo=/${locale}/dashboard/reports`} className="bg-primary text-white px-5 py-2 rounded-lg text-sm font-medium">{t.getStarted}</a>
+                  <a href={`/auth/login?returnTo=/${locale}/dashboard/reports`} className="bg-primary text-white px-5 py-2 rounded-lg text-sm font-medium text-center">{t.getStarted}</a>
                 )}
               </div>
             </nav>
@@ -568,7 +571,7 @@ export default function Home() {
                       const isChina = locale === "zh" || locale === "zh-TW";
                       const isYeoso = typeof window !== "undefined" && window.location.hostname.includes("yeoso");
                       if (plan.plan === "enterprise") {
-                        window.location.href = isChina ? "tel:+8617318011997" : "mailto:jay.lin@jytech.us?subject=AutoClaw " + plan.name + " Plan Inquiry";
+                        window.location.href = isChina ? `tel:+86${cnContact.phone}` : `mailto:${primaryContact.email}?subject=AutoClaw ${plan.name} Plan Inquiry`;
                       } else if (plan.plan === "starter") {
                         window.location.href = `/auth/login?returnTo=/${locale}/dashboard/reports`;
                       } else if (isChina && isYeoso) {
@@ -603,9 +606,12 @@ export default function Home() {
             <p className="text-gray-400 text-sm mt-6">
               {t.questionsEmail}{" "}
               {locale === "en" ? (
-                <a href="mailto:jay.lin@jytech.us" className="text-red-400 hover:underline">jay.lin@jytech.us</a>
+                <a href={`mailto:${primaryContact.email}`} className="text-red-400 hover:underline">{primaryContact.name} ({primaryContact.email})</a>
               ) : (
-                <a href={`tel:+86${cnContact.phone}`} className="text-red-400 hover:underline">{cnContact.name} +86 {cnContact.phone}</a>
+                <>
+                  <a href={`tel:+86${cnContact.phone}`} className="text-red-400 hover:underline">{cnContact.name} +86 {cnContact.phone}</a>
+                  {cnContact.wechat ? <span>{` | WeChat: ${cnContact.wechat}`}</span> : null}
+                </>
               )}
             </p>
           </div>
@@ -641,9 +647,12 @@ export default function Home() {
               <p className="font-semibold text-white mb-3 text-sm">{t.footerContact}</p>
               <ul className="space-y-2 text-sm">
                 {locale === "en" ? (
-                  <li><a href="mailto:jay.lin@jytech.us" className="hover:text-white transition-colors">jay.lin@jytech.us</a></li>
+                  <li><a href={`mailto:${primaryContact.email}`} className="hover:text-white transition-colors">{primaryContact.name} ({primaryContact.email})</a></li>
                 ) : (
-                  <li><a href={`tel:+86${cnContact.phone}`} className="hover:text-white transition-colors">{cnContact.name} +86 {cnContact.phone}</a></li>
+                  <>
+                    <li><a href={`tel:+86${cnContact.phone}`} className="hover:text-white transition-colors">{cnContact.name} +86 {cnContact.phone}</a></li>
+                    {cnContact.wechat ? <li>WeChat: {cnContact.wechat}</li> : null}
+                  </>
                 )}
                 {siteLinks.map((link) => (
                   <li key={link.href}><a href={link.href} target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">{link.label}</a></li>

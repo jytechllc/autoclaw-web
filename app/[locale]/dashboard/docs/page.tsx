@@ -325,8 +325,8 @@ export default function DocsPage() {
           <h2 className="text-lg font-semibold mb-2">{td.contactTitle}</h2>
           <p className="text-sm text-gray-500">
             {td.contactDesc}{" "}
-            <a href="mailto:jay.lin@jytech.us" className="text-red-600 hover:text-red-800 transition-colors">
-              jay.lin@jytech.us
+            <a href="mailto:leo.liu@jytech.us" className="text-red-600 hover:text-red-800 transition-colors">
+              Yanlei Liu (leo.liu@jytech.us)
             </a>
           </p>
         </div>

@@ -316,9 +316,7 @@ export default function EnterpriseDiagramPage() {
           <h3 className="font-semibold text-white mb-2">{t.needHelp}</h3>
           <p className="text-sm text-gray-400">
             {t.contactUs}{" "}
-            <a href="mailto:jay.lin@jytech.us" className="text-red-400 hover:text-red-300 transition-colors">jay.lin@jytech.us</a>
-            {", "}
-            <a href="mailto:helen.lan@jytech.us" className="text-red-400 hover:text-red-300 transition-colors">helen.lan@jytech.us</a>
+            <a href="mailto:leo.liu@jytech.us" className="text-red-400 hover:text-red-300 transition-colors">Yanlei Liu (leo.liu@jytech.us)</a>
           </p>
         </div>
       </section>
