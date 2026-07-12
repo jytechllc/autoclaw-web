@@ -1,3 +1,12 @@
+> [!IMPORTANT]
+> ## This repository is deprecated
+>
+> Active development has moved to **[jytechllc/autoclaw-app](https://github.com/jytechllc/autoclaw-app)**.
+>
+> `autoclaw-app` is the repository Vercel deploys to production — **changes merged here no longer reach the live site.** Please open new pull requests against `autoclaw-app` instead.
+>
+> Existing open pull requests here have been left in place for now. Historical releases remain available, but desktop downloads and auto-updates are served from Cloudflare R2, not from this repo's GitHub Releases.
+
 # AutoClaw Web
 
 AutoClaw Web is the open-source Next.js frontend and API layer for the AutoClaw platform. It provides a multilingual marketing site, authenticated dashboard, billing and subscription flows, admin invoicing, and automation endpoints used by worker services.
