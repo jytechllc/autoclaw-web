@@ -15,6 +15,9 @@ const XPILOT_BASE_URL = process.env.XPILOT_BASE_URL || "https://xpilot.jytech.us
 const AWS_BEDROCK_REGION = process.env.AWS_BEDROCK_REGION || "us-east-2";
 // Per-provider timeout so a hung provider (e.g. Bedrock throttling) fails fast to the next one.
 const PROVIDER_TIMEOUT_MS = Number(process.env.AI_PROVIDER_TIMEOUT_MS) || 30000;
+// Amazon Nova on Bedrock is the default auto-mode model (cheaper than Claude and not
+// exposed to a China Claude-ban risk). Set AI_DEFAULT_NOVA=0 to fall back to Claude.
+const NOVA_DEFAULT = process.env.AI_DEFAULT_NOVA !== "0";
 
 interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -72,12 +75,16 @@ export const AVAILABLE_MODELS: ModelInfo[] = [
   // xPilot gateway (JYTech — platform key, billed per call via xPilot credits)
   { id: "xpilot/gpt-4o", name: "GPT-4o (xPilot)", provider: "xpilot", costPer1MInput: 250, costPer1MOutput: 1000 },
   { id: "xpilot/claude-sonnet", name: "Claude Sonnet (xPilot)", provider: "xpilot", costPer1MInput: 300, costPer1MOutput: 1500 },
+  // AWS Bedrock — Amazon Nova on our own AWS account (default; cheaper, China-ban resilient)
+  { id: "bedrock/nova-lite", name: "Amazon Nova Lite (Bedrock)", provider: "bedrock-nova", costPer1MInput: 6, costPer1MOutput: 24 },
+  { id: "bedrock/nova-micro", name: "Amazon Nova Micro (Bedrock)", provider: "bedrock-nova", costPer1MInput: 3.5, costPer1MOutput: 14 },
+  { id: "bedrock/nova-pro", name: "Amazon Nova Pro (Bedrock)", provider: "bedrock-nova", costPer1MInput: 80, costPer1MOutput: 320 },
   // AWS Bedrock — Claude on our own AWS account (cross-project AI infra)
   { id: "bedrock/claude-sonnet", name: "Claude Sonnet 4.6 (Bedrock)", provider: "bedrock", costPer1MInput: 300, costPer1MOutput: 1500 },
   { id: "bedrock/claude-haiku", name: "Claude Haiku 4.5 (Bedrock)", provider: "bedrock", costPer1MInput: 80, costPer1MOutput: 400 },
 ];
 
-export const DEFAULT_MODEL = "cerebras/gpt-oss-120b";
+export const DEFAULT_MODEL = NOVA_DEFAULT ? "bedrock/nova-lite" : "cerebras/gpt-oss-120b";
 
 // --- OpenAI-compatible helper (works for OpenAI, Cerebras, NVIDIA) ---
 async function callOpenAICompatible(
@@ -410,6 +417,50 @@ async function callBedrock(modelId: string, messages: ChatMessage[], maxTokens: 
   };
 }
 
+// --- AWS Bedrock (Amazon Nova via InvokeModel; body = Nova/Converse schema, NOT Anthropic) ---
+async function callBedrockNova(modelId: string, messages: ChatMessage[], maxTokens: number): Promise<AIResponse> {
+  const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+  if (!accessKeyId || !secretAccessKey) throw new Error("AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY not set");
+
+  const client = new BedrockRuntimeClient({ region: AWS_BEDROCK_REGION, credentials: { accessKeyId, secretAccessKey } });
+
+  const systemMsg = messages.find((m) => m.role === "system")?.content;
+  const conversationMsgs = messages.filter((m) => m.role !== "system").map((m) => ({
+    role: m.role as "user" | "assistant",
+    content: [{ text: m.content }],
+  }));
+
+  const body: Record<string, unknown> = {
+    messages: conversationMsgs,
+    inferenceConfig: { maxTokens },
+  };
+  if (systemMsg) body.system = [{ text: systemMsg }];
+
+  const res = await client.send(new InvokeModelCommand({
+    modelId,
+    contentType: "application/json",
+    accept: "application/json",
+    body: JSON.stringify(body),
+  }), { abortSignal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) });
+
+  const data = JSON.parse(new TextDecoder().decode(res.body)) as {
+    output?: { message?: { content?: { text?: string }[] } };
+    usage?: { inputTokens?: number; outputTokens?: number };
+  };
+  const content = (data.output?.message?.content || []).map((b) => b.text || "").join("").trim();
+  return {
+    content,
+    provider: "bedrock-nova",
+    model: modelId,
+    usage: data.usage ? {
+      prompt_tokens: data.usage.inputTokens || 0,
+      completion_tokens: data.usage.outputTokens || 0,
+      total_tokens: (data.usage.inputTokens || 0) + (data.usage.outputTokens || 0),
+    } : undefined,
+  };
+}
+
 // ── Benchmark-based auto model cache ──
 // In-memory cache of the best model from benchmarks (refreshed on cold start or every 1h)
 let _cachedBestModel: { modelId: string; provider: string; fetchedAt: number } | null = null;
@@ -460,6 +511,11 @@ const MODEL_API_MAP: Record<string, string> = {
   "xpilot/claude-sonnet": "anthropic/claude-sonnet-4",
   // Bedrock model ids — overridable via env once the exact versions are confirmed
   // in the Bedrock console. us-east-2 needs the "us." cross-region inference prefix.
+  // Nova defaults to first-gen "nova-*-v1:0"; set BEDROCK_NOVA_*_MODEL_ID to a Nova 2
+  // cross-region profile (e.g. us.amazon.nova-2-lite-v1:0) once confirmed in the console.
+  "bedrock/nova-lite": process.env.BEDROCK_NOVA_LITE_MODEL_ID || "us.amazon.nova-lite-v1:0",
+  "bedrock/nova-micro": process.env.BEDROCK_NOVA_MICRO_MODEL_ID || "us.amazon.nova-micro-v1:0",
+  "bedrock/nova-pro": process.env.BEDROCK_NOVA_PRO_MODEL_ID || "us.amazon.nova-pro-v1:0",
   "bedrock/claude-sonnet": process.env.BEDROCK_SONNET_MODEL_ID || "us.anthropic.claude-sonnet-4-6",
   "bedrock/claude-haiku": process.env.BEDROCK_HAIKU_MODEL_ID || "us.anthropic.claude-haiku-4-5-20251001-v1:0",
 };
@@ -498,6 +554,9 @@ export async function chatWithAI(messages: ChatMessage[], maxTokens = 500, byok?
       if (provider === "bedrock" && process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
         return await callBedrock(apiModel, messages, maxTokens);
       }
+      if (provider === "bedrock-nova" && process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
+        return await callBedrockNova(apiModel, messages, maxTokens);
+      }
       // If the selected model can't be used, fall through to auto
     }
   }
@@ -525,13 +584,19 @@ export async function chatWithAI(messages: ChatMessage[], maxTokens = 500, byok?
     return msg.slice(0, 300);
   };
 
-  // Build ordered provider list: Bedrock Claude (our own AWS account) first, then fallbacks
+  // Build ordered provider list: Bedrock (our own AWS account) first, then fallbacks
   const providers: { name: string; call: () => Promise<AIResponse> }[] = [];
 
-  // 1. AWS Bedrock Claude — preferred provider (cross-project AI infra on our AWS account)
+  // 1. AWS Bedrock — preferred provider (cross-project AI infra on our AWS account).
+  // Amazon Nova is the default (cheaper, China-ban resilient); Claude Sonnet is the
+  // next fallback. Set AI_DEFAULT_NOVA=0 to prefer Claude instead.
   if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
+    const bedrockNova = MODEL_API_MAP["bedrock/nova-lite"];
     const bedrockSonnet = MODEL_API_MAP["bedrock/claude-sonnet"];
-    providers.push({ name: "Bedrock Claude Sonnet", call: () => callBedrock(bedrockSonnet, messages, maxTokens) });
+    const nova = { name: "Bedrock Nova Lite", call: () => callBedrockNova(bedrockNova, messages, maxTokens) };
+    const claude = { name: "Bedrock Claude Sonnet", call: () => callBedrock(bedrockSonnet, messages, maxTokens) };
+    if (NOVA_DEFAULT) providers.push(nova, claude);
+    else providers.push(claude, nova);
   }
 
   // 2. Benchmark-selected best model (auto-adjusted weekly)
@@ -700,6 +765,53 @@ async function callBedrockWithTools(
   };
 }
 
+async function callBedrockNovaWithTools(
+  system: string,
+  messages: ToolTurnMessage[],
+  tools: ToolDef[],
+  maxTokens: number,
+  modelId: string,
+): Promise<ToolTurnResult> {
+  const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+  if (!accessKeyId || !secretAccessKey) throw new Error("AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY not set");
+
+  const client = new BedrockRuntimeClient({ region: AWS_BEDROCK_REGION, credentials: { accessKeyId, secretAccessKey } });
+  const toNovaBlock = (b: ContentBlock) =>
+    b.type === "text"
+      ? { text: b.text }
+      : b.type === "tool_use"
+        ? { toolUse: { toolUseId: b.id, name: b.name, input: b.input } }
+        : { toolResult: { toolUseId: b.tool_use_id, content: [{ text: b.content }] } };
+  const body = {
+    system: [{ text: system }],
+    inferenceConfig: { maxTokens },
+    toolConfig: { tools: tools.map((t) => ({ toolSpec: { name: t.name, description: t.description, inputSchema: { json: t.input_schema } } })) },
+    messages: messages.map((m) => ({
+      role: m.role,
+      content: typeof m.content === "string" ? [{ text: m.content }] : m.content.map(toNovaBlock),
+    })),
+  };
+  const res = await client.send(new InvokeModelCommand({ modelId, contentType: "application/json", accept: "application/json", body: JSON.stringify(body) }), { abortSignal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) });
+  const decoded = JSON.parse(new TextDecoder().decode(res.body));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const blocks: any[] = decoded.output?.message?.content || [];
+  const text = blocks.filter((b) => b.text).map((b) => b.text as string).join("\n").trim();
+  const toolUses: ToolUseRequest[] = blocks
+    .filter((b) => b.toolUse)
+    .map((b) => ({ id: b.toolUse.toolUseId as string, name: b.toolUse.name as string, input: (b.toolUse.input as Record<string, unknown>) || {} }));
+  return {
+    text,
+    toolUses,
+    stopReason: (decoded.stopReason as string) || "end_turn",
+    provider: "bedrock-nova",
+    model: modelId,
+    usage: decoded.usage
+      ? { prompt_tokens: decoded.usage.inputTokens || 0, completion_tokens: decoded.usage.outputTokens || 0, total_tokens: (decoded.usage.inputTokens || 0) + (decoded.usage.outputTokens || 0) }
+      : undefined,
+  };
+}
+
 function flattenToolMessages(system: string, messages: ToolTurnMessage[], tools: ToolDef[]): ChatMessage[] {
   const toolDesc = tools
     .map((t) => `- ${t.name}: ${t.description} | params=${JSON.stringify((t.input_schema as { properties?: unknown }).properties || {})}`)
@@ -738,13 +850,20 @@ export async function chatWithTools(
   requestedModel?: string,
 ): Promise<ToolTurnResult> {
   const bedrockModelId = MODEL_API_MAP["bedrock/claude-sonnet"];
+  const novaModelId = MODEL_API_MAP["bedrock/nova-pro"];
 
-  // 1. Native Bedrock tool use (preferred)
+  // 1. Native Bedrock tool use (preferred). Nova is the default; Claude is the next
+  // fallback. Set AI_DEFAULT_NOVA=0 to prefer Claude.
   if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
-    try {
-      return await callBedrockWithTools(system, messages, tools, maxTokens, bedrockModelId);
-    } catch (err) {
-      console.error("[chatWithTools] Bedrock native tools failed, falling back to text protocol:", err instanceof Error ? err.message : err);
+    const nova = () => callBedrockNovaWithTools(system, messages, tools, maxTokens, novaModelId);
+    const claude = () => callBedrockWithTools(system, messages, tools, maxTokens, bedrockModelId);
+    const chain = NOVA_DEFAULT ? [nova, claude] : [claude, nova];
+    for (const attempt of chain) {
+      try {
+        return await attempt();
+      } catch (err) {
+        console.error("[chatWithTools] Bedrock native tools failed, trying next:", err instanceof Error ? err.message : err);
+      }
     }
   }
 
