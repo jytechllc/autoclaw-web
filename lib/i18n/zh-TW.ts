@@ -1551,6 +1551,7 @@ const zhTW: typeof en = {
     gaAlertSpendSpike: "「{name}」昨天花了 \${y},是平時(\${avg}/天)的 {x} 倍。",
     gaAlertZeroImpr: "「{name}」昨天 0 曝光(平時約 {impr}/天)。請檢查廣告審核和付款方式。",
     gaAlertConvDrop: "「{name}」昨天有 {clicks} 次點擊但 0 轉化(過去一週 {conv} 個)。轉換追蹤代碼可能壞了。",
+    gaAlertConvSilent: "本週有 {clicks} 次點擊但一個轉換都沒記錄到——轉換追蹤代碼很可能沒裝好。",
     recsSection: "AI 最佳化建議",
     recsGenerate: "產生建議",
     recsRegenerate: "重新產生",

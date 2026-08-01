@@ -79,6 +79,26 @@ describe("analyzeCampaign", () => {
   });
 });
 
+describe("analyzeAccountConversions", () => {
+  const busy = (clicks: number, conversions: number): DailyMetricRow[] => [
+    day(isoDaysAgo(2), { clicks, conversions, impressions: clicks * 20 }),
+  ];
+
+  it("flags plenty of clicks with zero conversions anywhere", async () => {
+    const { analyzeAccountConversions, ACCOUNT_CONV_MIN_CLICKS } = await import("./google-ads-monitor");
+    const alert = analyzeAccountConversions([busy(80, 0), busy(40, 0)]);
+    expect(alert?.kind).toBe("CONVERSION_TRACKING_SILENT");
+    expect(alert?.numbers.clicks).toBeGreaterThanOrEqual(ACCOUNT_CONV_MIN_CLICKS);
+  });
+
+  it("stays silent when any conversion exists or clicks are few", async () => {
+    const { analyzeAccountConversions } = await import("./google-ads-monitor");
+    expect(analyzeAccountConversions([busy(80, 1), busy(40, 0)])).toBeNull();
+    expect(analyzeAccountConversions([busy(30, 0)])).toBeNull();
+    expect(analyzeAccountConversions([])).toBeNull();
+  });
+});
+
 describe("isoDaysAgo", () => {
   it("returns YYYY-MM-DD and is monotonic", () => {
     expect(isoDaysAgo(1)).toMatch(/^\d{4}-\d{2}-\d{2}$/);

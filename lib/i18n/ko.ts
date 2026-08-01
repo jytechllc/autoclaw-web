@@ -1545,6 +1545,7 @@ const ko = {
     gaAlertSpendSpike: "\"{name}\"이(가) 어제 \${y}를 지출했습니다 — 평소(\${avg}/일)의 {x}배입니다.",
     gaAlertZeroImpr: "\"{name}\"이(가) 어제 노출 0회였습니다(평소 약 {impr}/일). 광고 승인과 결제를 확인하세요.",
     gaAlertConvDrop: "\"{name}\"이(가) 어제 클릭 {clicks}회에 전환 0회였습니다(지난주 {conv}회). 전환 태그가 깨졌을 수 있습니다.",
+    gaAlertConvSilent: "이번 주 클릭 {clicks}회에 전환이 하나도 기록되지 않았습니다. 전환 태그가 제대로 설치되지 않았을 가능성이 큽니다.",
     recsSection: "AI 최적화 추천",
     recsGenerate: "생성",
     recsRegenerate: "다시 생성",

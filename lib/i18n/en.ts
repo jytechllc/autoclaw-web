@@ -1576,6 +1576,7 @@ const en = {
     gaAlertSpendSpike: "\"{name}\" spent \${y} yesterday — {x}x its usual \${avg}/day.",
     gaAlertZeroImpr: "\"{name}\" served 0 impressions yesterday (usually ~{impr}/day). Check approval & billing.",
     gaAlertConvDrop: "\"{name}\" got {clicks} clicks but 0 conversions yesterday (past week: {conv}). Conversion tag may be broken.",
+    gaAlertConvSilent: "{clicks} clicks this week but zero conversions recorded — your conversion tag is probably not installed correctly.",
     recsSection: "AI Optimization Recommendations",
     recsGenerate: "Generate",
     recsRegenerate: "Regenerate",
