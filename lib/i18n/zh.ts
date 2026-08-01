@@ -1555,6 +1555,7 @@ const zh: typeof en = {
     gaAlertSpendSpike: "「{name}」昨天花了 \${y},是平时(\${avg}/天)的 {x} 倍。",
     gaAlertZeroImpr: "「{name}」昨天 0 曝光(平时约 {impr}/天)。请检查广告审核和付款方式。",
     gaAlertConvDrop: "「{name}」昨天有 {clicks} 次点击但 0 转化(过去一周 {conv} 个)。转化跟踪代码可能坏了。",
+    gaAlertConvSilent: "本周有 {clicks} 次点击但一个转化都没记录到——转化跟踪代码很可能没装好。",
     recsSection: "AI 优化建议",
     recsGenerate: "生成建议",
     recsRegenerate: "重新生成",

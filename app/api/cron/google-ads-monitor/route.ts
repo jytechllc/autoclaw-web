@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { orderOrgsForCron } from "@/lib/google-ads-sync";
-import { fetchDailyMetrics, analyzeCampaign, type CampaignAlert } from "@/lib/google-ads-monitor";
+import {
+  fetchDailyMetrics,
+  analyzeCampaign,
+  analyzeAccountConversions,
+  type CampaignAlert,
+  type DailyMetricRow,
+} from "@/lib/google-ads-monitor";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -17,6 +23,7 @@ const ALERT_STRINGS: Record<string, Record<string, (c: string, n: Record<string,
     SPEND_SPIKE: (c, n) => `⚠️ "${c}" spent $${n.yesterdayUsd} yesterday — ${n.multiple}× its usual $${n.trailingAvgUsd}/day.`,
     ZERO_IMPRESSIONS: (c, n) => `🚨 "${c}" served 0 impressions yesterday (usually ~${n.trailingAvgImpressions}/day). Check ad approval and billing.`,
     CONVERSIONS_DROPPED: (c, n) => `⚠️ "${c}" got ${n.yesterdayClicks} clicks yesterday but 0 conversions (past week: ${n.trailingConversions}). Your conversion tag may be broken.`,
+    CONVERSION_TRACKING_SILENT: (_c, n) => `🚨 ${n.clicks} clicks this week but not a single conversion recorded — your conversion tracking tag is probably not installed correctly.`,
     subject: () => "AutoClaw alert: something needs your attention in Google Ads",
     intro: () => "We watch your campaigns every day. Yesterday these needed a look:",
     cta: () => "Open AutoClaw",
@@ -25,6 +32,7 @@ const ALERT_STRINGS: Record<string, Record<string, (c: string, n: Record<string,
     SPEND_SPIKE: (c, n) => `⚠️ 「${c}」昨天花了 $${n.yesterdayUsd},是平时($${n.trailingAvgUsd}/天)的 ${n.multiple} 倍。`,
     ZERO_IMPRESSIONS: (c, n) => `🚨 「${c}」昨天 0 曝光(平时约 ${n.trailingAvgImpressions}/天)。请检查广告审核状态和付款方式。`,
     CONVERSIONS_DROPPED: (c, n) => `⚠️ 「${c}」昨天有 ${n.yesterdayClicks} 次点击但 0 转化(过去一周有 ${n.trailingConversions} 个)。转化跟踪代码可能坏了。`,
+    CONVERSION_TRACKING_SILENT: (_c, n) => `🚨 本周有 ${n.clicks} 次点击但一个转化都没记录到——转化跟踪代码很可能没装好。`,
     subject: () => "AutoClaw 提醒:你的谷歌广告需要看一眼",
     intro: () => "我们每天帮你盯着广告。昨天这些情况需要你注意:",
     cta: () => "打开 AutoClaw",
@@ -134,6 +142,32 @@ export async function GET(req: NextRequest) {
       bucket.lines.push(S[a.kind](String(r.campaign_name || r.platform_campaign_id), a.numbers));
       byOrg.set(orgId, bucket);
     }
+  }
+
+  // Account-level: tag-never-worked check per org (campaign_id 0 = account).
+  const seriesByOrg = new Map<number, DailyMetricRow[][]>();
+  for (const r of rows) {
+    const orgId = Number(r.org_id);
+    if (!orgAllowed.has(orgId)) continue;
+    const list = seriesByOrg.get(orgId) ?? [];
+    list.push(daily.get(String(r.platform_campaign_id)) ?? []);
+    seriesByOrg.set(orgId, list);
+  }
+  for (const [orgId, allSeries] of seriesByOrg) {
+    const acct = analyzeAccountConversions(allSeries);
+    if (!acct) continue;
+    const key = `org${orgId}:0:${acct.kind}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const sample = rows.find((r) => Number(r.org_id) === orgId)!;
+    await sql`
+      INSERT INTO google_ads_alerts (org_id, campaign_id, kind, severity, numbers, notified)
+      VALUES (${orgId}, 0, ${acct.kind}, ${acct.severity}, ${JSON.stringify(acct.numbers)}, ${Boolean(brevoKey)})
+    `;
+    stored += 1;
+    const bucket = byOrg.get(orgId) ?? { orgName: String(sample.org_name || ""), email: String(sample.owner_email || ""), lines: [] };
+    bucket.lines.push(S[acct.kind]("", acct.numbers));
+    byOrg.set(orgId, bucket);
   }
 
   // Email each org that has fresh alerts.

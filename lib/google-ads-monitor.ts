@@ -20,6 +20,11 @@ export const SPIKE_MIN_USD = 5;
 export const ZERO_IMPR_MIN_TRAILING_AVG = 50;
 export const CONV_DROP_MIN_TRAILING = 5;
 export const CONV_DROP_MIN_CLICKS = 20;
+/** Account-level: this many clicks across all campaigns with zero conversions
+ *  ever recorded → the conversion tag probably was never installed right.
+ *  (The per-campaign CONVERSIONS_DROPPED rule can't catch this: it requires
+ *  trailing conversions, which a never-working tag never produces.) */
+export const ACCOUNT_CONV_MIN_CLICKS = 100;
 
 export interface DailyMetricRow {
   /** YYYY-MM-DD */
@@ -30,7 +35,11 @@ export interface DailyMetricRow {
   conversions: number;
 }
 
-export type AlertKind = "SPEND_SPIKE" | "ZERO_IMPRESSIONS" | "CONVERSIONS_DROPPED";
+export type AlertKind =
+  | "SPEND_SPIKE"
+  | "ZERO_IMPRESSIONS"
+  | "CONVERSIONS_DROPPED"
+  | "CONVERSION_TRACKING_SILENT";
 
 export interface CampaignAlert {
   kind: AlertKind;
@@ -91,6 +100,29 @@ export function analyzeCampaign(
   }
 
   return alerts;
+}
+
+/** Account-level health: plenty of clicks across the org's campaigns but not
+ *  a single conversion in the whole window → the tag likely never worked.
+ *  Returns one org-scoped alert (campaignResource "" = account). Pure. */
+export function analyzeAccountConversions(allSeries: DailyMetricRow[][]): CampaignAlert | null {
+  let clicks = 0;
+  let conversions = 0;
+  for (const series of allSeries) {
+    for (const r of series) {
+      clicks += r.clicks;
+      conversions += r.conversions;
+    }
+  }
+  if (clicks >= ACCOUNT_CONV_MIN_CLICKS && conversions === 0) {
+    return {
+      kind: "CONVERSION_TRACKING_SILENT",
+      severity: "MEDIUM",
+      campaignResource: "",
+      numbers: { clicks },
+    };
+  }
+  return null;
 }
 
 /** Per-campaign per-day metrics for the last N days (excluding today, whose

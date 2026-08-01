@@ -76,6 +76,8 @@ export default function GoogleAdsPage() {
     if (a.kind === "SPEND_SPIKE") return fill(t.gaAlertSpendSpike || '"{name}" spent ${y} yesterday — {x}× its usual ${avg}/day.');
     if (a.kind === "ZERO_IMPRESSIONS") return fill(t.gaAlertZeroImpr || '"{name}" served 0 impressions yesterday (usually ~{impr}/day). Check approval & billing.');
     if (a.kind === "CONVERSIONS_DROPPED") return fill(t.gaAlertConvDrop || '"{name}" got {clicks} clicks but 0 conversions yesterday (past week: {conv}). Conversion tag may be broken.');
+    if (a.kind === "CONVERSION_TRACKING_SILENT")
+      return (t.gaAlertConvSilent || "{clicks} clicks this week but zero conversions recorded — your conversion tag is probably not installed correctly.").replace("{clicks}", String(a.numbers?.clicks ?? ""));
     return `${a.kind}: ${a.campaignName}`;
   }
 
