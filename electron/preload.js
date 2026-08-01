@@ -23,4 +23,7 @@ contextBridge.exposeInMainWorld("autoclawDesktop", {
     }),
   // Re-attempt loading the hosted app (used by the offline page's retry button).
   retry: () => ipcRenderer.invoke("autoclaw:retry"),
+  // Set the unread-count badge: Dock badge number on macOS, taskbar overlay
+  // dot on Windows. 0 (or anything invalid) clears it.
+  setBadge: (count) => ipcRenderer.invoke("autoclaw:set-badge", { count }),
 });
