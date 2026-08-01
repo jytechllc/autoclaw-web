@@ -1,21 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth0 } from "@/lib/auth0";
 import { fetchAccountLinks, adsSearchStream, listAccessibleCustomers, fetchCustomerInfo } from "@/lib/google-ads";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { requireSession } from "@/lib/google-ads-auth";
 
 export const dynamic = "force-dynamic";
 
-function getIp(req: NextRequest): string {
-  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-}
-
 /** Diagnose Google Ads account state — used to check YouTube channel link, billing, etc. */
 export async function GET(req: NextRequest) {
-  if (!checkRateLimit(getIp(req), { limit: 30, windowMs: 60_000 })) {
-    return NextResponse.json({ error: "Too many requests" }, { status: 429 });
-  }
-  const session = await auth0.getSession();
-  if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await requireSession(req, { limit: 30 });
+  if ("response" in auth) return auth.response;
 
   const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
 
