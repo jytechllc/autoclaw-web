@@ -56,6 +56,70 @@ export default function GoogleAdsPage() {
   const { activeOrg, isReadOnly } = useOrg();
   const orgIdParam = activeOrg ? `?org_id=${activeOrg.id}` : "";
 
+  // Anomaly alerts from the monitor cron (gap #2 part 3): banner + desktop
+  // notification. Dismissal is client-side (localStorage high-water mark).
+  type GaAlert = { id: number; campaignId: number; campaignName: string; kind: string; severity: string; numbers: Record<string, number> };
+  const [gaAlerts, setGaAlerts] = useState<GaAlert[]>([]);
+
+  function alertText(a: GaAlert): string {
+    const n = a.numbers || {};
+    const fill = (tpl: string) =>
+      tpl
+        .replace("{name}", a.campaignName || `#${a.campaignId}`)
+        .replace("{y}", String(n.yesterdayUsd ?? ""))
+        .replace("{avg}", String(n.trailingAvgUsd ?? ""))
+        .replace("{x}", String(n.multiple ?? ""))
+        .replace("{impr}", String(n.trailingAvgImpressions ?? ""))
+        .replace("{clicks}", String(n.yesterdayClicks ?? ""))
+        .replace("{conv}", String(n.trailingConversions ?? ""));
+    if (a.kind === "SPEND_SPIKE") return fill(t.gaAlertSpendSpike || '"{name}" spent ${y} yesterday — {x}× its usual ${avg}/day.');
+    if (a.kind === "ZERO_IMPRESSIONS") return fill(t.gaAlertZeroImpr || '"{name}" served 0 impressions yesterday (usually ~{impr}/day). Check approval & billing.');
+    if (a.kind === "CONVERSIONS_DROPPED") return fill(t.gaAlertConvDrop || '"{name}" got {clicks} clicks but 0 conversions yesterday (past week: {conv}). Conversion tag may be broken.');
+    return `${a.kind}: ${a.campaignName}`;
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/google-ads/alerts${activeOrg ? `?orgId=${activeOrg.id}` : ""}`);
+        const data = await res.json();
+        if (cancelled || !res.ok || !data.success) return;
+        const all: GaAlert[] = Array.isArray(data.alerts) ? data.alerts : [];
+        const dismissed = Number(localStorage.getItem("gaAlertsDismissed") || 0);
+        const fresh = all.filter((a) => a.id > dismissed);
+        setGaAlerts(fresh);
+        // Desktop shell: surface the newest alert as a native notification,
+        // once per alert id (deep-links back to the campaign).
+        const desktop = (window as unknown as { autoclawDesktop?: { notify?: (o: { title: string; body: string; url?: string }) => void } }).autoclawDesktop;
+        if (fresh.length > 0 && desktop?.notify) {
+          const newest = fresh[0];
+          const lastNotified = Number(localStorage.getItem("gaAlertsNotified") || 0);
+          if (newest.id > lastNotified) {
+            localStorage.setItem("gaAlertsNotified", String(newest.id));
+            desktop.notify({
+              title: t.gaAlertsTitle || "Google Ads alert",
+              body: alertText(newest),
+              url: `/${locale}/dashboard/google-ads/${newest.campaignId}`,
+            });
+          }
+        }
+      } catch {
+        /* alerts are a bonus — never block the page */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeOrg?.id]);
+
+  function dismissAlerts() {
+    const maxId = gaAlerts.reduce((m, a) => Math.max(m, a.id), 0);
+    localStorage.setItem("gaAlertsDismissed", String(maxId));
+    setGaAlerts([]);
+  }
+
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [credits, setCredits] = useState<Credits | null>(null);
   const [loading, setLoading] = useState(true);
@@ -384,6 +448,30 @@ export default function GoogleAdsPage() {
   return (
     <DashboardShell user={user} plan={undefined}>
       <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-6">
+        {gaAlerts.length > 0 && (
+          <div className="border border-red-200 bg-red-50 rounded-xl p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-1">
+                <div className="text-sm font-semibold text-red-800">🔔 {t.gaAlertsTitle || "Google Ads alert"} ({gaAlerts.length})</div>
+                {gaAlerts.slice(0, 5).map((a) => (
+                  <Link
+                    key={a.id}
+                    href={`/${locale}/dashboard/google-ads/${a.campaignId}`}
+                    className="block text-xs text-red-700 hover:text-red-900 hover:underline"
+                  >
+                    {alertText(a)}
+                  </Link>
+                ))}
+              </div>
+              <button
+                onClick={dismissAlerts}
+                className="text-xs text-red-400 hover:text-red-700 shrink-0 cursor-pointer"
+              >
+                {t.gaAlertsDismiss || "Dismiss"}
+              </button>
+            </div>
+          </div>
+        )}
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{t.title}</h1>
