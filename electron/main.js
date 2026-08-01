@@ -757,11 +757,48 @@ function refreshTrayMenu() {
   if (tray) tray.setContextMenu(buildTrayMenu());
 }
 
+// Platform-appropriate tray / menu-bar icon.
+// - macOS: menu-bar icons should be *template images* (monochrome + alpha) so
+//   they adapt to light/dark menu bars and selection tinting. Derive a black
+//   silhouette from the app icon's alpha channel, at 1x and 2x for retina.
+// - Windows: hand the tray a 32px image and let the OS scale it down —
+//   pre-resizing to 16px is what makes tray icons look blurry on high-DPI.
+// - Linux: panels vary; 22px is the most common panel size.
+function trayImage() {
+  const base = nativeImage.createFromPath(iconPath());
+  if (base.isEmpty()) return base;
+  if (process.platform === "darwin") {
+    const tmpl = nativeImage.createEmpty();
+    for (const rep of [
+      { size: 16, scale: 1 },
+      { size: 32, scale: 2 },
+    ]) {
+      const bitmap = base
+        .resize({ width: rep.size, height: rep.size })
+        .toBitmap(); // BGRA
+      const out = Buffer.alloc(bitmap.length);
+      for (let i = 0; i < bitmap.length; i += 4) {
+        out[i + 3] = bitmap[i + 3]; // keep alpha, silhouette stays black
+      }
+      tmpl.addRepresentation({
+        width: rep.size,
+        height: rep.size,
+        scaleFactor: rep.scale,
+        buffer: out,
+      });
+    }
+    tmpl.setTemplateImage(true);
+    return tmpl.isEmpty() ? base.resize({ width: 16, height: 16 }) : tmpl;
+  }
+  const px = process.platform === "win32" ? 32 : 22;
+  return base.resize({ width: px, height: px });
+}
+
 function createTray() {
   try {
-    const img = nativeImage.createFromPath(iconPath());
+    const img = trayImage();
     if (img.isEmpty()) return;
-    tray = new Tray(img.resize({ width: 16, height: 16 }));
+    tray = new Tray(img);
     tray.setToolTip("AutoClaw");
     tray.setContextMenu(buildTrayMenu());
     tray.on("click", () => {
