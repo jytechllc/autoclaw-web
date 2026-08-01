@@ -1540,6 +1540,8 @@ const ko = {
     negKwRemove: "제거",
     negKwCreated: "개의 제외 키워드가 추가됨",
     negKwRemoved: "제외 키워드가 제거됨",
+    alertMail: "알림 이메일",
+    alertMailTooltip: "일일 모니터가 이상을 발견하면 조직 소유자에게 이메일을 보냅니다",
     gaAlertsTitle: "Google Ads 알림",
     gaAlertsDismiss: "확인",
     gaAlertSpendSpike: "\"{name}\"이(가) 어제 \${y}를 지출했습니다 — 평소(\${avg}/일)의 {x}배입니다.",
