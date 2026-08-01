@@ -58,6 +58,23 @@ export default function PmaxWizardPage() {
   const [totalBudget, setTotalBudget] = useState("100");
   const [industry, setIndustry] = useState("");
 
+  // Business profile — owner-entered ground truth that enriches AI generation
+  // and (city) auto-fills geo targeting. All optional; URL alone still works.
+  const [bizName, setBizName] = useState("");
+  const [bizCity, setBizCity] = useState("");
+  const [goal, setGoal] = useState("");
+  // Geo target resolved from the city, passed to campaign create.
+  const [geoIds, setGeoIds] = useState<string[]>([]);
+  const [geoName, setGeoName] = useState("");
+
+  // Goal → English phrasing for the model (UI label stays localized).
+  const GOAL_PROMPTS: Record<string, string> = {
+    calls: "Get more phone calls",
+    visits: "Get more in-store visits",
+    orders: "Get more online orders / leads",
+    awareness: "Build local brand awareness",
+  };
+
   // Picking an industry pre-fills the budget from peer benchmarks so a
   // first-time owner never has to invent numbers. Always overridable.
   function handleIndustryChange(id: string) {
@@ -143,11 +160,39 @@ export default function PmaxWizardPage() {
       return;
     }
     setGenerating(true);
+
+    // Best-effort: resolve the owner's city to a Google geo target so the
+    // campaign launches targeted at their area instead of the whole country.
+    if (bizCity.trim()) {
+      try {
+        const geoRes = await fetch(`/api/google-ads/geo-targets?q=${encodeURIComponent(bizCity.trim())}&locale=${locale}`);
+        const geoData = await geoRes.json();
+        const first = Array.isArray(geoData.suggestions) ? geoData.suggestions[0] : null;
+        if (first?.id) {
+          setGeoIds([String(first.id)]);
+          setGeoName(String(first.name || bizCity));
+        }
+      } catch {
+        /* geo prefill is a bonus — never block generation on it */
+      }
+    }
+
     try {
+      const bench = industry ? INDUSTRY_BENCHMARKS.find((b) => b.id === industry) : undefined;
       const res = await fetch("/api/google-ads/ad-copy/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "pmax", url: url.trim(), locale }),
+        body: JSON.stringify({
+          mode: "pmax",
+          url: url.trim(),
+          locale,
+          business: {
+            name: bizName.trim(),
+            city: bizCity.trim(),
+            industry: bench ? bench.label.en : "",
+            goal: goal ? GOAL_PROMPTS[goal] || "" : "",
+          },
+        }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -210,6 +255,8 @@ export default function PmaxWizardPage() {
           totalBudget: Number(totalBudget),
           channel: "PERFORMANCE_MAX",
           orgId: activeOrg?.id,
+          // Geo resolved from the owner's city (empty = account default).
+          ...(geoIds.length > 0 ? { locationIds: geoIds } : {}),
         }),
       });
       const campData = await campRes.json();
@@ -304,6 +351,44 @@ export default function PmaxWizardPage() {
                 placeholder="https://your-store.com"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
               />
+            </div>
+            {/* Business profile — three quick fields so the AI writes about THEIR
+                business (not just whatever the website says) and targets their city. */}
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t.wizardBizName || "Business name"}</label>
+                <input
+                  type="text"
+                  value={bizName}
+                  onChange={(e) => setBizName(e.target.value)}
+                  placeholder={t.wizardBizNamePh || "e.g. Golden Dragon Restaurant"}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t.wizardBizCity || "City / area you serve"}</label>
+                <input
+                  type="text"
+                  value={bizCity}
+                  onChange={(e) => setBizCity(e.target.value)}
+                  placeholder={t.wizardBizCityPh || "e.g. Flushing, New York"}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t.wizardGoal || "What do you want from the ads?"}</label>
+              <select
+                value={goal}
+                onChange={(e) => setGoal(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+              >
+                <option value="">{t.wizardGoalPick || "Pick a goal (optional)"}</option>
+                <option value="calls">{t.wizardGoalCalls || "More phone calls"}</option>
+                <option value="visits">{t.wizardGoalVisits || "More store visits"}</option>
+                <option value="orders">{t.wizardGoalOrders || "More online orders / leads"}</option>
+                <option value="awareness">{t.wizardGoalAwareness || "Get known locally"}</option>
+              </select>
             </div>
             {/* Industry → budget auto-fill. The owner never has to guess numbers:
                 picking an industry pre-fills what similar businesses spend. */}

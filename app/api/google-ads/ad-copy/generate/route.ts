@@ -79,6 +79,18 @@ export async function POST(req: NextRequest) {
   // mode "extensions": generate sitelinks + callouts instead of ad copy.
   const mode = String(body.mode || "copy");
 
+  // Optional business profile from the wizard (owner-entered ground truth).
+  // Enriches generation when the landing page is thin and steers copy toward
+  // the owner's actual goal instead of whatever the page happens to emphasize.
+  const bizRaw = (body.business && typeof body.business === "object" ? body.business : {}) as Record<string, unknown>;
+  const business = {
+    name: clipChars(String(bizRaw.name || "").trim(), 60),
+    city: clipChars(String(bizRaw.city || "").trim(), 60),
+    industry: clipChars(String(bizRaw.industry || "").trim(), 40),
+    goal: clipChars(String(bizRaw.goal || "").trim(), 60),
+  };
+  const hasBusiness = Boolean(business.name || business.city || business.industry || business.goal);
+
   if (!/^https?:\/\//i.test(url)) {
     return NextResponse.json({ error: "url must start with http:// or https://" }, { status: 400 });
   }
@@ -196,10 +208,13 @@ Hard constraints:
 
 Style:
 - Action-oriented, benefit-led. Mirror the page's verifiable offer — never invent claims, prices, or guarantees not on the page.
-- No superlatives without basis, no excessive punctuation, no ALL CAPS words.`;
+- No superlatives without basis, no excessive punctuation, no ALL CAPS words.${hasBusiness ? `
+- A business profile from the owner is provided — treat it as ground truth. Use its name for businessName, mention the city where natural, and shape CTAs around the owner's goal.` : ""}`;
     const pmaxUser = `Landing page URL: ${url}
 Page title: ${pageTitle || "(none)"}
-
+${hasBusiness ? `
+Business profile (owner-entered ground truth):
+${business.name ? `- Name: ${business.name}\n` : ""}${business.industry ? `- Industry: ${business.industry}\n` : ""}${business.city ? `- City: ${business.city}\n` : ""}${business.goal ? `- Owner's goal: ${business.goal}\n` : ""}` : ""}
 Page content (text excerpt):
 ${pageText}
 
