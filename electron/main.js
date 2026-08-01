@@ -308,10 +308,60 @@ function isInAppUrl(url) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// autoclaw:// deep links. Links in emails (e.g. the weekly digest) or on the
+// web can open the desktop app directly and land on a specific page:
+// autoclaw://dashboard/google-ads → {APP_ORIGIN}/dashboard/google-ads.
+// Arrival paths differ per platform: macOS delivers an open-url event; on
+// Windows the OS launches a second instance with the link in argv, which the
+// single-instance lock forwards to us.
+const PROTOCOL_SCHEME = "autoclaw";
+let pendingDeepLink = null; // link arrived before the window existed
+
+// "autoclaw://a/b?c=1" → "{APP_ORIGIN}/a/b?c=1", or null when it does not
+// resolve to an in-app URL (same guard as notifications — a crafted link
+// cannot steer the shell to an arbitrary site).
+function deepLinkToAppUrl(raw) {
+  if (typeof raw !== "string") return null;
+  const prefix = `${PROTOCOL_SCHEME}://`;
+  if (!raw.startsWith(prefix)) return null;
+  const path = raw.slice(prefix.length).replace(/^\/+/, "");
+  try {
+    const resolved = new URL(`/${path}`, APP_ORIGIN).toString();
+    return isInAppUrl(resolved) ? resolved : null;
+  } catch {
+    return null;
+  }
+}
+
+function handleDeepLink(raw) {
+  const target = deepLinkToAppUrl(raw);
+  if (!target) return;
+  if (mainWindow) {
+    showMainWindow();
+    mainWindow.webContents.loadURL(target);
+  } else {
+    // Cold start via link: remember it; the first loadRemoteApp() uses it.
+    pendingDeepLink = target;
+  }
+}
+
+function firstDeepLinkArg(argv) {
+  return (
+    (argv || []).find(
+      (a) => typeof a === "string" && a.startsWith(`${PROTOCOL_SCHEME}://`),
+    ) || null
+  );
+}
+
 // Navigate the main window to the hosted web app. Used on startup (after the
 // splash paints), by the auto-reconnect timer, and by the "Retry now" button.
+// A pending deep link (cold start via autoclaw://) takes precedence once.
 function loadRemoteApp() {
-  if (mainWindow) mainWindow.loadURL(APP_URL);
+  if (!mainWindow) return;
+  const target = pendingDeepLink || APP_URL;
+  pendingDeepLink = null;
+  mainWindow.loadURL(target);
 }
 
 // Show the bundled offline page and start polling the hosted URL. The page is
@@ -1075,8 +1125,19 @@ const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
-  app.on("second-instance", () => {
+  app.on("second-instance", (_event, argv) => {
     showMainWindow();
+    // Windows/Linux: an autoclaw:// link launches a second instance with the
+    // link in its argv — the lock forwards it here.
+    const link = firstDeepLinkArg(argv);
+    if (link) handleDeepLink(link);
+  });
+
+  // macOS delivers protocol links as open-url events (both cold start and
+  // while running). Must be registered before `ready`.
+  app.on("open-url", (event, url) => {
+    event.preventDefault();
+    handleDeepLink(url);
   });
 
   // Distinguish a real quit from a close-to-tray so the window "close" handler
@@ -1106,6 +1167,19 @@ if (!gotLock) {
   app.whenReady().then(() => {
     // Must be set before any notification is shown (Windows requirement).
     app.setAppUserModelId(APP_ID);
+
+    // Register autoclaw:// with the OS. Packaged builds only — a dev run
+    // would register the bare electron binary as the handler.
+    if (!isDev) {
+      try {
+        app.setAsDefaultProtocolClient(PROTOCOL_SCHEME);
+      } catch {
+        // Registration is best-effort; deep links just won't work this run.
+      }
+    }
+    // Windows cold start via link: the link is in our own argv.
+    const initialLink = firstDeepLinkArg(process.argv);
+    if (initialLink) handleDeepLink(initialLink);
 
     // Seed the splash/offline-page language from the OS locale (available only
     // after ready). Refined from the app's locale cookie once it has loaded.

@@ -31,6 +31,13 @@ extraResources:
   - from: electron-resources/icon.png
     to: icon.png
 
+# autoclaw:// deep links (see the protocol block in electron/main.js).
+# electron-builder writes this into the mac Info.plist (CFBundleURLTypes);
+# Windows registration happens at runtime via setAsDefaultProtocolClient.
+protocols:
+  - name: AutoClaw
+    schemes: [autoclaw]
+
 # Auto-update feed (electron-updater reads this via the app-update.yml that
 # electron-builder bakes into the package). Served from Cloudflare R2 rather
 # than GitHub Releases: Windows is the China-market channel, where github.com is
