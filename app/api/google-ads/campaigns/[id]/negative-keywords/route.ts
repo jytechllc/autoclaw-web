@@ -1,77 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth0 } from "@/lib/auth0";
-import { getDb } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
-import { checkRateLimit } from "@/lib/rate-limit";
 import {
   addCampaignNegativeKeywords,
   removeCampaignNegativeKeyword,
   channelSupportsNegativeKeywords,
   type KeywordMatchType,
 } from "@/lib/google-ads";
-import { resolveOrgId } from "@/lib/credits";
-import { isReadOnlyUserId } from "@/lib/roles-server";
+import { requireCampaign } from "@/lib/google-ads-auth";
 
 export const dynamic = "force-dynamic";
 
-function getIp(req: NextRequest): string {
-  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-}
-
 const VALID_MATCH = new Set<KeywordMatchType>(["BROAD", "PHRASE", "EXACT"]);
-
-type CampaignRow = { platform_campaign_id: string; channel: string | null; closed: boolean };
-
-async function loadCampaign(
-  req: NextRequest,
-  params: Promise<{ id: string }>,
-  body: Record<string, unknown>
-): Promise<
-  | { error: NextResponse }
-  | { campaign: CampaignRow; campaignId: number; userId: number; userEmail: string; orgId: number }
-> {
-  const session = await auth0.getSession();
-  if (!session?.user?.email) return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
-
-  const { id } = await params;
-  const campaignId = Number(id);
-  if (!Number.isFinite(campaignId)) return { error: NextResponse.json({ error: "Invalid id" }, { status: 400 }) };
-
-  const sql = getDb();
-  const userEmail = session.user.email as string;
-  const users = await sql`SELECT id FROM users WHERE email = ${userEmail}`;
-  if (users.length === 0) return { error: NextResponse.json({ error: "User not found" }, { status: 404 }) };
-  const userId = users[0].id as number;
-  if (await isReadOnlyUserId(sql, userId)) {
-    return { error: NextResponse.json({ error: "Read-only account — writes are disabled" }, { status: 403 }) };
-  }
-
-  const requestedOrgId = body.orgId ? Number(body.orgId) : undefined;
-  const orgId = await resolveOrgId(sql, userId, requestedOrgId);
-  if (!orgId) return { error: NextResponse.json({ error: "No organization found" }, { status: 400 }) };
-
-  const rows = await sql`
-    SELECT platform_campaign_id, channel, closed FROM campaigns
-    WHERE id = ${campaignId} AND org_id = ${orgId} AND platform = 'google'
-  `;
-  if (rows.length === 0) return { error: NextResponse.json({ error: "Campaign not found" }, { status: 404 }) };
-  if (rows[0].closed) return { error: NextResponse.json({ error: "Campaign is closed" }, { status: 409 }) };
-
-  return { campaign: rows[0] as unknown as CampaignRow, campaignId, userId, userEmail, orgId };
-}
 
 /** POST — add campaign-level negative keywords.
  *  Body: { keywords: Array<string | { text, matchType }>, orgId? } */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const ip = getIp(req);
-  if (!checkRateLimit(ip, { limit: 30, windowMs: 60_000 })) {
-    return NextResponse.json({ error: "Too many requests" }, { status: 429 });
-  }
-
   const body = await req.json().catch(() => ({}));
-  const loaded = await loadCampaign(req, params, body);
-  if ("error" in loaded) return loaded.error;
-  const { campaign, campaignId, userId, userEmail } = loaded;
+  const auth = await requireCampaign(req, params, {
+    limit: 30,
+    write: true,
+    requestedOrgId: body.orgId,
+  });
+  if ("response" in auth) return auth.response;
+  const { campaign, campaignId, userId, userEmail, ip } = auth;
 
   if (!channelSupportsNegativeKeywords(String(campaign.channel || ""))) {
     return NextResponse.json(
@@ -128,15 +79,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 /** DELETE — remove one negative keyword criterion.
  *  Body: { resourceName, orgId? } */
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const ip = getIp(req);
-  if (!checkRateLimit(ip, { limit: 30, windowMs: 60_000 })) {
-    return NextResponse.json({ error: "Too many requests" }, { status: 429 });
-  }
-
   const body = await req.json().catch(() => ({}));
-  const loaded = await loadCampaign(req, params, body);
-  if ("error" in loaded) return loaded.error;
-  const { campaign, campaignId, userId, userEmail } = loaded;
+  const auth = await requireCampaign(req, params, {
+    limit: 30,
+    write: true,
+    requestedOrgId: body.orgId,
+  });
+  if ("response" in auth) return auth.response;
+  const { campaign, campaignId, userId, userEmail, ip } = auth;
 
   const resourceName = String(body.resourceName || "").trim();
   // Criterion must live under the same customer as this campaign.
