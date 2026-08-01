@@ -331,6 +331,13 @@ function createWindow() {
 
   const wc = mainWindow.webContents;
 
+  // Silent start: when launched by the login item with "Start Hidden in Tray"
+  // on, create everything as usual but never auto-reveal — the app sits in the
+  // tray until the user opens it. Consumed once so windows created later (tray
+  // click, macOS activate) reveal normally.
+  const startHidden = startHiddenOnce;
+  startHiddenOnce = false;
+
   // Startup: paint a local splash (loading.html) immediately, then navigate to
   // the hosted app once the splash is up. The splash stays visible until the
   // remote first paints (or fails), so cold start is never a blank window.
@@ -338,6 +345,7 @@ function createWindow() {
     query: { lang: shellLocale },
   });
   const revealWindow = () => {
+    if (startHidden) return;
     if (mainWindow && !mainWindow.isVisible()) mainWindow.show();
   };
   mainWindow.once("ready-to-show", revealWindow);
@@ -525,6 +533,56 @@ function loginItemSupported() {
   return process.platform === "win32" || process.platform === "darwin";
 }
 
+// "Start hidden in tray" preference for launch-at-login. Stored in userData
+// (like the GPU flag) rather than read back from the OS login item, because
+// the two platforms disagree on how/where that state is visible.
+const START_HIDDEN_ARG = "--hidden";
+
+function loginPrefFile() {
+  return path.join(app.getPath("userData"), "login-pref.json");
+}
+
+function readStartHiddenPref() {
+  try {
+    return JSON.parse(fs.readFileSync(loginPrefFile(), "utf8")).startHidden === true;
+  } catch {
+    return false;
+  }
+}
+
+function writeStartHiddenPref(startHidden) {
+  try {
+    fs.writeFileSync(loginPrefFile(), JSON.stringify({ startHidden }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// (Re-)register the login item so it matches both toggles. Windows carries the
+// preference as a command-line arg (reliable there); macOS uses openAsHidden
+// plus the wasOpenedAtLogin signal at startup.
+function applyLoginItemSettings(openAtLogin, startHidden) {
+  app.setLoginItemSettings({
+    openAtLogin,
+    openAsHidden: startHidden,
+    args: process.platform === "win32" && startHidden ? [START_HIDDEN_ARG] : [],
+  });
+}
+
+// True when this launch came from the login item and the user asked for a
+// silent start — the window is created but kept hidden; the tray (and a click
+// on the Dock icon on macOS) brings it up.
+function shouldStartHidden() {
+  if (!readStartHiddenPref()) return false;
+  if (process.argv.includes(START_HIDDEN_ARG)) return true; // Windows login item
+  try {
+    return app.getLoginItemSettings().wasOpenedAtLogin === true; // macOS
+  } catch {
+    return false;
+  }
+}
+
 function isOpenAtLogin() {
   if (!loginItemSupported()) return false;
   try {
@@ -537,7 +595,7 @@ function isOpenAtLogin() {
 // Menu toggle handler. `menuItem.checked` has already flipped to the new value.
 function toggleOpenAtLogin(menuItem) {
   try {
-    app.setLoginItemSettings({ openAtLogin: menuItem.checked });
+    applyLoginItemSettings(menuItem.checked, readStartHiddenPref());
   } catch {
     // Revert the checkbox and report if the OS rejected the change.
     menuItem.checked = !menuItem.checked;
@@ -546,6 +604,27 @@ function toggleOpenAtLogin(menuItem) {
       title: "AutoClaw",
       message: "Could not change the launch-at-login setting.",
     });
+  }
+}
+
+// Menu toggle for "start hidden in tray". Persists the preference and, when
+// launch-at-login is already registered, re-registers it so the OS side
+// (args / openAsHidden) matches immediately.
+function toggleStartHidden(menuItem) {
+  if (!writeStartHiddenPref(menuItem.checked)) {
+    menuItem.checked = !menuItem.checked;
+    dialog.showMessageBox({
+      type: "warning",
+      title: "AutoClaw",
+      message: "Could not save the setting.",
+      detail: "The app data folder is not writable.",
+    });
+    return;
+  }
+  try {
+    if (isOpenAtLogin()) applyLoginItemSettings(true, menuItem.checked);
+  } catch {
+    // Login item re-registration is best-effort; the pref itself is saved.
   }
 }
 
@@ -576,6 +655,12 @@ function buildMenu() {
                 label: "Open at Login",
                 checked: isOpenAtLogin(),
                 click: toggleOpenAtLogin,
+              },
+              {
+                type: "checkbox",
+                label: "Start Hidden in Tray",
+                checked: readStartHiddenPref(),
+                click: toggleStartHidden,
               },
             ]
           : []),
@@ -908,6 +993,10 @@ configurePortableDataDir();
 
 // Apply the persisted/env graphics fallback — also must run before `ready`.
 const gpuDisabled = applyGpuFallback();
+
+// Whether the first window of this launch stays hidden (login-item silent
+// start). Evaluated once at startup, consumed by the first createWindow().
+let startHiddenOnce = shouldStartHidden();
 
 // Single-instance lock: focus the existing window instead of opening a second.
 const gotLock = app.requestSingleInstanceLock();
