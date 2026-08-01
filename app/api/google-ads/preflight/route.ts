@@ -8,6 +8,7 @@ import {
   checkCustomer,
   checkBilling,
   checkConversions,
+  checkKeywordPlanner,
   checkLedger,
   checkAiProviders,
   summarizePreflight,
@@ -15,6 +16,7 @@ import {
   OPTIONAL_ADS_ENV,
   type PreflightCheck,
 } from "@/lib/google-ads-preflight";
+import { generateKeywordIdeas } from "@/lib/google-ads-keywords";
 
 export const dynamic = "force-dynamic";
 
@@ -89,6 +91,15 @@ export async function GET(req: NextRequest) {
       checks.push(checkConversions({ ok: true, enabledCount: rows.length }));
     } catch (e) {
       checks.push(checkConversions({ ok: false, error: e instanceof Error ? e.message : String(e), enabledCount: 0 }));
+    }
+
+    // 4.5 Keyword Planner probe — one cheap idea query proves the token has
+    // KeywordPlanIdeaService access (the real-numbers features depend on it).
+    try {
+      const ideas = await generateKeywordIdeas({ keywords: ["coffee shop"], limit: 5 });
+      checks.push(checkKeywordPlanner({ ok: true, ideaCount: ideas.length }));
+    } catch (e) {
+      checks.push(checkKeywordPlanner({ ok: false, error: e instanceof Error ? e.message : String(e), ideaCount: 0 }));
     }
   } else {
     checks.push(...checkCustomer({ ok: false, error: "GOOGLE_ADS_CUSTOMER_ID not set" }));

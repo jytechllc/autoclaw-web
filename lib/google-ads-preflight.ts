@@ -132,6 +132,28 @@ export function checkConversions(conv: { ok: boolean; error?: string; enabledCou
   };
 }
 
+/** Grade Keyword Planner access. The keyword-numbers features (#112–#114)
+ *  depend on KeywordPlanIdeaService, which needs Basic (not test) developer
+ *  token access — worth a light before the launch demo. */
+export function checkKeywordPlanner(kp: { ok: boolean; error?: string; ideaCount: number }): PreflightCheck {
+  if (!kp.ok) {
+    return {
+      id: "keyword-planner",
+      label: "Keyword Planner (real volume/CPC)",
+      status: "warn",
+      detail: `${kp.error || "generateKeywordIdeas failed"} — keyword numbers will show as unavailable`,
+    };
+  }
+  return {
+    id: "keyword-planner",
+    label: "Keyword Planner (real volume/CPC)",
+    status: kp.ideaCount > 0 ? "pass" : "warn",
+    detail: kp.ideaCount > 0
+      ? `${kp.ideaCount} idea(s) returned for the probe seed`
+      : "Query succeeded but returned no ideas — check developer-token access level",
+  };
+}
+
 /** Grade ad-credits ledger invariants. */
 export function checkLedger(ledger: {
   ok: boolean;
