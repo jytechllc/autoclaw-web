@@ -202,7 +202,7 @@ Rules:
 - category MUST be one of: ${RECOMMENDATION_CATEGORIES.join(", ")}.
 - priority MUST be one of: ${RECOMMENDATION_PRIORITIES.join(", ")}. Order the array from most to least impactful (HIGH first).
 - Return 3-6 recommendations. Do not pad with generic advice — every item must reference this campaign's actual numbers.
-- title ≤ 60 chars. rationale ≤ 240 chars, cites the specific metric that motivates it. action ≤ 160 chars, a single concrete step.
+- title ≤ 40 chars, in plain words a business owner with zero ads knowledge instantly understands (say "降低每天的广告花费" / "Lower your daily budget", not jargon like "优化预算分配策略"). rationale ≤ 200 chars, cites the specific metric that motivates it. action ≤ 160 chars, a single concrete step.
 - metric (optional) is the KPI the change should move (e.g. "CTR", "CPA", "Conversions", "CPC").
 - Base advice ONLY on the data given. If conversion tracking looks absent (0 conversions with meaningful clicks), recommend setting up conversion tracking rather than guessing at CPA.
 - If wasteful search terms are listed, include a KEYWORD recommendation naming the worst offenders and advising to add them as negative keywords (the UI has a one-click button for this).

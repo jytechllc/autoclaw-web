@@ -1462,9 +1462,10 @@ export default function CampaignDetailPage() {
     }
   }
 
-  async function handleApplyRecommendation(index: number, a: RecAutoAction) {
-    if (!confirm(`${describeAutoAction(a)}\n\n${t.recsApplyConfirm || "Apply this change now?"}`)) return;
+  // Apply one auto-action (no confirm — callers confirm). Returns success.
+  async function applyOneRec(index: number, a: RecAutoAction): Promise<boolean> {
     setApplyingRec(index);
+    let ok = false;
     try {
       const res = await fetch(`/api/google-ads/campaigns/${campaignId}/recommendations/apply`, {
         method: "POST",
@@ -1473,6 +1474,7 @@ export default function CampaignDetailPage() {
       });
       const data = await res.json();
       if (res.ok && data.success) {
+        ok = true;
         setToast(t.recsApplied || "Applied ✓");
         // Mark this recommendation as done locally (strip its button).
         setRecs((prev) => prev ? prev.map((r, i) => i === index ? { ...r, autoAction: undefined, action: `✓ ${r.action}` } : r) : prev);
@@ -1487,7 +1489,31 @@ export default function CampaignDetailPage() {
       setTimeout(() => setToast(""), 3000);
     }
     setApplyingRec(null);
+    return ok;
   }
+
+  async function handleApplyRecommendation(index: number, a: RecAutoAction) {
+    if (!confirm(`${describeAutoAction(a)}\n\n${t.recsApplyConfirm || "Apply this change now?"}`)) return;
+    await applyOneRec(index, a);
+  }
+
+  // 傻瓜式一键: apply every recommendation that has an executable action, in
+  // order, after a single confirm listing everything that will change.
+  async function handleApplyAllRecommendations() {
+    const targets = (recs || [])
+      .map((r, i) => ({ r, i }))
+      .filter((x) => x.r.autoAction);
+    if (targets.length === 0) return;
+    const summary = targets.map((x) => `• ${describeAutoAction(x.r.autoAction!)}`).join("\n");
+    if (!confirm(`${t.recsApplyAllConfirm || "Apply all these changes now?"}\n\n${summary}`)) return;
+    for (const x of targets) {
+      const ok = await applyOneRec(x.i, x.r.autoAction!);
+      if (!ok) break; // stop the batch on first failure — owner sees the toast
+    }
+  }
+
+  // Which card is expanded to show the why/action detail (default: none).
+  const [expandedRec, setExpandedRec] = useState<number | null>(null);
   const [recs, setRecs] = useState<Rec[] | null>(null);
   const [recsLoading, setRecsLoading] = useState(false);
   const [recsError, setRecsError] = useState("");
@@ -2083,22 +2109,35 @@ export default function CampaignDetailPage() {
           )}
           {recsError && <pre className="text-xs text-red-600 bg-red-50 p-2 rounded whitespace-pre-wrap break-all">{recsError}</pre>}
           {recs && recs.length > 0 && (
-            <div className="space-y-3">
+            <div className="space-y-2">
+              {/* 傻瓜式一键: one button applies every executable recommendation */}
+              {canEdit && recs.some((r) => r.autoAction) && (
+                <button
+                  onClick={handleApplyAllRecommendations}
+                  disabled={applyingRec !== null}
+                  className="w-full text-sm px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 cursor-pointer font-medium"
+                >
+                  {applyingRec !== null ? "…" : `✅ ${t.recsApplyAll || "Apply All"} (${recs.filter((r) => r.autoAction).length})`}
+                </button>
+              )}
               {recs.map((r, i) => (
-                <div key={i} className="border border-gray-100 rounded-lg p-3">
-                  <div className="flex flex-wrap items-center gap-2 mb-1">
-                    <span className={`px-1.5 py-0.5 text-xs rounded-full font-medium ${
+                <div key={i} className="border border-gray-100 rounded-lg">
+                  {/* Collapsed row: priority + short title + apply. Detail hidden by default. */}
+                  <div className="flex items-center gap-2 p-3">
+                    <span className={`px-1.5 py-0.5 text-xs rounded-full font-medium shrink-0 ${
                       r.priority === "HIGH" ? "bg-red-50 text-red-700" :
                       r.priority === "MEDIUM" ? "bg-amber-50 text-amber-700" :
                       "bg-gray-100 text-gray-600"
                     }`}>{r.priority}</span>
-                    <span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 text-xs rounded-full">{r.category}</span>
-                    {r.metric && <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 text-xs rounded-full">→ {r.metric}</span>}
-                    <span className="font-medium text-gray-800 text-sm">{r.title}</span>
-                  </div>
-                  <p className="text-xs text-gray-600 mb-1">{r.rationale}</p>
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-xs text-gray-800">▸ <span className="font-medium">{t.recsAction || "Action"}:</span> {r.action}</p>
+                    <button
+                      onClick={() => setExpandedRec(expandedRec === i ? null : i)}
+                      className="flex-1 min-w-0 text-left cursor-pointer group"
+                    >
+                      <span className="font-medium text-gray-800 text-sm">{r.title}</span>
+                      <span className="ml-2 text-[11px] text-gray-400 group-hover:text-gray-600">
+                        {expandedRec === i ? "▴" : `${t.recsWhy || "Why?"} ▾`}
+                      </span>
+                    </button>
                     {r.autoAction && canEdit && (
                       <button
                         onClick={() => handleApplyRecommendation(i, r.autoAction!)}
@@ -2110,6 +2149,19 @@ export default function CampaignDetailPage() {
                       </button>
                     )}
                   </div>
+                  {expandedRec === i && (
+                    <div className="px-3 pb-3 space-y-1 border-t border-gray-50 pt-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 text-xs rounded-full">{r.category}</span>
+                        {r.metric && <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 text-xs rounded-full">→ {r.metric}</span>}
+                      </div>
+                      <p className="text-xs text-gray-600">{r.rationale}</p>
+                      <p className="text-xs text-gray-800">▸ <span className="font-medium">{t.recsAction || "Action"}:</span> {r.action}</p>
+                      {r.autoAction && (
+                        <p className="text-[11px] text-gray-400">{describeAutoAction(r.autoAction)}</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
               {recsGeneratedAt && (
