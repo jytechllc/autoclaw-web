@@ -13,6 +13,7 @@ import Link from "next/link";
 import { getDictionary, type Locale } from "@/lib/i18n";
 import DashboardShell from "@/components/DashboardShell";
 import { useOrg } from "@/components/OrgContext";
+import { INDUSTRY_BENCHMARKS, industryLabel, suggestBudget } from "@/lib/google-ads-benchmarks";
 
 type Step = 1 | 2 | 3;
 
@@ -55,6 +56,17 @@ export default function PmaxWizardPage() {
   const [url, setUrl] = useState("");
   const [dailyBudget, setDailyBudget] = useState("10");
   const [totalBudget, setTotalBudget] = useState("100");
+  const [industry, setIndustry] = useState("");
+
+  // Picking an industry pre-fills the budget from peer benchmarks so a
+  // first-time owner never has to invent numbers. Always overridable.
+  function handleIndustryChange(id: string) {
+    setIndustry(id);
+    if (!id) return;
+    const s = suggestBudget(id);
+    setDailyBudget(String(s.dailyBudget));
+    setTotalBudget(String(s.totalBudget));
+  }
   const [generating, setGenerating] = useState(false);
 
   // Step 2 — AI draft (all editable)
@@ -292,6 +304,29 @@ export default function PmaxWizardPage() {
                 placeholder="https://your-store.com"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
               />
+            </div>
+            {/* Industry → budget auto-fill. The owner never has to guess numbers:
+                picking an industry pre-fills what similar businesses spend. */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t.wizardIndustry || "Your industry"}</label>
+              <select
+                value={industry}
+                onChange={(e) => handleIndustryChange(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+              >
+                <option value="">{t.wizardIndustryPick || "Pick your industry — we pre-fill the budget"}</option>
+                {INDUSTRY_BENCHMARKS.map((b) => (
+                  <option key={b.id} value={b.id}>{industryLabel(b, locale)}</option>
+                ))}
+              </select>
+              {industry && (() => {
+                const s = suggestBudget(industry);
+                return (
+                  <p className="mt-1 text-xs text-emerald-700">
+                    💡 {t.wizardPeersSpend || "Businesses like yours typically spend"} ${s.peerDailyMin}–${s.peerDailyMax}/{t.wizardPerDay || "day"} ({t.wizardEstimates || "US averages, estimates"}). {t.wizardBudgetPrefilled || "We pre-filled the recommended amount — change it anytime."}
+                  </p>
+                );
+              })()}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
