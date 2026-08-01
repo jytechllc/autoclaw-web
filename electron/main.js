@@ -718,6 +718,10 @@ function buildMenu() {
         { role: "selectAll" },
       ],
     },
+    // macOS users expect a Window menu — Cmd+M minimize, Zoom, and the open
+    // window list. Without it those shortcuts don't exist. The windowMenu
+    // role wires all of it up, matching every native mac app.
+    ...(process.platform === "darwin" ? [{ role: "windowMenu" }] : []),
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
