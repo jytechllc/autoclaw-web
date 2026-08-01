@@ -865,3 +865,44 @@ Completes the extensions family (sitelinks ✅, callouts ✅, snippets ✅, call
 - Detail page: applicable cards get a green "✅ Approve & Apply" button (read-only-gated) with a plain-language confirm dialog; applied cards flip to ✓ locally and data refreshes.
 - 6 new test cases for the sanitizer (guardrail boundaries, unknown kinds, param stripping). i18n: 8 keys × 4 locales.
 - Next steps on this track (per directive): PMax-first novice onboarding wizard; scheduled auto-recommendations (cron-generated, owner approves from a digest).
+
+### 2026-07-31 → 08-01 — overnight sprint: one-click product direction + competitive gaps closed
+
+28 positions landed across two waves (PRs #98–#119 plus direct-push 16305e2).
+Competitive benchmark (vs Optmyzr / Opteo / CATTIX / Hyper) drove the second wave;
+doc: local_doc/行业对标 (internal).
+
+**Desktop shell (8):** update notice for non-self-updating builds, Start Hidden
+in Tray, unread badge bridge, platform-appropriate tray icon, macOS Window menu,
+autoclaw:// deep links, release gate (branch pushes can no longer overwrite the
+live R2 update feed — was a real hazard), v0.1.5 shipped.
+
+**One-click direction (boss directive "小白老板零思考"):** collapsed
+recommendation cards + Apply All (#108), plain-language ≤40-char titles,
+industry benchmark budgets in wizard (#109) and the classic create form (#118),
+business-profile wizard — name/city/goal drive AI copy, city auto-resolves geo
+targeting (#110).
+
+**Competitive gap #1 — real numbers (3):** Keyword Planner lib (#112, includes
+the 57-country D-4 list), keyword-ideas API (#113), volume/CPC chips next to
+keywords (#114). AI keywords now carry Google's real avgMonthlySearches +
+top-of-page CPC.
+
+**Competitive gap #2 — the tool that watches your account (3):** anomaly
+detection lib (#115: spend spike / zero impressions / conversion drop, pure +
+tested), twice-daily monitor cron with 48h dedupe + bilingual Brevo emails
+(#116), dashboard banner + native desktop notifications (#117).
+
+**Gap #3 + polish:** account-level conversion-tracking-silent check (#119 —
+catches "tag never worked", which the per-campaign rule can't), Keyword
+Planner preflight light, alerts section in the weekly digest (shared alertLine
+phrasing), alert-email opt-out toggle.
+
+**Tech debt:** D-4 resolved (57 countries), D-5 resolved in three batches
+(requireSession/requireOrg/requireCampaign, ~-190 lines of boilerplate across
+9 routes). Remaining: D-3 (detail-page refactor, deferred by design), D-9
+(inline Row types, low priority).
+
+**Repo status note:** autoclaw-web was marked deprecated on 07-12 in favor of
+jytechllc/autoclaw-app (not yet accessible to this author). This sprint's work
+lands here pending migration guidance from Weijing.
