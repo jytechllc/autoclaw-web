@@ -8,6 +8,7 @@ import { getDictionary, type Locale } from "@/lib/i18n";
 import DashboardShell from "@/components/DashboardShell";
 import { useOrg } from "@/components/OrgContext";
 import { COUNTRIES } from "@/lib/google-ads";
+import { INDUSTRY_BENCHMARKS, industryLabel, suggestBudget } from "@/lib/google-ads-benchmarks";
 import { toCsv, downloadCsv } from "@/lib/csv";
 
 interface Campaign {
@@ -129,6 +130,17 @@ export default function GoogleAdsPage() {
   const [name, setName] = useState("");
   const [dailyBudget, setDailyBudget] = useState("10");
   const [totalBudget, setTotalBudget] = useState("100");
+  const [createIndustry, setCreateIndustry] = useState("");
+
+  // Same零思考 pre-fill as the wizard: pick an industry, budget lands on the
+  // peer-recommended tier (always overridable).
+  function handleCreateIndustry(id: string) {
+    setCreateIndustry(id);
+    if (!id) return;
+    const s = suggestBudget(id);
+    setDailyBudget(String(s.dailyBudget));
+    setTotalBudget(String(s.totalBudget));
+  }
   const [channel, setChannel] = useState<typeof CHANNELS[number]>("SEARCH");
   // Selected locations: full objects so we can render their names without re-fetching
   const [selectedLocations, setSelectedLocations] = useState<Array<{ id: string; name: string; targetType?: string }>>([
@@ -665,6 +677,28 @@ export default function GoogleAdsPage() {
                 placeholder={t.campaignName}
                 className="px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-red-500 sm:col-span-2"
               />
+              {/* Industry → budget auto-fill (same benchmarks as the wizard). */}
+              <div className="sm:col-span-2">
+                <label className="block text-xs text-gray-500 mb-1">{t.wizardIndustry || "Your industry"}</label>
+                <select
+                  value={createIndustry}
+                  onChange={(e) => handleCreateIndustry(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm cursor-pointer bg-white"
+                >
+                  <option value="">{t.wizardIndustryPick || "Pick your industry — we pre-fill the budget"}</option>
+                  {INDUSTRY_BENCHMARKS.map((b) => (
+                    <option key={b.id} value={b.id}>{industryLabel(b, locale)}</option>
+                  ))}
+                </select>
+                {createIndustry && (() => {
+                  const s = suggestBudget(createIndustry);
+                  return (
+                    <p className="mt-1 text-xs text-emerald-700">
+                      💡 {t.wizardPeersSpend || "Businesses like yours typically spend"} ${s.peerDailyMin}–${s.peerDailyMax}/{t.wizardPerDay || "day"} ({t.wizardEstimates || "US averages, estimates"})
+                    </p>
+                  );
+                })()}
+              </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">{t.totalBudget || "Total budget cap (USD)"}</label>
                 <input
