@@ -254,6 +254,37 @@ function iconPath() {
     : path.join(__dirname, "..", "electron-resources", "icon.png");
 }
 
+// Windows taskbar overlay for the unread badge: a 16×16 red dot, drawn in
+// code (BGRA bitmap) so no image asset is needed. Cached — the dot never
+// changes, only whether it is shown.
+let cachedBadgeOverlay = null;
+function badgeOverlayImage() {
+  if (cachedBadgeOverlay) return cachedBadgeOverlay;
+  const size = 16;
+  const cx = size / 2 - 0.5;
+  const cy = size / 2 - 0.5;
+  const r = 6.5;
+  const buf = Buffer.alloc(size * size * 4); // BGRA
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const d = Math.sqrt((x - cx) ** 2 + (y - cy) ** 2);
+      // 1px soft edge so the dot doesn't look jagged on the taskbar.
+      const alpha = d <= r - 1 ? 255 : d >= r ? 0 : Math.round((r - d) * 255);
+      const i = (y * size + x) * 4;
+      // #e53935 (material red 600), premultiplied by alpha.
+      buf[i] = Math.round((0x35 * alpha) / 255); // B
+      buf[i + 1] = Math.round((0x39 * alpha) / 255); // G
+      buf[i + 2] = Math.round((0xe5 * alpha) / 255); // R
+      buf[i + 3] = alpha;
+    }
+  }
+  cachedBadgeOverlay = nativeImage.createFromBitmap(buf, {
+    width: size,
+    height: size,
+  });
+  return cachedBadgeOverlay;
+}
+
 function clearRetryTimer() {
   if (retryTimer) {
     clearInterval(retryTimer);
@@ -1061,6 +1092,28 @@ if (!gotLock) {
     ipcMain.handle("autoclaw:retry", () => {
       loadRemoteApp();
       return { ok: true };
+    });
+    // Unread-count badge from the web app (window.autoclawDesktop.setBadge).
+    // macOS: Dock badge number (app.setBadgeCount, also works on Unity Linux).
+    // Windows: setBadgeCount is a no-op, so draw a taskbar overlay dot instead;
+    // the count goes into the overlay's accessibility description.
+    ipcMain.handle("autoclaw:set-badge", (_event, options) => {
+      const raw = Number(options && options.count);
+      const count = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
+      if (process.platform === "win32") {
+        if (!mainWindow) return { ok: false };
+        mainWindow.setOverlayIcon(
+          count > 0 ? badgeOverlayImage() : null,
+          count > 0 ? `${count} unread` : "",
+        );
+        return { ok: true };
+      }
+      try {
+        app.setBadgeCount(count);
+        return { ok: true };
+      } catch {
+        return { ok: false };
+      }
     });
     buildMenu();
     createWindow();

@@ -14,6 +14,10 @@ export interface AutoclawDesktopBridge {
   }) => Promise<{ ok: boolean; reason?: string }>;
   // Re-attempt loading the hosted app (offline page retry button).
   retry: () => Promise<{ ok: boolean }>;
+  // Set the unread-count badge (macOS Dock number / Windows taskbar overlay
+  // dot). Pass 0 to clear. Added in desktop 0.1.5 — feature-detect with
+  // `window.autoclawDesktop?.setBadge` before calling.
+  setBadge?: (count: number) => Promise<{ ok: boolean }>;
 }
 
 declare global {
