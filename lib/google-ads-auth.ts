@@ -20,6 +20,7 @@ import { auth0 } from "@/lib/auth0";
 import { getDb } from "@/lib/db";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { resolveOrgId } from "@/lib/credits";
+import { isReadOnlyUserId } from "@/lib/roles-server";
 
 export function getIp(req: NextRequest): string {
   return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
@@ -89,4 +90,75 @@ export async function requireOrg(
   }
 
   return { ...base, sql, userId, orgId };
+}
+
+// ---------------------------------------------------------------------------
+// Campaign tier. The campaign-scoped routes repeat an even larger block on
+// top of the org tier: read-only gate → campaign ownership lookup → closed
+// check. Several files even carry their own near-identical `loadCampaign`.
+
+/** Superset of the campaign columns the routes read — one query fits all. */
+export interface AuthedCampaignRow {
+  id: number;
+  platform_campaign_id: string;
+  campaign_name: string;
+  channel: string | null;
+  daily_budget: number | null;
+  currency: string | null;
+  status: string | null;
+  total_budget_cents: number | null;
+  reserved_cents: number | null;
+  spent_cents: number | null;
+  closed: boolean;
+}
+
+export interface CampaignAuth extends OrgAuth {
+  campaignId: number;
+  campaign: AuthedCampaignRow;
+}
+
+export async function requireCampaign(
+  req: NextRequest,
+  params: Promise<{ id: string }>,
+  opts: AuthOptions & {
+    requestedOrgId?: unknown;
+    /** true → reject read-only (sandbox/viewer) accounts with 403. */
+    write?: boolean;
+    /** true → skip the 409 on closed campaigns (default: reject). */
+    allowClosed?: boolean;
+  },
+): Promise<CampaignAuth | AuthFailure> {
+  const base = await requireOrg(req, opts);
+  if ("response" in base) return base;
+
+  if (opts.write && (await isReadOnlyUserId(base.sql, base.userId))) {
+    return {
+      response: NextResponse.json(
+        { error: "Read-only account — writes are disabled" },
+        { status: 403 },
+      ),
+    };
+  }
+
+  const { id } = await params;
+  const campaignId = Number(id);
+  if (!Number.isFinite(campaignId)) {
+    return { response: NextResponse.json({ error: "Invalid id" }, { status: 400 }) };
+  }
+
+  const rows = await base.sql`
+    SELECT id, platform_campaign_id, campaign_name, channel, daily_budget, currency, status,
+           total_budget_cents, reserved_cents, spent_cents, closed
+    FROM campaigns
+    WHERE id = ${campaignId} AND org_id = ${base.orgId} AND platform = 'google'
+  `;
+  if (rows.length === 0) {
+    return { response: NextResponse.json({ error: "Campaign not found" }, { status: 404 }) };
+  }
+  const campaign = rows[0] as unknown as AuthedCampaignRow;
+  if (campaign.closed && !opts.allowClosed) {
+    return { response: NextResponse.json({ error: "Campaign is closed" }, { status: 409 }) };
+  }
+
+  return { ...base, campaignId, campaign };
 }

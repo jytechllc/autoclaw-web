@@ -1,37 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth0 } from "@/lib/auth0";
-import { getDb } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
-import { checkRateLimit } from "@/lib/rate-limit";
 import {
   setCampaignBidStrategy,
   BID_STRATEGY_TYPES,
   type BidStrategyType,
 } from "@/lib/google-ads";
-import { resolveOrgId } from "@/lib/credits";
-import { isReadOnlyUserId } from "@/lib/roles-server";
+import { requireCampaign } from "@/lib/google-ads-auth";
 
 export const dynamic = "force-dynamic";
-
-function getIp(req: NextRequest): string {
-  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-}
 
 /** POST — switch the campaign's bidding strategy.
  *  Body: { type, targetCpa?, targetRoas?, orgId? }
  *  targetCpa in USD (TARGET_CPA only); targetRoas as a ratio, e.g. 4 = 400% (TARGET_ROAS only). */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const ip = getIp(req);
-  if (!checkRateLimit(ip, { limit: 30, windowMs: 60_000 })) {
-    return NextResponse.json({ error: "Too many requests" }, { status: 429 });
-  }
-  const session = await auth0.getSession();
-  if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const { id } = await params;
-  const campaignId = Number(id);
-  if (!Number.isFinite(campaignId)) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
-
   const body = await req.json().catch(() => ({}));
   const type = String(body.type || "").toUpperCase() as BidStrategyType;
   if (!BID_STRATEGY_TYPES.includes(type)) {
@@ -40,27 +21,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const targetCpa = body.targetCpa !== undefined ? Number(body.targetCpa) : undefined;
   const targetRoas = body.targetRoas !== undefined ? Number(body.targetRoas) : undefined;
 
-  const sql = getDb();
-  const userEmail = session.user.email as string;
-  const users = await sql`SELECT id FROM users WHERE email = ${userEmail}`;
-  if (users.length === 0) return NextResponse.json({ error: "User not found" }, { status: 404 });
-  const userId = users[0].id as number;
-  if (await isReadOnlyUserId(sql, userId)) {
-    return NextResponse.json({ error: "Read-only account — writes are disabled" }, { status: 403 });
-  }
+  const auth = await requireCampaign(req, params, {
+    limit: 30,
+    write: true,
+    requestedOrgId: body.orgId,
+  });
+  if ("response" in auth) return auth.response;
+  const { campaign, campaignId, userId, userEmail, ip } = auth;
 
-  const requestedOrgId = body.orgId ? Number(body.orgId) : undefined;
-  const orgId = await resolveOrgId(sql, userId, requestedOrgId);
-  if (!orgId) return NextResponse.json({ error: "No organization found" }, { status: 400 });
-
-  const rows = await sql`
-    SELECT platform_campaign_id, campaign_name, closed FROM campaigns
-    WHERE id = ${campaignId} AND org_id = ${orgId} AND platform = 'google'
-  `;
-  if (rows.length === 0) return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
-  if (rows[0].closed) return NextResponse.json({ error: "Campaign is closed" }, { status: 409 });
-
-  const result = await setCampaignBidStrategy(rows[0].platform_campaign_id as string, {
+  const result = await setCampaignBidStrategy(campaign.platform_campaign_id, {
     type,
     targetCpaUsd: targetCpa,
     targetRoas,
