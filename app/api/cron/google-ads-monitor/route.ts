@@ -5,6 +5,7 @@ import {
   fetchDailyMetrics,
   analyzeCampaign,
   analyzeAccountConversions,
+  alertLine,
   type CampaignAlert,
   type DailyMetricRow,
 } from "@/lib/google-ads-monitor";
@@ -18,24 +19,18 @@ const TIME_BUDGET_MS = (maxDuration - 30) * 1000;
 /** Suppress a repeat of the same (campaign, kind) alert for this long. */
 const DEDUPE_HOURS = 48;
 
-const ALERT_STRINGS: Record<string, Record<string, (c: string, n: Record<string, number>) => string>> = {
+// Per-alert phrasing lives in lib/google-ads-monitor (alertLine) — shared
+// with the weekly digest. Only the email chrome stays here.
+const MAIL_STRINGS: Record<string, { subject: string; intro: string; cta: string }> = {
   en: {
-    SPEND_SPIKE: (c, n) => `⚠️ "${c}" spent $${n.yesterdayUsd} yesterday — ${n.multiple}× its usual $${n.trailingAvgUsd}/day.`,
-    ZERO_IMPRESSIONS: (c, n) => `🚨 "${c}" served 0 impressions yesterday (usually ~${n.trailingAvgImpressions}/day). Check ad approval and billing.`,
-    CONVERSIONS_DROPPED: (c, n) => `⚠️ "${c}" got ${n.yesterdayClicks} clicks yesterday but 0 conversions (past week: ${n.trailingConversions}). Your conversion tag may be broken.`,
-    CONVERSION_TRACKING_SILENT: (_c, n) => `🚨 ${n.clicks} clicks this week but not a single conversion recorded — your conversion tracking tag is probably not installed correctly.`,
-    subject: () => "AutoClaw alert: something needs your attention in Google Ads",
-    intro: () => "We watch your campaigns every day. Yesterday these needed a look:",
-    cta: () => "Open AutoClaw",
+    subject: "AutoClaw alert: something needs your attention in Google Ads",
+    intro: "We watch your campaigns every day. Yesterday these needed a look:",
+    cta: "Open AutoClaw",
   },
   zh: {
-    SPEND_SPIKE: (c, n) => `⚠️ 「${c}」昨天花了 $${n.yesterdayUsd},是平时($${n.trailingAvgUsd}/天)的 ${n.multiple} 倍。`,
-    ZERO_IMPRESSIONS: (c, n) => `🚨 「${c}」昨天 0 曝光(平时约 ${n.trailingAvgImpressions}/天)。请检查广告审核状态和付款方式。`,
-    CONVERSIONS_DROPPED: (c, n) => `⚠️ 「${c}」昨天有 ${n.yesterdayClicks} 次点击但 0 转化(过去一周有 ${n.trailingConversions} 个)。转化跟踪代码可能坏了。`,
-    CONVERSION_TRACKING_SILENT: (_c, n) => `🚨 本周有 ${n.clicks} 次点击但一个转化都没记录到——转化跟踪代码很可能没装好。`,
-    subject: () => "AutoClaw 提醒:你的谷歌广告需要看一眼",
-    intro: () => "我们每天帮你盯着广告。昨天这些情况需要你注意:",
-    cta: () => "打开 AutoClaw",
+    subject: "AutoClaw 提醒:你的谷歌广告需要看一眼",
+    intro: "我们每天帮你盯着广告。昨天这些情况需要你注意:",
+    cta: "打开 AutoClaw",
   },
 };
 
@@ -70,7 +65,7 @@ export async function GET(req: NextRequest) {
   await sql`CREATE INDEX IF NOT EXISTS idx_google_ads_alerts_org ON google_ads_alerts(org_id, created_at DESC)`;
 
   const locale = (process.env.GOOGLE_ADS_DIGEST_LOCALE || "en").startsWith("zh") ? "zh" : "en";
-  const S = ALERT_STRINGS[locale];
+  const S = MAIL_STRINGS[locale];
 
   // Brevo key: env first, org 5 stored key as fallback (mirrors weekly digest).
   let brevoKey = process.env.BREVO_API_KEY || "";
@@ -139,7 +134,7 @@ export async function GET(req: NextRequest) {
       `;
       stored += 1;
       const bucket = byOrg.get(orgId) ?? { orgName: String(r.org_name || ""), email: String(r.owner_email || ""), lines: [] };
-      bucket.lines.push(S[a.kind](String(r.campaign_name || r.platform_campaign_id), a.numbers));
+      bucket.lines.push(alertLine(a.kind, String(r.campaign_name || r.platform_campaign_id), a.numbers, locale as "en" | "zh"));
       byOrg.set(orgId, bucket);
     }
   }
@@ -166,7 +161,7 @@ export async function GET(req: NextRequest) {
     `;
     stored += 1;
     const bucket = byOrg.get(orgId) ?? { orgName: String(sample.org_name || ""), email: String(sample.owner_email || ""), lines: [] };
-    bucket.lines.push(S[acct.kind]("", acct.numbers));
+    bucket.lines.push(alertLine(acct.kind, "", acct.numbers, locale as "en" | "zh"));
     byOrg.set(orgId, bucket);
   }
 
@@ -177,14 +172,14 @@ export async function GET(req: NextRequest) {
     for (const [orgId, bucket] of byOrg) {
       if (!bucket.email || bucket.lines.length === 0) continue;
       try {
-        const html = `<p>${S.intro("", {})}</p><ul>${bucket.lines.map((l) => `<li>${l}</li>`).join("")}</ul><p><a href="${baseUrl}/${locale}/dashboard/google-ads">${S.cta("", {})}</a></p>`;
+        const html = `<p>${S.intro}</p><ul>${bucket.lines.map((l) => `<li>${l}</li>`).join("")}</ul><p><a href="${baseUrl}/${locale}/dashboard/google-ads">${S.cta}</a></p>`;
         const res = await fetch("https://api.brevo.com/v3/smtp/email", {
           method: "POST",
           headers: { "api-key": brevoKey, "Content-Type": "application/json" },
           body: JSON.stringify({
             sender: { email: senderEmail, name: "AutoClaw Alerts" },
             to: [{ email: bucket.email }],
-            subject: S.subject("", {}),
+            subject: S.subject,
             htmlContent: html,
           }),
         });
