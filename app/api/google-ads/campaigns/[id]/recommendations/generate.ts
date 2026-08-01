@@ -155,7 +155,7 @@ export async function generateCampaignRecommendations(
         { role: "system", content: system },
         { role: "user", content: user },
       ],
-      1200,
+      4000, // reasoning-model headroom (1200 was consumed entirely by "thinking")
     );
   } catch (e) {
     throw new RecommendationGenerationError(

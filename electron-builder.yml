@@ -42,8 +42,12 @@ extraResources:
 # names resolve relative to this URL.
 #
 # NOTE: this is R2's *development* URL, which Cloudflare rate-limits and does
-# not recommend for production. Bind a custom domain (e.g. dl.jytech.us) to the
-# `autoclaw` bucket and swap it in here before this sees real download volume.
+# not recommend for production. The CI build overrides it with the
+# DESKTOP_DL_BASE_URL repository variable (see build-windows-desktop.yml), so
+# switching to a custom domain (e.g. dl.jytech.us bound to the `autoclaw`
+# bucket) is a one-variable change in GitHub → Settings → Variables — no code
+# edit, no rebuild of this file. The value below is only the fallback for
+# local builds and for CI before the variable is set.
 publish:
   provider: generic
   url: https://pub-200e7b105f264829800e0695974532d2.r2.dev/desktop/latest/

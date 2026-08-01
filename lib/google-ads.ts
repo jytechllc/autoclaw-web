@@ -404,7 +404,9 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
   // Campaign settings + per-day metrics (last 30 days, one row per calendar day)
   type CampaignRow = {
     campaign: {
-      name: string; status: string; advertisingChannelType: string; startDate?: string; endDate?: string; optimizationScore?: number;
+      name: string; status: string; advertisingChannelType: string;
+      // v23: start_date/end_date became start_date_time/end_date_time ("YYYY-MM-DD HH:MM:SS")
+      startDateTime?: string; endDateTime?: string; optimizationScore?: number;
       biddingStrategyType?: string;
       maximizeConversions?: { targetCpaMicros?: string };
       maximizeConversionValue?: { targetRoas?: number };
@@ -413,7 +415,7 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
     segments?: { date?: string };
   };
   const campaignRows = await adsSearchStream(customerId, `
-    SELECT campaign.name, campaign.status, campaign.advertising_channel_type, campaign.start_date, campaign.end_date, campaign.optimization_score,
+    SELECT campaign.name, campaign.status, campaign.advertising_channel_type, campaign.start_date_time, campaign.end_date_time, campaign.optimization_score,
            campaign.bidding_strategy_type, campaign.maximize_conversions.target_cpa_micros, campaign.maximize_conversion_value.target_roas,
            metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, metrics.ctr, metrics.average_cpc,
            segments.date
@@ -458,7 +460,7 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
 
   // If no metric rows (campaign too new / paused with no impressions), still grab settings
   const settingsFallback = first ? null : await adsSearchStream(customerId, `
-    SELECT campaign.name, campaign.status, campaign.advertising_channel_type, campaign.start_date, campaign.end_date, campaign.optimization_score,
+    SELECT campaign.name, campaign.status, campaign.advertising_channel_type, campaign.start_date_time, campaign.end_date_time, campaign.optimization_score,
            campaign.bidding_strategy_type, campaign.maximize_conversions.target_cpa_micros, campaign.maximize_conversion_value.target_roas
     FROM campaign WHERE campaign.resource_name = '${escaped}'
   `) as Array<{ campaign: CampaignRow["campaign"] }>;
@@ -1033,8 +1035,9 @@ export async function fetchCampaignDetail(resourceName: string): Promise<Campaig
     name: camp?.name || "",
     status: camp?.status || "",
     channelType,
-    startDate: camp?.startDate,
-    endDate: camp?.endDate,
+    // Trim v23 datetimes back to YYYY-MM-DD — the UI works in dates.
+    startDate: camp?.startDateTime?.slice(0, 10),
+    endDate: camp?.endDateTime?.slice(0, 10),
     optimizationScore: camp?.optimizationScore,
     metrics: {
       impressions,
@@ -1256,8 +1259,10 @@ export async function setCampaignSchedule(campaignResourceName: string, startDat
 
   const update: Record<string, unknown> = { resourceName: campaignResourceName };
   const masks: string[] = [];
-  if (startDate !== null) { update.startDate = startDate; masks.push("start_date"); }
-  if (endDate !== null) { update.endDate = endDate; masks.push("end_date"); }
+  // v23: start_date/end_date → start_date_time/end_date_time ("YYYY-MM-DD HH:MM:SS").
+  // Callers still pass YYYY-MM-DD; expand to day boundaries here.
+  if (startDate !== null) { update.startDateTime = `${startDate} 00:00:00`; masks.push("start_date_time"); }
+  if (endDate !== null) { update.endDateTime = `${endDate} 23:59:59`; masks.push("end_date_time"); }
   if (masks.length === 0) return { success: true };
 
   const res = await adsMutate(customerId, "campaigns:mutate", {
@@ -1307,12 +1312,12 @@ export async function listAllCampaigns(): Promise<GoogleAdsCampaignSummary[]> {
   if (!customerId) throw new Error("GOOGLE_ADS_CUSTOMER_ID not configured");
 
   type Row = {
-    campaign: { resourceName: string; id?: string; name?: string; status?: string; advertisingChannelType?: string; startDate?: string; endDate?: string };
+    campaign: { resourceName: string; id?: string; name?: string; status?: string; advertisingChannelType?: string; startDateTime?: string; endDateTime?: string };
     metrics?: { costMicros?: string; impressions?: string; clicks?: string };
   };
   const rows = await adsSearchStream(customerId, `
     SELECT campaign.resource_name, campaign.id, campaign.name, campaign.status,
-           campaign.advertising_channel_type, campaign.start_date, campaign.end_date,
+           campaign.advertising_channel_type, campaign.start_date_time, campaign.end_date_time,
            metrics.cost_micros, metrics.impressions, metrics.clicks
     FROM campaign WHERE segments.date DURING LAST_30_DAYS
   `) as Row[];
@@ -1327,8 +1332,8 @@ export async function listAllCampaigns(): Promise<GoogleAdsCampaignSummary[]> {
       name: r.campaign.name || "",
       status: r.campaign.status || "",
       channelType: r.campaign.advertisingChannelType || "",
-      startDate: r.campaign.startDate,
-      endDate: r.campaign.endDate,
+      startDate: r.campaign.startDateTime?.slice(0, 10),
+      endDate: r.campaign.endDateTime?.slice(0, 10),
       metrics: { costMicros: 0, impressions: 0, clicks: 0 },
     };
     existing.metrics.costMicros += Number(r.metrics?.costMicros || 0);
@@ -1340,7 +1345,7 @@ export async function listAllCampaigns(): Promise<GoogleAdsCampaignSummary[]> {
   if (map.size === 0) {
     const fallback = await adsSearchStream(customerId, `
       SELECT campaign.resource_name, campaign.id, campaign.name, campaign.status,
-             campaign.advertising_channel_type, campaign.start_date, campaign.end_date
+             campaign.advertising_channel_type, campaign.start_date_time, campaign.end_date_time
       FROM campaign
     `) as Row[];
     for (const r of fallback) {
@@ -1350,8 +1355,8 @@ export async function listAllCampaigns(): Promise<GoogleAdsCampaignSummary[]> {
         name: r.campaign.name || "",
         status: r.campaign.status || "",
         channelType: r.campaign.advertisingChannelType || "",
-        startDate: r.campaign.startDate,
-        endDate: r.campaign.endDate,
+        startDate: r.campaign.startDateTime?.slice(0, 10),
+        endDate: r.campaign.endDateTime?.slice(0, 10),
         metrics: { costMicros: 0, impressions: 0, clicks: 0 },
       });
     }
@@ -1435,14 +1440,22 @@ export async function createCampaign(input: CreateCampaignInput): Promise<Create
     status: "PAUSED",
     advertisingChannelType: channel,
     campaignBudget: out.budget,
-    startDate,
-    endDate,
+    // v23: start_date/end_date became start_date_time/end_date_time (minute precision).
+    startDateTime: `${startDate} 00:00:00`,
+    endDateTime: `${endDate} 23:59:59`,
     contains_eu_political_advertising: 2,
   };
   if (channel === "VIDEO" || channel === "PERFORMANCE_MAX") {
     campaignCreate.maximizeConversions = {};
   } else {
     campaignCreate.manualCpc = {};
+  }
+  if (channel === "PERFORMANCE_MAX") {
+    // v23: Brand Guidelines defaults ON for new PMax campaigns and then
+    // requires business-name + square-logo CampaignAssets in the SAME create
+    // call. Our flow attaches creative via asset groups right after creation,
+    // so opt out at create time (field is create-time only).
+    campaignCreate.brandGuidelinesEnabled = false;
   }
   const campaignRes = await adsMutate(customerId, "campaigns:mutate", {
     operations: [{ create: campaignCreate }],

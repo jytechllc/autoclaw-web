@@ -175,6 +175,7 @@ export async function POST(req: NextRequest) {
 
   if (!result.campaign) {
     // Google Ads returned no resource — release reservation
+    console.warn(`[google-ads create] failed for "${name}":`, JSON.stringify(result.errors).slice(0, 1500));
     await releaseReserve(sql, orgId, reservedPlatformCents, 0, `Reverted: Failed to create ${name}`);
     return NextResponse.json({ error: "Failed to create campaign", result }, { status: 502 });
   }

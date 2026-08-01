@@ -14,10 +14,12 @@ export const metadata = {
 // the electron-updater feed (see electron-builder.yml).
 // To publish a new build, bump VERSION to match electron/package.json.
 //
-// NOTE: R2's development URL, which Cloudflare rate-limits and does not
-// recommend for production — swap in a custom domain (e.g. dl.jytech.us) bound
-// to the `autoclaw` bucket before this takes real download volume.
-const RELEASES_BASE = "https://pub-200e7b105f264829800e0695974532d2.r2.dev/desktop";
+// NOTE: the fallback is R2's development URL, which Cloudflare rate-limits and
+// does not recommend for production. Set NEXT_PUBLIC_DESKTOP_DL_BASE_URL (e.g.
+// https://dl.jytech.us once that domain is bound to the `autoclaw` bucket) to
+// switch — same variable idea as DESKTOP_DL_BASE_URL in the desktop build
+// workflow, so the download page and the auto-update feed move together.
+const RELEASES_BASE = `${(process.env.NEXT_PUBLIC_DESKTOP_DL_BASE_URL || "https://pub-200e7b105f264829800e0695974532d2.r2.dev").replace(/\/$/, "")}/desktop`;
 const VERSION = "0.1.4";
 const DESKTOP = {
   version: VERSION,

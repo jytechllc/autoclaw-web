@@ -153,7 +153,7 @@ Generate the JSON now.`;
           { role: "system", content: extSystem },
           { role: "user", content: extUser },
         ],
-        1000,
+        3000, // reasoning-model headroom
       );
     } catch (e) {
       return NextResponse.json({ error: `AI call failed: ${e instanceof Error ? e.message : String(e)}` }, { status: 502 });
@@ -207,12 +207,14 @@ Generate the JSON now.`;
 
     let pmaxResponse;
     try {
+      // Generous budget: reasoning models (e.g. gpt-oss-120b) spend tokens
+      // "thinking" before the JSON — 1500 got fully consumed by reasoning.
       pmaxResponse = await chatWithAI(
         [
           { role: "system", content: pmaxSystem },
           { role: "user", content: pmaxUser },
         ],
-        1500,
+        4000,
       );
     } catch (e) {
       return NextResponse.json({ error: `AI call failed: ${e instanceof Error ? e.message : String(e)}` }, { status: 502 });
@@ -220,6 +222,7 @@ Generate the JSON now.`;
     const pmaxRaw = (pmaxResponse?.content || "").trim();
     const pmaxMatch = pmaxRaw.match(/\{[\s\S]*\}/);
     if (!pmaxMatch) {
+      console.warn(`[ad-copy pmax] AI returned no JSON (provider=${pmaxResponse?.provider}, len=${pmaxRaw.length}): ${pmaxRaw.slice(0, 500)}`);
       return NextResponse.json({ error: "AI did not return valid JSON", raw: pmaxRaw }, { status: 502 });
     }
     let pmaxParsed: unknown;
@@ -290,7 +293,7 @@ Generate the JSON now.`;
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      1500,
+      4000, // reasoning-model headroom
     );
   } catch (e) {
     return NextResponse.json({ error: `AI call failed: ${e instanceof Error ? e.message : String(e)}` }, { status: 502 });

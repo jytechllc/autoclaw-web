@@ -57,8 +57,23 @@ jobs:
           npm install --no-audit --no-fund
           npm install --prefix electron --no-audit --no-fund
 
+      # The auto-update feed URL is baked into the package (app-update.yml) at
+      # build time from electron-builder.yml's `publish.url`. The repo variable
+      # DESKTOP_DL_BASE_URL overrides its base here so the download/update
+      # domain can be switched (e.g. to dl.jytech.us once it's bound to the R2
+      # bucket) without touching code. Unset → falls back to the r2.dev
+      # development URL in electron-builder.yml.
       - name: Build Windows installers
-        run: npm run electron:build:win
+        shell: bash
+        env:
+          DESKTOP_DL_BASE_URL: ${{ vars.DESKTOP_DL_BASE_URL }}
+        run: |
+          if [ -n "${DESKTOP_DL_BASE_URL}" ]; then
+            echo "Publishing feed URL base: ${DESKTOP_DL_BASE_URL}"
+            npm run electron:build:win -- -c.publish.url="${DESKTOP_DL_BASE_URL%/}/desktop/latest/"
+          else
+            npm run electron:build:win
+          fi
 
       # latest.yml is the electron-updater feed and *.blockmap powers differential
       # downloads, so both ship alongside the installers.

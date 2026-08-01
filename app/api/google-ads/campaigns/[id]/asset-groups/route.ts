@@ -110,6 +110,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
 
   if (!result.assetGroup) {
+    console.warn(`[google-ads asset-group] failed for campaign ${campaignId}:`, JSON.stringify(result.errors).slice(0, 1500));
     return NextResponse.json(
       { error: "Failed to create asset group", details: result.errors },
       { status: 502 }

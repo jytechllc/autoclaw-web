@@ -556,10 +556,16 @@ export async function chatWithAI(messages: ChatMessage[], maxTokens = 500, byok?
   }
 
   // 3. Platform keys as fallback
+  // Model names verified alive 2026-07 (qwen-3-235b-a22b-instruct-2507 was
+  // deprecated by Cerebras 2026-05-27; gemini-2.0-flash retired by Google).
   if (CEREBRAS_API_KEY) {
     providers.push({ name: `Cerebras ${CEREBRAS_PLATFORM_MODEL}`, call: () => callOpenAICompatible("https://api.cerebras.ai/v1/chat/completions", CEREBRAS_API_KEY, CEREBRAS_PLATFORM_MODEL, "cerebras", messages, maxTokens) });
   }
-  if (GOOGLE_AI_API) providers.push({ name: "Google", call: () => callGoogle(GOOGLE_AI_API, "gemini-2.0-flash", messages, maxTokens) });
+  if (GOOGLE_AI_API) providers.push({ name: "Google", call: () => callGoogle(GOOGLE_AI_API, "gemini-2.5-flash", messages, maxTokens) });
+  // OpenRouter was previously reachable only as the benchmark winner — include
+  // it in the platform chain. "openrouter/auto" delegates model choice to
+  // OpenRouter, so it survives individual model sunsets.
+  if (OPENROUTER_API_KEY) providers.push({ name: "OpenRouter auto", call: () => callOpenRouter("openrouter/auto", messages, maxTokens) });
 
   // 4. xPilot paid gateway — after free platform keys, before BYOK
   if (XPILOT_API_KEY) providers.push({ name: "xPilot", call: () => callXPilot(XPILOT_API_KEY, "openai/gpt-4o", messages, maxTokens) });
@@ -567,7 +573,7 @@ export async function chatWithAI(messages: ChatMessage[], maxTokens = 500, byok?
   // BYOK keys as fallback
   if (byok?.openai) providers.push({ name: "BYOK OpenAI", call: () => callOpenAICompatible("https://api.openai.com/v1/chat/completions", byok.openai!, "gpt-4o-mini", "openai", messages, maxTokens) });
   if (byok?.anthropic) providers.push({ name: "BYOK Anthropic", call: () => callAnthropic(byok.anthropic!, "claude-sonnet-4-20250514", messages, maxTokens) });
-  if (byok?.google) providers.push({ name: "BYOK Google", call: () => callGoogle(byok.google!, "gemini-2.0-flash", messages, maxTokens) });
+  if (byok?.google) providers.push({ name: "BYOK Google", call: () => callGoogle(byok.google!, "gemini-2.5-flash", messages, maxTokens) });
   if (byok?.alibaba) providers.push({ name: "BYOK Alibaba", call: () => callOpenAICompatible(`${ALIBABA_AI_BASE_URL}/chat/completions`, byok.alibaba!, "qwen-turbo", "alibaba", messages, maxTokens) });
 
   // Try at most 3 providers: Bedrock (preferred) → benchmark winner → platform key
