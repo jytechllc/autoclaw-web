@@ -784,3 +784,17 @@ CREATE TABLE IF NOT EXISTS scheduled_emails (
 CREATE INDEX IF NOT EXISTS idx_scheduled_emails_run_at ON scheduled_emails(run_at) WHERE status = 'pending';
 CREATE INDEX IF NOT EXISTS idx_scheduled_emails_workflow ON scheduled_emails(workflow_id);
 CREATE INDEX IF NOT EXISTS idx_scheduled_emails_contact ON scheduled_emails(contact_id);
+
+-- Google Ads anomaly alerts (see app/api/cron/google-ads-monitor). The cron
+-- self-heals this table on fresh deployments; this is the source of truth.
+CREATE TABLE IF NOT EXISTS google_ads_alerts (
+  id SERIAL PRIMARY KEY,
+  org_id INTEGER NOT NULL,
+  campaign_id INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  severity TEXT NOT NULL,
+  numbers JSONB NOT NULL DEFAULT '{}',
+  notified BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_google_ads_alerts_org ON google_ads_alerts(org_id, created_at DESC);
