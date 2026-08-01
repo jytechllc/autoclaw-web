@@ -12,6 +12,8 @@ const {
   dialog,
   session,
   clipboard,
+  net,
+  Notification,
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
@@ -762,6 +764,98 @@ function initAutoUpdater() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Update notice for builds that cannot self-update: unsigned macOS, Windows
+// portable, non-AppImage Linux. electron-updater never runs there
+// (updaterSupported() is false), so without this those users would stay on
+// their install version forever without ever hearing about new releases.
+// Polls the same latest.yml feed the real updater reads and, when a newer
+// version appears, shows one native notification per session that opens the
+// download page. Once macOS builds are signed, updaterSupported() covers
+// darwin and this path simply stops being used there.
+
+let noticedVersion = null; // version already announced this session
+
+function updateFeedUrl() {
+  // electron-builder bakes the feed base into the package (app-update.yml).
+  // Read it so a future domain change (DESKTOP_DL_BASE_URL) is picked up
+  // automatically; fall back to the R2 dev URL for packages without the file.
+  try {
+    const raw = fs.readFileSync(
+      path.join(process.resourcesPath, "app-update.yml"),
+      "utf8",
+    );
+    const m = raw.match(/^url:\s*(\S+)/m);
+    if (m) return m[1].replace(/\/+$/, "") + "/latest.yml";
+  } catch {
+    // No app-update.yml in this package — use the fallback below.
+  }
+  return "https://pub-200e7b105f264829800e0695974532d2.r2.dev/desktop/latest/latest.yml";
+}
+
+// Numeric segment compare ("0.1.10" > "0.1.9"); true when a is newer than b.
+function isNewerVersion(a, b) {
+  const pa = String(a).split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = String(b).split(".").map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i += 1) {
+    const d = (pa[i] || 0) - (pb[i] || 0);
+    if (d !== 0) return d > 0;
+  }
+  return false;
+}
+
+// Mirrors SHELL_LOCALES; keep in sync with lib/i18n like loading/offline.html.
+const UPDATE_NOTICE_STRINGS = {
+  en: (v) => ({
+    title: "AutoClaw update available",
+    body: `Version ${v} is out — click to open the download page.`,
+  }),
+  zh: (v) => ({
+    title: "AutoClaw 有新版本",
+    body: `${v} 已发布,点击打开下载页面。`,
+  }),
+  "zh-TW": (v) => ({
+    title: "AutoClaw 有新版本",
+    body: `${v} 已發布,點擊開啟下載頁面。`,
+  }),
+  ko: (v) => ({
+    title: "AutoClaw 업데이트",
+    body: `버전 ${v}이(가) 출시되었습니다. 클릭하면 다운로드 페이지가 열립니다.`,
+  }),
+};
+
+async function checkForUpdateNotice() {
+  try {
+    const res = await net.fetch(updateFeedUrl(), { cache: "no-store" });
+    if (!res.ok) return;
+    const text = await res.text();
+    const m = text.match(/^version:\s*(\S+)/m);
+    if (!m) return;
+    const latest = m[1];
+    if (!isNewerVersion(latest, app.getVersion())) return;
+    if (noticedVersion === latest) return; // once per session per version
+    noticedVersion = latest;
+    if (!Notification.isSupported()) return;
+    const make = UPDATE_NOTICE_STRINGS[shellLocale] || UPDATE_NOTICE_STRINGS.en;
+    const { title, body } = make(latest);
+    const notice = new Notification({ title, body, icon: iconPath() });
+    notice.on("click", () =>
+      shell.openExternal(`${APP_ORIGIN}/${shellLocale}/download`),
+    );
+    notice.show();
+  } catch {
+    // Offline / feed unreachable — routine for a desktop client; next cycle.
+  }
+}
+
+function initUpdateNotice() {
+  if (isDev || updaterSupported()) return; // real auto-update handles it
+  // Same rhythm as initAutoUpdater: first check after startup settles, then
+  // periodically while the app stays resident in the tray.
+  setTimeout(() => checkForUpdateNotice(), 20000);
+  setInterval(() => checkForUpdateNotice(), UPDATE_CHECK_INTERVAL_MS);
+}
+
 // Result dialogs are deliberately parentless: a tray-triggered check can run
 // while the main window is hidden, and a dialog modal to a hidden window
 // would be invisible.
@@ -883,6 +977,7 @@ if (!gotLock) {
     createWindow();
     createTray();
     initAutoUpdater();
+    initUpdateNotice();
 
     app.on("activate", () => {
       // With close-to-tray the window is hidden, not destroyed — reveal it.
