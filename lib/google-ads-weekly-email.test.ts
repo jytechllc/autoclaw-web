@@ -78,3 +78,30 @@ describe("composeWeeklyDigestEmail", () => {
     expect(html).not.toContain("ai//en");
   });
 });
+
+describe("alerts box", () => {
+  it("renders pre-phrased alert lines in a red box, capped at 6, escaped", () => {
+    const { html } = composeWeeklyDigestEmail({
+      orgName: "Test Org",
+      locale: "zh",
+      balance: 10,
+      campaigns: [],
+      recommendations: [],
+      alertLines: ["警报一 <b>x</b>", "警报二", "3", "4", "5", "6", "7"],
+      baseUrl: "https://x.test",
+    });
+    expect(html).toContain("本周警报");
+    expect(html).toContain("警报一 &lt;b&gt;x&lt;/b&gt;");
+    expect(html).not.toContain("<b>x</b>");
+    expect((html.match(/<li style="margin:4px 0">/g) || []).length).toBe(6);
+  });
+
+  it("omits the box when there are no alerts", () => {
+    const { html } = composeWeeklyDigestEmail({
+      orgName: "Test Org", locale: "en", balance: null,
+      campaigns: [], recommendations: [], baseUrl: "https://x.test",
+    });
+    expect(html).not.toContain("Alerts this week");
+  });
+});
+

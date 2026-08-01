@@ -1,3 +1,4 @@
+import { alertLine, type AlertKind } from "@/lib/google-ads-monitor";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { fetchCampaignSpend } from "@/lib/google-ads";
@@ -131,12 +132,30 @@ export async function GET(req: NextRequest) {
       const balanceRows = await sql`SELECT balance_cents FROM ad_credits WHERE org_id = ${orgId}`;
       const balance = balanceRows.length > 0 ? Number(balanceRows[0].balance_cents || 0) / 100 : null;
 
+      // Anomaly alerts from the monitor (last 7 days) — one red box in the digest.
+      let alertLines: string[] = [];
+      try {
+        const alertRows = await sql`
+          SELECT a.kind, a.numbers, c.campaign_name
+          FROM google_ads_alerts a
+          LEFT JOIN campaigns c ON c.id = a.campaign_id
+          WHERE a.org_id = ${orgId} AND a.created_at > NOW() - INTERVAL '7 days'
+          ORDER BY a.created_at DESC LIMIT 6
+        `;
+        alertLines = alertRows.map((ar) =>
+          alertLine(String(ar.kind) as AlertKind, String(ar.campaign_name || ""), (ar.numbers ?? {}) as Record<string, number>, DIGEST_LOCALE)
+        );
+      } catch {
+        /* alerts table appears with the first monitor run — digest works without it */
+      }
+
       const { subject, html } = composeWeeklyDigestEmail({
         orgName: org.name,
         locale: DIGEST_LOCALE,
         balance,
         campaigns: rows,
         recommendations,
+        alertLines,
         baseUrl,
       });
 

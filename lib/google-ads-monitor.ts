@@ -53,6 +53,31 @@ function usd(micros: number): number {
   return Math.round((micros / 1_000_000) * 100) / 100;
 }
 
+/** One plain-language line per alert — shared by the monitor emails, the
+ *  weekly digest, and anywhere else alerts get phrased server-side. Pure. */
+export function alertLine(
+  kind: AlertKind,
+  campaignName: string,
+  n: Record<string, number>,
+  locale: "en" | "zh",
+): string {
+  const c = campaignName;
+  if (locale === "zh") {
+    switch (kind) {
+      case "SPEND_SPIKE": return `⚠️ 「${c}」昨天花了 $${n.yesterdayUsd},是平时($${n.trailingAvgUsd}/天)的 ${n.multiple} 倍。`;
+      case "ZERO_IMPRESSIONS": return `🚨 「${c}」昨天 0 曝光(平时约 ${n.trailingAvgImpressions}/天)。请检查广告审核状态和付款方式。`;
+      case "CONVERSIONS_DROPPED": return `⚠️ 「${c}」昨天有 ${n.yesterdayClicks} 次点击但 0 转化(过去一周有 ${n.trailingConversions} 个)。转化跟踪代码可能坏了。`;
+      case "CONVERSION_TRACKING_SILENT": return `🚨 本周有 ${n.clicks} 次点击但一个转化都没记录到——转化跟踪代码很可能没装好。`;
+    }
+  }
+  switch (kind) {
+    case "SPEND_SPIKE": return `⚠️ "${c}" spent $${n.yesterdayUsd} yesterday — ${n.multiple}× its usual $${n.trailingAvgUsd}/day.`;
+    case "ZERO_IMPRESSIONS": return `🚨 "${c}" served 0 impressions yesterday (usually ~${n.trailingAvgImpressions}/day). Check ad approval and billing.`;
+    case "CONVERSIONS_DROPPED": return `⚠️ "${c}" got ${n.yesterdayClicks} clicks yesterday but 0 conversions (past week: ${n.trailingConversions}). Your conversion tag may be broken.`;
+    case "CONVERSION_TRACKING_SILENT": return `🚨 ${n.clicks} clicks this week but not a single conversion recorded — your conversion tracking tag is probably not installed correctly.`;
+  }
+}
+
 /** Analyze one campaign's daily rows (ascending by date; last row = the day
  *  under inspection — callers pass "up to yesterday"). Pure. */
 export function analyzeCampaign(

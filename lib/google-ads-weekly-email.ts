@@ -30,6 +30,8 @@ export interface WeeklyDigestInput {
   campaigns: WeeklyCampaignRow[];
   /** top stored AI recommendations (no LLM calls at send time) */
   recommendations: WeeklyRecommendationRow[];
+  /** pre-phrased anomaly alert lines from the monitor (last 7 days) */
+  alertLines?: string[];
   /** absolute base URL of the app, e.g. https://app.autoclaw.ai */
   baseUrl: string;
 }
@@ -63,6 +65,7 @@ const LABELS = {
     noSpend: "No spend this week — your campaigns are paused or just warming up.",
     recs: "AI recommendations waiting for your approval",
     recsHint: "Open the campaign and tap “Approve & Apply” — AutoClaw does the rest.",
+    alerts: "Alerts this week",
     cta: "Open dashboard",
     footer: "You receive this weekly summary because you own this AutoClaw organization. Turn it off anytime from the Google Ads dashboard (Weekly report toggle).",
   },
@@ -81,6 +84,7 @@ const LABELS = {
     noSpend: "本周没有花费——广告系列处于暂停或刚起步。",
     recs: "AI 建议正在等你一键同意",
     recsHint: "打开广告系列，点“同意并应用”，剩下的 AutoClaw 帮你搞定。",
+    alerts: "本周警报",
     cta: "打开控制台",
     footer: "你收到这封周报是因为你是该 AutoClaw 组织的所有者。可随时在谷歌广告控制台用“每周战报”开关关闭。",
   },
@@ -170,6 +174,16 @@ export function composeWeeklyDigestEmail(input: WeeklyDigestInput): ComposedDige
     </tr>
     ${campaignRows}
   </table>`
+  }
+
+  ${
+    input.alertLines && input.alertLines.length > 0
+      ? `
+  <div style="margin-top:18px;padding:12px;border:1px solid #fecaca;background:#fef2f2;border-radius:10px">
+    <div style="font-size:13px;font-weight:600">🔔 ${escapeHtml(L.alerts)}</div>
+    <ul style="padding-left:16px;font-size:12px;margin:8px 0">${input.alertLines.slice(0, 6).map((l) => `<li style="margin:4px 0">${escapeHtml(l)}</li>`).join("")}</ul>
+  </div>`
+      : ""
   }
 
   ${
