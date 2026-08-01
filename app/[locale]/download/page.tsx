@@ -20,7 +20,7 @@ export const metadata = {
 // switch — same variable idea as DESKTOP_DL_BASE_URL in the desktop build
 // workflow, so the download page and the auto-update feed move together.
 const RELEASES_BASE = `${(process.env.NEXT_PUBLIC_DESKTOP_DL_BASE_URL || "https://pub-200e7b105f264829800e0695974532d2.r2.dev").replace(/\/$/, "")}/desktop`;
-const VERSION = "0.1.4";
+const VERSION = "0.1.5";
 const DESKTOP = {
   version: VERSION,
   portable: `${RELEASES_BASE}/desktop-v${VERSION}/AutoClaw-${VERSION}-Portable.exe`,
