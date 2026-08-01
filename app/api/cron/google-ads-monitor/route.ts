@@ -63,6 +63,7 @@ export async function GET(req: NextRequest) {
     )
   `;
   await sql`CREATE INDEX IF NOT EXISTS idx_google_ads_alerts_org ON google_ads_alerts(org_id, created_at DESC)`;
+  await sql`ALTER TABLE organizations ADD COLUMN IF NOT EXISTS ads_alert_emails BOOLEAN DEFAULT TRUE`;
 
   const locale = (process.env.GOOGLE_ADS_DIGEST_LOCALE || "en").startsWith("zh") ? "zh" : "en";
   const S = MAIL_STRINGS[locale];
@@ -84,7 +85,8 @@ export async function GET(req: NextRequest) {
   // Open campaigns + owner emails in one pass.
   const rows = await sql`
     SELECT c.id, c.org_id, c.platform_campaign_id, c.campaign_name, c.status,
-           o.name AS org_name, u.email AS owner_email
+           o.name AS org_name, u.email AS owner_email,
+           COALESCE(o.ads_alert_emails, TRUE) AS alert_emails_on
     FROM campaigns c
     JOIN organizations o ON o.id = c.org_id
     JOIN users u ON u.id = o.created_by
@@ -104,7 +106,7 @@ export async function GET(req: NextRequest) {
   // One GAQL round-trip for all campaigns, then pure analysis per campaign.
   const daily = await fetchDailyMetrics(rows.map((r) => String(r.platform_campaign_id)));
 
-  type OrgBucket = { orgName: string; email: string; lines: string[] };
+  type OrgBucket = { orgName: string; email: string; emailsOn: boolean; lines: string[] };
   const byOrg = new Map<number, OrgBucket>();
   let stored = 0;
 
@@ -133,7 +135,7 @@ export async function GET(req: NextRequest) {
         VALUES (${orgId}, ${Number(r.id)}, ${a.kind}, ${a.severity}, ${JSON.stringify(a.numbers)}, ${Boolean(brevoKey)})
       `;
       stored += 1;
-      const bucket = byOrg.get(orgId) ?? { orgName: String(r.org_name || ""), email: String(r.owner_email || ""), lines: [] };
+      const bucket = byOrg.get(orgId) ?? { orgName: String(r.org_name || ""), email: String(r.owner_email || ""), emailsOn: Boolean(r.alert_emails_on), lines: [] };
       bucket.lines.push(alertLine(a.kind, String(r.campaign_name || r.platform_campaign_id), a.numbers, locale as "en" | "zh"));
       byOrg.set(orgId, bucket);
     }
@@ -160,7 +162,7 @@ export async function GET(req: NextRequest) {
       VALUES (${orgId}, 0, ${acct.kind}, ${acct.severity}, ${JSON.stringify(acct.numbers)}, ${Boolean(brevoKey)})
     `;
     stored += 1;
-    const bucket = byOrg.get(orgId) ?? { orgName: String(sample.org_name || ""), email: String(sample.owner_email || ""), lines: [] };
+    const bucket = byOrg.get(orgId) ?? { orgName: String(sample.org_name || ""), email: String(sample.owner_email || ""), emailsOn: Boolean(sample.alert_emails_on), lines: [] };
     bucket.lines.push(alertLine(acct.kind, "", acct.numbers, locale as "en" | "zh"));
     byOrg.set(orgId, bucket);
   }
@@ -170,7 +172,7 @@ export async function GET(req: NextRequest) {
   const errors: Array<{ orgId: number; error: string }> = [];
   if (brevoKey) {
     for (const [orgId, bucket] of byOrg) {
-      if (!bucket.email || bucket.lines.length === 0) continue;
+      if (!bucket.email || bucket.lines.length === 0 || !bucket.emailsOn) continue;
       try {
         const html = `<p>${S.intro}</p><ul>${bucket.lines.map((l) => `<li>${l}</li>`).join("")}</ul><p><a href="${baseUrl}/${locale}/dashboard/google-ads">${S.cta}</a></p>`;
         const res = await fetch("https://api.brevo.com/v3/smtp/email", {

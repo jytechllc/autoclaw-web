@@ -1550,6 +1550,8 @@ const zh: typeof en = {
     negKwRemove: "移除",
     negKwCreated: "个否定关键词已添加",
     negKwRemoved: "否定关键词已移除",
+    alertMail: "警报邮件",
+    alertMailTooltip: "每日监控发现异常时,邮件通知组织所有者",
     gaAlertsTitle: "谷歌广告提醒",
     gaAlertsDismiss: "知道了",
     gaAlertSpendSpike: "「{name}」昨天花了 \${y},是平时(\${avg}/天)的 {x} 倍。",

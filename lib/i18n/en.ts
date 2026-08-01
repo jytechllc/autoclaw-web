@@ -1571,6 +1571,8 @@ const en = {
     negKwRemove: "Remove",
     negKwCreated: "negative keywords added",
     negKwRemoved: "Negative keyword removed",
+    alertMail: "Alert emails",
+    alertMailTooltip: "Email the org owner when the daily monitor spots an anomaly",
     gaAlertsTitle: "Google Ads alert",
     gaAlertsDismiss: "Dismiss",
     gaAlertSpendSpike: "\"{name}\" spent \${y} yesterday — {x}x its usual \${avg}/day.",

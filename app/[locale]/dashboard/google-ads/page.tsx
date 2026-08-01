@@ -169,6 +169,40 @@ export default function GoogleAdsPage() {
   const [digestEnabled, setDigestEnabled] = useState<boolean | null>(null);
   const [digestSaving, setDigestSaving] = useState(false);
 
+  // Anomaly alert emails preference (org-level, kind="alerts")
+  const [alertMailEnabled, setAlertMailEnabled] = useState<boolean | null>(null);
+  const [alertMailSaving, setAlertMailSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/google-ads/digest-preference?kind=alerts${activeOrg ? `&orgId=${activeOrg.id}` : ""}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancelled && d?.success) setAlertMailEnabled(Boolean(d.enabled));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [activeOrg?.id]);
+
+  async function toggleAlertMail() {
+    if (alertMailEnabled === null || alertMailSaving) return;
+    setAlertMailSaving(true);
+    try {
+      const res = await fetch("/api/google-ads/digest-preference", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "alerts", enabled: !alertMailEnabled, orgId: activeOrg?.id }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) setAlertMailEnabled(Boolean(data.enabled));
+    } catch {
+      /* toggle is best-effort */
+    }
+    setAlertMailSaving(false);
+  }
+
   useEffect(() => {
     let cancelled = false;
     fetch(`/api/google-ads/digest-preference${activeOrg ? `?orgId=${activeOrg.id}` : ""}`)
@@ -517,6 +551,16 @@ export default function GoogleAdsPage() {
                     title={t.digestTooltip || "Weekly Google Ads report email to the org owner"}
                   >
                     {digestEnabled ? "📧" : "🔕"} {t.digestWeekly || "Weekly report"}: {digestEnabled ? (t.digestOn || "On") : (t.digestOff || "Off")}
+                  </button>
+                )}
+                {alertMailEnabled !== null && (
+                  <button
+                    onClick={toggleAlertMail}
+                    disabled={alertMailSaving}
+                    className="border border-gray-300 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition cursor-pointer disabled:opacity-50"
+                    title={t.alertMailTooltip || "Email the org owner when the daily monitor spots an anomaly"}
+                  >
+                    {alertMailEnabled ? "🔔" : "🔕"} {t.alertMail || "Alert emails"}: {alertMailEnabled ? (t.digestOn || "On") : (t.digestOff || "Off")}
                   </button>
                 )}
                 <Link

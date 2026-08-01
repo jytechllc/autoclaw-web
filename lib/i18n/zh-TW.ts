@@ -1546,6 +1546,8 @@ const zhTW: typeof en = {
     negKwRemove: "移除",
     negKwCreated: "個排除關鍵字已新增",
     negKwRemoved: "排除關鍵字已移除",
+    alertMail: "警報郵件",
+    alertMailTooltip: "每日監控發現異常時,郵件通知組織所有者",
     gaAlertsTitle: "谷歌廣告提醒",
     gaAlertsDismiss: "知道了",
     gaAlertSpendSpike: "「{name}」昨天花了 \${y},是平時(\${avg}/天)的 {x} 倍。",

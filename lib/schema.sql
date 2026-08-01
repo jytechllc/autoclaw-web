@@ -703,6 +703,7 @@ CREATE INDEX IF NOT EXISTS idx_assets_field_type ON assets(asset_group_id, field
 -- Weekly Google Ads digest email opt-out (default on). Toggled from the
 -- Google Ads dashboard; checked by /api/cron/google-ads-weekly-email.
 ALTER TABLE organizations ADD COLUMN IF NOT EXISTS weekly_ads_digest BOOLEAN DEFAULT TRUE;
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS ads_alert_emails BOOLEAN DEFAULT TRUE;
 
 -- Latest AI optimization digest per campaign (cron-generated nightly or
 -- refreshed manually from the detail page). Latest-only by design — history
