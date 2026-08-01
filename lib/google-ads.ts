@@ -43,7 +43,7 @@ export async function getAccessToken(): Promise<string> {
   return data.access_token;
 }
 
-function adsHeaders(accessToken: string): Record<string, string> {
+export function adsHeaders(accessToken: string): Record<string, string> {
   const developerToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
   if (!developerToken) throw new Error("GOOGLE_ADS_DEVELOPER_TOKEN not configured");
 
@@ -270,6 +270,50 @@ export const COUNTRIES: Array<{ id: string; code: string; name: string }> = [
   { id: "2484", code: "MX", name: "Mexico" },
   { id: "2076", code: "BR", name: "Brazil" },
   { id: "2784", code: "AE", name: "United Arab Emirates" },
+  // --- Expanded list (audit D-4). Google's country criterion id is
+  // 2000 + ISO 3166-1 numeric code — verified against the 20 above.
+  // Russia intentionally omitted: Google paused ads there in 2022.
+  // Europe
+  { id: "2372", code: "IE", name: "Ireland" },
+  { id: "2056", code: "BE", name: "Belgium" },
+  { id: "2756", code: "CH", name: "Switzerland" },
+  { id: "2040", code: "AT", name: "Austria" },
+  { id: "2752", code: "SE", name: "Sweden" },
+  { id: "2578", code: "NO", name: "Norway" },
+  { id: "2208", code: "DK", name: "Denmark" },
+  { id: "2246", code: "FI", name: "Finland" },
+  { id: "2620", code: "PT", name: "Portugal" },
+  { id: "2616", code: "PL", name: "Poland" },
+  { id: "2203", code: "CZ", name: "Czechia" },
+  { id: "2300", code: "GR", name: "Greece" },
+  { id: "2348", code: "HU", name: "Hungary" },
+  { id: "2642", code: "RO", name: "Romania" },
+  { id: "2804", code: "UA", name: "Ukraine" },
+  { id: "2792", code: "TR", name: "Türkiye" },
+  // Americas
+  { id: "2032", code: "AR", name: "Argentina" },
+  { id: "2152", code: "CL", name: "Chile" },
+  { id: "2170", code: "CO", name: "Colombia" },
+  { id: "2604", code: "PE", name: "Peru" },
+  // Asia-Pacific
+  { id: "2764", code: "TH", name: "Thailand" },
+  { id: "2704", code: "VN", name: "Vietnam" },
+  { id: "2608", code: "PH", name: "Philippines" },
+  { id: "2458", code: "MY", name: "Malaysia" },
+  { id: "2360", code: "ID", name: "Indonesia" },
+  { id: "2586", code: "PK", name: "Pakistan" },
+  { id: "2050", code: "BD", name: "Bangladesh" },
+  { id: "2144", code: "LK", name: "Sri Lanka" },
+  // Middle East & Africa
+  { id: "2682", code: "SA", name: "Saudi Arabia" },
+  { id: "2376", code: "IL", name: "Israel" },
+  { id: "2818", code: "EG", name: "Egypt" },
+  { id: "2634", code: "QA", name: "Qatar" },
+  { id: "2414", code: "KW", name: "Kuwait" },
+  { id: "2710", code: "ZA", name: "South Africa" },
+  { id: "2566", code: "NG", name: "Nigeria" },
+  { id: "2404", code: "KE", name: "Kenya" },
+  { id: "2504", code: "MA", name: "Morocco" },
 ];
 
 export interface CreateCampaignInput {
