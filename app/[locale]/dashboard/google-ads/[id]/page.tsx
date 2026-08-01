@@ -525,6 +525,41 @@ export default function CampaignDetailPage() {
   // Keyword input form (per ad group, Search only)
   const [kwFormFor, setKwFormFor] = useState<string | null>(null);
   const [kwText, setKwText] = useState("");
+
+  // Real Keyword Planner numbers for the keywords in the box (PR 19).
+  type KwIdea = { text: string; avgMonthlySearches: number; competition: string; lowTopOfPageBidUsd: number; highTopOfPageBidUsd: number };
+  const [kwIdeas, setKwIdeas] = useState<KwIdea[] | null>(null);
+  const [kwIdeasLoading, setKwIdeasLoading] = useState(false);
+
+  function kwVolumeLabel(n: number): string {
+    if (!Number.isFinite(n) || n <= 0) return "0";
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
+    if (n >= 1_000) return `${(n / 1_000).toFixed(n % 1_000 === 0 ? 0 : 1)}K`;
+    return String(n);
+  }
+
+  // Strip the optional [exact]/[phrase]/[broad] prefix a line may carry.
+  function kwLineToText(line: string): string {
+    return line.replace(/^\[(exact|phrase|broad)\]\s*/i, "").trim();
+  }
+
+  async function checkKeywordNumbers(texts?: string[]) {
+    const keywords = (texts ?? kwText.split("\n").map(kwLineToText)).filter(Boolean).slice(0, 20);
+    if (keywords.length === 0) return;
+    setKwIdeasLoading(true);
+    try {
+      const res = await fetch("/api/google-ads/keyword-ideas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keywords, locale }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) setKwIdeas(Array.isArray(data.ideas) ? data.ideas : []);
+    } catch {
+      /* numbers are a bonus — never block the keyword flow */
+    }
+    setKwIdeasLoading(false);
+  }
   const [kwMatchType, setKwMatchType] = useState<"BROAD" | "PHRASE" | "EXACT">("BROAD");
   const [kwSubmitting, setKwSubmitting] = useState(false);
   const [kwError, setKwError] = useState("");
@@ -1605,6 +1640,8 @@ export default function CampaignDetailPage() {
         if (generatedKeywords.length > 0 && adFormFor) {
           setKwFormFor(adFormFor);
           setKwText(generatedKeywords.map((k) => `[${(k.matchType || "BROAD").toLowerCase()}] ${k.text}`).join("\n"));
+          // Fire-and-forget: attach Google's real volume/CPC to the AI keywords.
+          void checkKeywordNumbers(generatedKeywords.map((k) => k.text));
         }
       } else if (channel === "VIDEO") {
         // Video short headlines are ≤15 chars; clip just in case the AI overshot
@@ -2743,9 +2780,34 @@ export default function CampaignDetailPage() {
                             placeholder={"vietnamese pho san francisco\n[phrase] cheap pho mission district\n[exact] $2 vietnamese pho"}
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
                           />
-                          <div className="text-xs text-gray-400 mt-0.5">
-                            {kwText.split("\n").filter((s) => s.trim()).length} {t.lines || "lines"}
+                          <div className="flex items-center justify-between mt-0.5">
+                            <span className="text-xs text-gray-400">
+                              {kwText.split("\n").filter((s) => s.trim()).length} {t.lines || "lines"}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => checkKeywordNumbers()}
+                              disabled={kwIdeasLoading}
+                              className="text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50 cursor-pointer"
+                            >
+                              {kwIdeasLoading ? (t.kwNumbersLoading || "Checking Google data…") : `📊 ${t.kwNumbersCheck || "Check real numbers"}`}
+                            </button>
                           </div>
+                          {kwIdeas && kwIdeas.length > 0 && (
+                            <div className="mt-2 border border-blue-100 bg-blue-50/50 rounded-lg p-2 space-y-0.5">
+                              <div className="text-[11px] text-gray-500">{t.kwNumbersHint || "Google's real numbers: monthly searches · competition · top-of-page bid range"}</div>
+                              {kwIdeas.slice(0, 20).map((i) => (
+                                <div key={i.text} className="text-xs text-gray-700 flex flex-wrap gap-x-2">
+                                  <span className="font-medium">{i.text}</span>
+                                  <span className="text-blue-700">~{kwVolumeLabel(i.avgMonthlySearches)}/{t.kwPerMonth || "mo"}</span>
+                                  <span className="text-gray-500">{i.competition}</span>
+                                  {i.highTopOfPageBidUsd > 0 && (
+                                    <span className="text-emerald-700">${i.lowTopOfPageBidUsd.toFixed(2)}–${i.highTopOfPageBidUsd.toFixed(2)}</span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                         <div>
                           <label className="block text-xs text-gray-500 mb-1">{t.kwDefaultMatchType || "Default match type"}</label>
