@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth0 } from "@/lib/auth0";
 import { getDb } from "@/lib/db";
+import { chatWithAI } from "@/lib/ai";
 
 export const dynamic = "force-dynamic";
+
+// Untouched default titles (per locale) — auto_title only ever replaces these,
+// never a name the user typed themselves.
+const DEFAULT_TITLES = new Set(["New Chat", "新对话", "新對話", "새 채팅"]);
 
 // GET: list conversations
 export async function GET(req: NextRequest) {
@@ -84,6 +89,45 @@ export async function POST(req: NextRequest) {
           WHERE id = ${conversation_id} AND user_id = ${userId}
         `;
         return NextResponse.json({ updated: true });
+      }
+
+      case "auto_title": {
+        // Generate a short AI title from the first user message. Falls back to
+        // plain truncation (the previous client-side behavior) if the AI call fails.
+        const { conversation_id, message } = body;
+        if (!conversation_id || !message?.trim()) {
+          return NextResponse.json({ error: "conversation_id and message required" }, { status: 400 });
+        }
+        const rows = await sql`SELECT title FROM conversations WHERE id = ${conversation_id} AND user_id = ${userId}`;
+        if (rows.length === 0) {
+          return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
+        }
+        const currentTitle = ((rows[0].title as string) || "").trim();
+        if (currentTitle && !DEFAULT_TITLES.has(currentTitle)) {
+          return NextResponse.json({ updated: false, title: currentTitle });
+        }
+
+        const firstMessage = (message as string).trim();
+        let title = firstMessage.length > 50 ? firstMessage.slice(0, 50).trimEnd() + "…" : firstMessage;
+        try {
+          const r = await chatWithAI(
+            [
+              { role: "system", content: "Generate a very short title (max 6 words) for a conversation that starts with the user message. Use the same language as the message. Reply with the title only — no quotes, no trailing punctuation." },
+              { role: "user", content: firstMessage.slice(0, 500) },
+            ],
+            24,
+          );
+          const generated = r.content.trim().replace(/^["'“”«»]+|["'“”«»]+$/g, "").split("\n")[0].trim().slice(0, 60);
+          if (generated) title = generated;
+        } catch {
+          /* AI unavailable — keep the truncation fallback */
+        }
+
+        await sql`
+          UPDATE conversations SET title = ${title}, updated_at = NOW()
+          WHERE id = ${conversation_id} AND user_id = ${userId}
+        `;
+        return NextResponse.json({ updated: true, title });
       }
 
       case "delete": {
