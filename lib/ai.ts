@@ -1,4 +1,4 @@
-import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
+import { BedrockRuntimeClient, InvokeModelCommand, InvokeModelWithResponseStreamCommand } from "@aws-sdk/client-bedrock-runtime";
 
 const CEREBRAS_API_KEY = process.env.CEREBRAS_API_KEY;
 // Known-good model on the platform Cerebras key. qwen-3-235b/reasoning models 404 or
@@ -15,6 +15,9 @@ const XPILOT_BASE_URL = process.env.XPILOT_BASE_URL || "https://xpilot.jytech.us
 const AWS_BEDROCK_REGION = process.env.AWS_BEDROCK_REGION || "us-east-2";
 // Per-provider timeout so a hung provider (e.g. Bedrock throttling) fails fast to the next one.
 const PROVIDER_TIMEOUT_MS = Number(process.env.AI_PROVIDER_TIMEOUT_MS) || 30000;
+// Streamed calls generate up to ~2000 tokens, so the whole-stream budget is larger than
+// the blocking-call timeout. First-byte latency is still bounded by the provider itself.
+const STREAM_TIMEOUT_MS = Number(process.env.AI_STREAM_TIMEOUT_MS) || PROVIDER_TIMEOUT_MS * 4;
 
 interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -767,4 +770,147 @@ export async function chatWithTools(
     usage: r.usage,
     fallbackWarning: r.fallbackWarning,
   };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Streaming tool-calling turn (module B, streamed variant)
+//
+// streamChatWithTools() is the streamed twin of chatWithTools(): text deltas
+// are yielded as they arrive so the chat route can forward them to the client
+// as SSE tokens, and the final structured ToolTurnResult (including any
+// tool_use requests and token usage) is yielded last. If Bedrock streaming is
+// unavailable or fails before producing any output, it degrades to a single
+// blocking chatWithTools() call — callers always get the same event contract.
+// ──────────────────────────────────────────────────────────────────────────
+
+export type ToolTurnStreamEvent =
+  | { type: "delta"; text: string }
+  | { type: "result"; result: ToolTurnResult };
+
+async function* streamBedrockWithTools(
+  system: string,
+  messages: ToolTurnMessage[],
+  tools: ToolDef[],
+  maxTokens: number,
+  modelId: string,
+): AsyncGenerator<ToolTurnStreamEvent> {
+  const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+  if (!accessKeyId || !secretAccessKey) throw new Error("AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY not set");
+
+  const client = new BedrockRuntimeClient({ region: AWS_BEDROCK_REGION, credentials: { accessKeyId, secretAccessKey } });
+  const body = {
+    anthropic_version: "bedrock-2023-05-31",
+    max_tokens: maxTokens,
+    system,
+    tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
+    messages: messages.map((m) => ({
+      role: m.role,
+      content: typeof m.content === "string" ? [{ type: "text", text: m.content }] : m.content,
+    })),
+  };
+  const res = await client.send(
+    new InvokeModelWithResponseStreamCommand({ modelId, contentType: "application/json", accept: "application/json", body: JSON.stringify(body) }),
+    { abortSignal: AbortSignal.timeout(STREAM_TIMEOUT_MS) },
+  );
+  if (!res.body) throw new Error("Bedrock stream returned no body");
+
+  let text = "";
+  const toolUses: ToolUseRequest[] = [];
+  let stopReason = "end_turn";
+  let inputTokens = 0;
+  let outputTokens = 0;
+  // Per-block accumulators: tool_use inputs stream as partial JSON strings.
+  const blocks: Record<number, { type: string; id?: string; name?: string; json: string }> = {};
+  const decoder = new TextDecoder();
+
+  for await (const chunk of res.body) {
+    if (!chunk.chunk?.bytes) continue;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const e: any = JSON.parse(decoder.decode(chunk.chunk.bytes));
+    switch (e.type) {
+      case "message_start":
+        inputTokens = e.message?.usage?.input_tokens || 0;
+        break;
+      case "content_block_start":
+        blocks[e.index] = { type: e.content_block?.type, id: e.content_block?.id, name: e.content_block?.name, json: "" };
+        break;
+      case "content_block_delta":
+        if (e.delta?.type === "text_delta" && e.delta.text) {
+          text += e.delta.text;
+          yield { type: "delta", text: e.delta.text };
+        } else if (e.delta?.type === "input_json_delta") {
+          const b = blocks[e.index];
+          if (b) b.json += e.delta.partial_json || "";
+        }
+        break;
+      case "content_block_stop": {
+        const b = blocks[e.index];
+        if (b?.type === "tool_use" && b.id && b.name) {
+          let input: Record<string, unknown> = {};
+          try {
+            input = b.json ? (JSON.parse(b.json) as Record<string, unknown>) : {};
+          } catch {
+            /* malformed partial JSON — execute with empty input rather than crash the turn */
+          }
+          toolUses.push({ id: b.id, name: b.name, input });
+        }
+        break;
+      }
+      case "message_delta":
+        if (e.delta?.stop_reason) stopReason = e.delta.stop_reason;
+        if (e.usage?.output_tokens) outputTokens = e.usage.output_tokens;
+        break;
+    }
+  }
+
+  yield {
+    type: "result",
+    result: {
+      text: text.trim(),
+      toolUses,
+      stopReason,
+      provider: "bedrock",
+      model: modelId,
+      usage: { prompt_tokens: inputTokens, completion_tokens: outputTokens, total_tokens: inputTokens + outputTokens },
+    },
+  };
+}
+
+/**
+ * Streamed Bedrock-first tool-calling turn. Yields text deltas as they are
+ * generated, then a final `result` event. Falls back to a blocking
+ * chatWithTools() call (emitted as one delta + result) only when the stream
+ * failed before any output reached the caller — never after, to avoid
+ * duplicating text the client already rendered.
+ */
+export async function* streamChatWithTools(
+  system: string,
+  messages: ToolTurnMessage[],
+  tools: ToolDef[],
+  maxTokens = 1024,
+  byok: ByokKeys = {},
+  requestedModel?: string,
+): AsyncGenerator<ToolTurnStreamEvent> {
+  const bedrockModelId = MODEL_API_MAP["bedrock/claude-sonnet"];
+
+  if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
+    let yieldedAny = false;
+    const inner = streamBedrockWithTools(system, messages, tools, maxTokens, bedrockModelId);
+    try {
+      while (true) {
+        const { value, done } = await inner.next();
+        if (done) return;
+        yieldedAny = true;
+        yield value;
+      }
+    } catch (err) {
+      console.error("[streamChatWithTools] Bedrock stream failed, falling back to blocking call:", err instanceof Error ? err.message : err);
+      if (yieldedAny) throw err; // partial text already delivered — surface the error instead of double-emitting
+    }
+  }
+
+  const r = await chatWithTools(system, messages, tools, maxTokens, byok, requestedModel);
+  if (r.text) yield { type: "delta", text: r.text };
+  yield { type: "result", result: r };
 }

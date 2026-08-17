@@ -3,7 +3,7 @@ export const maxDuration = 300; // Vercel Pro allows up to 300s — needed for A
 import { NextRequest, NextResponse } from "next/server";
 import { auth0 } from "@/lib/auth0";
 import { getDb } from "@/lib/db";
-import { chatWithTools, streamFastChat, ByokKeys, type ToolTurnMessage, type ContentBlock } from "@/lib/ai";
+import { chatWithTools, streamChatWithTools, streamFastChat, ByokKeys, type ToolTurnMessage, type ToolTurnResult, type ContentBlock } from "@/lib/ai";
 import { TOOL_SCHEMAS } from "./tool-schemas";
 import { checkInput, checkToolCall, checkOutput, SAFETY_SYSTEM_PROMPT } from "@/lib/guardrails";
 import { decrypt, encrypt } from "@/lib/crypto";
@@ -245,7 +245,7 @@ export async function POST(req: NextRequest) {
           let usedFastModel = "";
           let usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number } | undefined;
           try {
-            for await (const chunk of streamFastChat(fastMessages, 800, byok)) {
+            for await (const chunk of streamFastChat(fastMessages, 2000, byok)) {
               if (chunk.provider) usedProvider = chunk.provider;
               if (chunk.model) usedFastModel = chunk.model;
               if (chunk.delta) {
@@ -770,20 +770,11 @@ export async function POST(req: NextRequest) {
           .filter((m) => m.role !== "system")
           .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
 
-        const pass1Start = Date.now();
-        const pass1 = await chatWithTools(toolSystemPrompt, turnMessages, TOOL_SCHEMAS, 800, byok, selectedModel);
-        usedModel = `${pass1.provider}/${pass1.model}`;
-        const pass1Ms = Date.now() - pass1Start;
-
-        // Collect token usage to batch-insert at the end (avoids per-step subrequests)
-        if (pass1.usage) {
-          pendingUsage.push({ provider: pass1.provider, model: pass1.model, prompt: pass1.usage.prompt_tokens, completion: pass1.usage.completion_tokens, total: pass1.usage.total_tokens });
-        }
-
-        // === ORCHESTRATOR LOOP: AI decides tools via native function calling, executes, reviews, continues ===
-        const hasTools = pass1.toolUses.length > 0;
-
-        if (hasTools) {
+        // === STREAMED TURN: SSE starts immediately; pass 1 streams tokens live ===
+        // If pass 1 requests tools we run the orchestrator loop (progress via step
+        // events, full reply at done); otherwise the streamed text IS the final
+        // answer — same event contract the client already handles for Fast Mode.
+        {
           const tLabels = TOOL_LABELS[locale] || TOOL_LABELS.en;
           const encoder = new TextEncoder();
           const stream = new ReadableStream({
@@ -825,8 +816,6 @@ export async function POST(req: NextRequest) {
                 debugTrace.push({ ts: Date.now() - traceStart, event, detail });
               };
               addTrace("start", `user=${email} plan=${userPlan} model=${selectedModel || "auto"}`);
-              addTrace("pass1_ai", `model=${pass1.model} provider=${pass1.provider} tokens=${pass1.usage?.total_tokens || 0} ms=${pass1Ms} has_tool=${hasTools}`);
-              if (pass1.fallbackWarning) sendWarning("⚠️ Native tools unavailable, using text-protocol fallback");
 
               const sendDone = (finalReply: string, model?: string) => {
                 addTrace("done", `total=${Date.now() - traceStart}ms`);
@@ -855,9 +844,60 @@ export async function POST(req: NextRequest) {
                 byok, selectedModel: selectedModel || "", apifyToken, brevoApiKey, sendgridApiKey, enrichKeys, sendStep,
               };
 
+              // ── Pass 1: streamed — text deltas go straight to the client ──
+              let pass1: ToolTurnResult | null = null;
+              const pass1Start = Date.now();
+              try {
+                for await (const evt of streamChatWithTools(toolSystemPrompt, turnMessages, TOOL_SCHEMAS, 2000, byok, selectedModel)) {
+                  if (evt.type === "delta") {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "token", delta: evt.text })}\n\n`));
+                  } else {
+                    pass1 = evt.result;
+                  }
+                }
+              } catch (aiErr) {
+                const errDetail = aiErr instanceof Error ? aiErr.message : String(aiErr);
+                console.error("[AI chat error]", errDetail);
+                const errReply = errDetail.includes("All AI providers failed")
+                  ? `**AI service temporarily unavailable.**\n\n${errDetail.split("\n").map((l) => `- ${l}`).join("\n")}\n\nThis is usually caused by rate limits (429) or invalid API keys. Try again in a moment, or check your API key configuration in Settings.`
+                  : `**Error:** ${errDetail.slice(0, 500)}\n\nPlease try again. If this persists, check your API key configuration in Settings.`;
+                try {
+                  await sql`INSERT INTO chat_messages (user_id, project_id, conversation_id, role, content, agent_type) VALUES (${userId}, ${project_id || null}, ${convId}, 'assistant', ${errReply}, 'autoclaw')`;
+                } catch { /* best-effort save */ }
+                sendDone(errReply, undefined);
+                controller.close();
+                return;
+              }
+              if (!pass1) {
+                sendDone("**Error:** the AI returned an empty response. Please try again.", undefined);
+                controller.close();
+                return;
+              }
+              usedModel = `${pass1.provider}/${pass1.model}`;
+              addTrace("pass1_ai", `model=${pass1.model} provider=${pass1.provider} tokens=${pass1.usage?.total_tokens || 0} ms=${Date.now() - pass1Start} has_tool=${pass1.toolUses.length > 0}`);
+              if (pass1.usage) {
+                pendingUsage.push({ provider: pass1.provider, model: pass1.model, prompt: pass1.usage.prompt_tokens, completion: pass1.usage.completion_tokens, total: pass1.usage.total_tokens });
+              }
+              if (pass1.fallbackWarning) sendWarning("⚠️ Native tools unavailable, using text-protocol fallback");
+
+              if (pass1.toolUses.length === 0) {
+                // No tools requested — the streamed text is the final reply.
+                reply = checkOutput(pass1.text).text || "I couldn't generate a response. Please try again.";
+                const txnQueries = [
+                  sql`INSERT INTO chat_messages (user_id, project_id, conversation_id, role, content, agent_type, model) VALUES (${userId}, ${project_id || null}, ${convId}, 'assistant', ${reply}, 'autoclaw', ${usedModel || null})`,
+                ];
+                for (const u of pendingUsage) {
+                  txnQueries.push(sql`INSERT INTO token_usage (project_id, user_id, provider, model, prompt_tokens, completion_tokens, total_tokens, source) VALUES (${project_id || null}, ${userId}, ${u.provider}, ${u.model}, ${u.prompt}, ${u.completion}, ${u.total}, 'chat')`);
+                }
+                await sql.transaction(txnQueries);
+                sendDone(reply, usedModel);
+                controller.close();
+                return;
+              }
+
               // Structured orchestrator: native tool_use blocks instead of text parsing
               const MAX_STEPS = 8;
-              let current = pass1;
+              let current: ToolTurnResult = pass1;
               let finalReply = "";
               const toolResultParts: string[] = []; // collect all tool outputs for the final reply
               const executedKeys = new Set<string>(); // de-dupe identical tool calls to prevent loops
@@ -925,7 +965,7 @@ export async function POST(req: NextRequest) {
                   // Ask the AI for the next step
                   sendStep("orchestrating");
                   const aiStart = Date.now();
-                  current = await chatWithTools(toolSystemPrompt, turnMessages, TOOL_SCHEMAS, 800, byok, selectedModel);
+                  current = await chatWithTools(toolSystemPrompt, turnMessages, TOOL_SCHEMAS, 2000, byok, selectedModel);
                   addTrace("ai_call", `model=${current.model} provider=${current.provider} tokens=${current.usage?.total_tokens || 0} ms=${Date.now() - aiStart}`);
 
                   if (current.fallbackWarning) {
@@ -969,9 +1009,6 @@ export async function POST(req: NextRequest) {
           return new Response(stream, {
             headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
           });
-        } else {
-          // No tool call — use the AI response directly
-          reply = checkOutput(pass1.text).text;
         }
       } catch (aiErr) {
         const errDetail = aiErr instanceof Error ? aiErr.message : String(aiErr);
