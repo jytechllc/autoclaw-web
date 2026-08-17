@@ -833,6 +833,8 @@ const en = {
     chatShare: "Share",
     chatShareCopied: "Copied to clipboard!",
     chatSaveKb: "Save to KB",
+    chatStop: "Stop",
+    chatStopped: "Generation stopped.",
     chatSavingKb: "Saving...",
     chatSavedKb: "Saved!",
     chatConversations: "Conversations",
