@@ -802,6 +802,8 @@ const ko = {
     chatShare: "공유",
     chatShareCopied: "클립보드에 복사됨!",
     chatSaveKb: "KB에 저장",
+    chatStop: "중지",
+    chatStopped: "생성이 중지되었습니다.",
     chatSavingKb: "저장 중...",
     chatSavedKb: "저장됨!",
     chatConversations: "대화",

@@ -88,6 +88,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
   const [secretWarning, setSecretWarning] = useState<string | null>(null);
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState("auto");
@@ -276,21 +277,26 @@ export default function ChatPage() {
   }
 
   async function autoNameConversation(convId: number, firstMessage: string) {
-    // Truncate to a reasonable title length
-    const title = firstMessage.length > 50
-      ? firstMessage.slice(0, 50).trimEnd() + "…"
-      : firstMessage;
+    // Server generates a short AI title (same language as the message); it
+    // falls back to truncation server-side if the AI call fails, and never
+    // overwrites a title the user set manually.
     try {
       await fetch("/api/conversations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "rename", conversation_id: convId, title }),
+        body: JSON.stringify({ action: "auto_title", conversation_id: convId, message: firstMessage }),
       });
     } catch { /* ignore */ }
   }
 
+  function handleStopGeneration() {
+    abortRef.current?.abort();
+  }
+
   async function doSendMessage(userMsg: string) {
     const isFirstMessage = messages.length === 0 && activeConvId !== null;
+    const abortCtrl = new AbortController();
+    abortRef.current = abortCtrl;
     setSending(true);
     setToolStatus("");
     setToolSteps([]);
@@ -301,6 +307,7 @@ export default function ChatPage() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: abortCtrl.signal,
         body: JSON.stringify({
           message: userMsg,
           model: selectedModel !== "auto" ? selectedModel : undefined,
@@ -406,9 +413,16 @@ export default function ChatPage() {
           setMessages((prev) => [...prev, { id: Date.now() + 1, role: "assistant", content: data.reply, agent_type: "autoclaw", model: data.model, created_at: new Date().toISOString(), usage: data.usage }]);
         }
       }
-    } catch {
-      setMessages((prev) => [...prev, { id: Date.now() + 1, role: "assistant", content: td.errorMsg, created_at: new Date().toISOString() }]);
+    } catch (err) {
+      if ((err as Error)?.name === "AbortError") {
+        // User pressed Stop — keep whatever partial text already streamed in.
+        setToolStatus("");
+        setToolSteps([]);
+      } else {
+        setMessages((prev) => [...prev, { id: Date.now() + 1, role: "assistant", content: td.errorMsg, created_at: new Date().toISOString() }]);
+      }
     } finally {
+      abortRef.current = null;
       setSending(false);
       setToolStatus("");
       refreshQuota();
@@ -893,9 +907,20 @@ export default function ChatPage() {
               className="flex-1 border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent resize-none max-h-32 overflow-y-auto"
               disabled={sending}
             />
-            <button type="submit" disabled={sending || !input.trim()} className="bg-red-800 hover:bg-red-900 disabled:bg-gray-300 text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer shrink-0">
-              {tc.send}
-            </button>
+            {sending ? (
+              <button
+                type="button"
+                onClick={handleStopGeneration}
+                className="bg-gray-700 hover:bg-gray-900 text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer shrink-0 flex items-center gap-2"
+              >
+                <span className="inline-block w-2.5 h-2.5 bg-white rounded-[2px]" aria-hidden />
+                {td.chatStop || "Stop"}
+              </button>
+            ) : (
+              <button type="submit" disabled={!input.trim()} className="bg-red-800 hover:bg-red-900 disabled:bg-gray-300 text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer shrink-0">
+                {tc.send}
+              </button>
+            )}
           </form>
         </div>
         </div>{/* close flex sidebar+chat wrapper */}

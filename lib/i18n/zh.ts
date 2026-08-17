@@ -819,6 +819,8 @@ const zh: typeof en = {
     chatShare: "分享",
     chatShareCopied: "已复制到剪贴板！",
     chatSaveKb: "存入知识库",
+    chatStop: "停止",
+    chatStopped: "已停止生成。",
     chatSavingKb: "保存中...",
     chatSavedKb: "已保存！",
     chatConversations: "对话列表",
